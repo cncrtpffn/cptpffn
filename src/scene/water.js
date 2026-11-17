@@ -7,7 +7,8 @@ import { SKY_UNIFORMS_GLSL, SKY_COLOR_GLSL } from './sky.js';
 // Гладкое затенение по аналитическим нормалям Герстнера; цвет по высоте с пятнами оттенка,
 // рваная пена на гребнях и полосы по ветру, кильватерный след, отражение неба, блики солнца.
 // sky — из createSky: его униформы палитры подключаются по ссылке.
-export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
+// planar — из createPlanarReflection: текстура и матрица отражения объектов.
+export function createWater(waves, { size = 440, segments = 176, sky, planar } = {}) {
   const geo = new THREE.PlaneGeometry(size, size, segments, segments);
   geo.rotateX(-Math.PI / 2);
   const cell = size / segments;
@@ -36,9 +37,19 @@ export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
     uRipple: { value: 0.5 },
     uReflect: { value: 1 },
     uFresnelPow: { value: 19 },
+    uReflTex: { value: planar.texture },
+    uReflMatrix: { value: planar.matrix },
+    uPlanar: { value: 0 },
+    uReflDistort: { value: 0.03 },
   };
   // настройки отражения неба (меняются из панели «Погода и сцена»)
-  const reflection = { enabled: true, strength: 1, fresnel: 19 };
+  // planar… — отражение лодки, островов и облаков вторым рендером (planar-reflection.js)
+  const reflection = {
+    enabled: true, strength: 1, fresnel: 19,
+    planar: true, planarStrength: 1, distort: 0.03, resolution: 0.5,
+    // облака по умолчанию не отражаем: с френелем объектов они светятся у лодки, где неба в воде почти нет
+    clouds: false,
+  };
   const skyUniforms = {};
   for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo']) skyUniforms[k] = sky.uniforms[k];
 
@@ -125,6 +136,8 @@ export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
     Object.assign(shader.uniforms, skyUniforms, {
       uSunDir: uniforms.uSunDir, uSunColor: uniforms.uSunColor,
       uReflect: uniforms.uReflect, uFresnelPow: uniforms.uFresnelPow,
+      uReflTex: uniforms.uReflTex, uReflMatrix: uniforms.uReflMatrix,
+      uPlanar: uniforms.uPlanar, uReflDistort: uniforms.uReflDistort,
     });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\n varying vec3 vFarPos;')
@@ -159,6 +172,8 @@ export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
     uniforms.uAmp.value = Math.max(0.15, w.maxAmplitude());
     uniforms.uReflect.value = reflection.enabled ? reflection.strength : 0;
     uniforms.uFresnelPow.value = reflection.fresnel;
+    uniforms.uPlanar.value = reflection.planar ? reflection.planarStrength : 0;
+    uniforms.uReflDistort.value = reflection.distort;
     if (fx) {
       uniforms.uTime.value = fx.time;
       uniforms.uSunDir.value.copy(fx.sunDir);

@@ -55,6 +55,12 @@ export function createWeatherPanel({ wind, sea, env, water, actions, start }) {
   fr.add(water.reflection, 'strength', 0, 1, 0.05).name('Сила');
   // больше — синяя вода у лодки тянется дальше к горизонту
   fr.add(water.reflection, 'fresnel', 3, 25, 1).name('Дальность');
+  // отражение объектов — второй рендер сцены, заметно нагружает видеокарту
+  fr.add(water.reflection, 'planar').name('Лодка и острова');
+  fr.add(water.reflection, 'planarStrength', 0, 2, 0.05).name('Сила объектов');
+  fr.add(water.reflection, 'distort', 0, 0.1, 0.005).name('Искажение волнами');
+  fr.add(water.reflection, 'resolution', { '¼': 0.25, '½': 0.5, 'полное': 1 }).name('Разрешение');
+  fr.add(water.reflection, 'clouds').name('Облака в отражении');
 
   const fc = gui.addFolder('Сцена');
   fc.add(state, 'timeOfDay', 0, 1, 0.01).name('Время суток').onChange((v) => env.setTimeOfDay(v));

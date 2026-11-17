@@ -4,6 +4,7 @@ import { Wind } from './physics/wind.js';
 import { Waves } from './physics/waves.js';
 import { Boat } from './physics/boat.js';
 import { createWater } from './scene/water.js';
+import { createPlanarReflection } from './scene/planar-reflection.js';
 import { createBoatMesh } from './scene/boat-mesh.js';
 import { createWake } from './scene/wake.js';
 import { createSpray } from './scene/spray.js';
@@ -50,7 +51,10 @@ const sea = { ...SEA, ...START.weather.sea };
 
 // --- сцена ---
 const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay });
-const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterSegments, sky: env.sky });
+const planar = createPlanarReflection(renderer);
+const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterSegments, sky: env.sky, planar });
+// второй рендер дорог: на телефонах и планшетах отражение объектов по умолчанию выключено
+water.reflection.planar = !isTouchDevice();
 scene.add(water.mesh, water.far);
 const boatMesh = createBoatMesh();
 scene.add(boatMesh.group);
@@ -185,6 +189,13 @@ function frame(now) {
   followCam.update(dt || 0.016, boat, boatMesh);
   if (camPitch) camera.rotateX(camPitch);
   hud.update({ boat, wind, cameraMode: followCam.mode });
+  const R = water.reflection;
+  if (R.planar) {
+    planar.state.scale = R.resolution;
+    const hide = [water.mesh, water.far, env.sky.mesh, spray.mesh];
+    if (!R.clouds) hide.push(env.clouds.group);
+    planar.render(scene, camera, hide);
+  }
   renderer.render(scene, camera);
   if (debugLog && Math.floor(simTime) !== Math.floor(simTime - dt)) {
     console.log(`[sim] t=${simTime.toFixed(1)} boat=(${boat.x.toFixed(1)},${boat.y.toFixed(2)},${boat.z.toFixed(1)}) u=${boat.u.toFixed(2)} heel=${(boat.phi / DEG).toFixed(1)} cam=(${camera.position.x.toFixed(1)},${camera.position.y.toFixed(1)},${camera.position.z.toFixed(1)}) tws=${wind.speed.toFixed(1)} H=${waves.sigHeight.toFixed(2)}`);

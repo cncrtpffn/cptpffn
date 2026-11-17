@@ -99,13 +99,28 @@ export const SKY_REFLECT_GLSL = `
   // uReflect — сила отражения (0 — выкл); uFresnelPow — показатель френеля (физически 5):
   // больше — синяя вода у лодки тянется дальше к горизонту
   uniform float uReflect; uniform float uFresnelPow;
+  // отражение объектов (planar-reflection.js): текстура с предумноженной альфой, проекция
+  // зеркальной камеры, сила (0 — выкл) и искажение волнами
+  uniform sampler2D uReflTex; uniform mat4 uReflMatrix; uniform float uPlanar; uniform float uReflDistort;
+  // для объектов свой френель: с большим uFresnelPow лодка у самой лодки не отражалась бы
+  const float OBJ_F0 = 0.12;
   vec3 skyReflect(vec3 col, vec3 n, vec3 p, float k) {
-    if (uReflect <= 0.0) return col;
     vec3 v = normalize(cameraPosition - p);
-    vec3 r = reflect(-v, n);
-    r.y = abs(r.y); // на крутом склоне отражённый луч смотрел бы в воду
-    float f = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), uFresnelPow);
-    return mix(col, skyColor(r, 0.0), f * k * uReflect);
+    float ndv = max(dot(n, v), 0.0);
+    if (uReflect > 0.0) {
+      vec3 r = reflect(-v, n);
+      r.y = abs(r.y); // на крутом склоне отражённый луч смотрел бы в воду
+      float f = 0.02 + 0.98 * pow(1.0 - ndv, uFresnelPow);
+      col = mix(col, skyColor(r, 0.0), f * k * uReflect);
+    }
+    if (uPlanar > 0.0) {
+      vec4 c = uReflMatrix * vec4(p.x, 0.0, p.z, 1.0);
+      vec2 uv = c.xy / c.w + n.xz * uReflDistort;
+      vec4 o = texture2D(uReflTex, uv);
+      float fo = OBJ_F0 + (1.0 - OBJ_F0) * pow(1.0 - ndv, 5.0);
+      col = mix(col, o.rgb / max(o.a, 1e-3), o.a * clamp(uPlanar * fo, 0.0, 1.0) * k);
+    }
+    return col;
   }
 `;
 
