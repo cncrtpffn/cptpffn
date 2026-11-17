@@ -132,7 +132,32 @@ body.touch { -webkit-user-select: none; user-select: none; -webkit-touch-callout
 .t-left { --t-w: min(46vw, 320px); left: max(12px, env(safe-area-inset-left)); flex-direction: column; align-items: flex-start; }
 .t-right { right: max(12px, env(safe-area-inset-right)); align-items: flex-end; }
 .t-left > *, .t-right > * { pointer-events: auto; }
-body.touch #hud-controls { position: relative; left: auto; bottom: auto; width: 240px; max-height: 50vh; overflow: auto; }
+/* верхняя полоса: [приборы] [состояние лодки] … [☁] */
+body.touch #top-bar {
+  position: absolute; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
+  right: calc(max(8px, env(safe-area-inset-right)) + 52px); display: flex; gap: 8px; align-items: flex-start;
+}
+body.touch #top-bar > .panel {
+  position: relative; left: auto; top: auto; bottom: auto; width: auto;
+  flex: 1 1 0; min-width: 0; max-width: max-content; overflow: hidden; pointer-events: auto;
+}
+body.touch #top-bar > .panel:not(.collapsed) { max-height: calc(100vh - 170px); overflow: auto; }
+body.touch #top-bar:has(> .panel:not(.collapsed)) > .panel.collapsed { display: none; }
+body.touch #top-bar .collapse-btn { top: 4px; right: 4px; width: 24px; height: 24px; line-height: 24px; font-size: 12px; }
+body.touch #top-bar > #hud-main { padding-right: 30px; }
+body.touch #top-bar > #hud-main.collapsed { padding: 4px 30px 4px 4px; gap: 6px; }
+body.touch #top-bar > #hud-main.collapsed #rose { width: 48px; height: 48px; }
+body.touch #top-bar > #hud-main.collapsed .readouts .big { font-size: 22px; }
+body.touch #top-bar > #hud-controls { padding: 6px 30px 6px 10px; }
+body.touch #top-bar > #hud-controls.collapsed .ctl { margin: 2px 0; }
+body.touch #top-bar > #hud-controls.collapsed .ctl.status { margin-top: 4px; padding: 4px 8px; font-size: 12px; }
+body.touch #top-bar > #hud-main:not(.collapsed) { padding: 6px 30px 6px 4px; gap: 6px; }
+body.touch #top-bar > #hud-main:not(.collapsed) .readouts { min-width: 0; }
+body.touch #top-bar > #hud-main .readouts .row b { white-space: nowrap; }
+@media (orientation: portrait) {
+  body.touch #top-bar > #hud-main:not(.collapsed) #rose { width: 84px; height: 84px; }
+}
+body.touch #warnings { top: calc(max(8px, env(safe-area-inset-top)) + 110px); }
 .t-buttons { display: flex; gap: 6px; }
 .t-buttons.col { flex-direction: column; }
 /* шверт, рифы и экипаж — один блок шириной с руль */

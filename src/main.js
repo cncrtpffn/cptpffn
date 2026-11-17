@@ -77,10 +77,18 @@ document.getElementById('help').addEventListener('click', (e) => { if (e.target.
 applyIcons();
 createTouchControls(input);
 const touch = isTouchDevice();
-// на таче органы управления живут в колонке над слайдером руля
-if (touch) document.querySelector('#touch-ui .t-left').prepend(document.getElementById('hud-controls'));
-makeCollapsible(document.getElementById('hud-main'), { key: 'main', title: 'Приборы' });
-makeCollapsible(document.getElementById('hud-controls'), { key: 'controls', title: 'Органы управления', ...(touch && { defaultCollapsed: true }) });
+const hudMain = document.getElementById('hud-main'), hudControls = document.getElementById('hud-controls');
+makeCollapsible(hudMain, { key: 'main', title: 'Приборы' });
+const controlsPanel = makeCollapsible(hudControls, { key: 'controls', title: 'Органы управления', ...(touch && { defaultCollapsed: true }) });
+if (touch) {
+  // на таче приборы и состояние лодки — полоса вдоль верхнего края; пока одна
+  // панель развёрнута, вторая скрыта (CSS), поэтому развёрнутой бывает только одна
+  const bar = document.createElement('div');
+  bar.id = 'top-bar';
+  bar.append(hudMain, hudControls);
+  document.getElementById('hud').prepend(bar);
+  if (!hudMain.classList.contains('collapsed') && !hudControls.classList.contains('collapsed')) controlsPanel.set(true);
+}
 makeCollapsible(document.getElementById('hint'), { key: 'hint', title: 'Подсказка', ...(touch && { defaultCollapsed: true }) });
 
 window.addEventListener('resize', () => {
