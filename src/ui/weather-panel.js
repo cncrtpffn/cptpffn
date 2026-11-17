@@ -23,7 +23,7 @@ const PRESET_CLOUDS = {
   'Шторм': 'Гроза',
 };
 
-export function createWeatherPanel({ wind, sea, env, actions, start }) {
+export function createWeatherPanel({ wind, sea, env, water, actions, start }) {
   const gui = new GUI({ title: 'Погода и сцена', width: 270 });
   const state = { preset: start.weather.preset, timeOfDay: start.timeOfDay, clouds: start.weather.clouds };
 
@@ -50,6 +50,12 @@ export function createWeatherPanel({ wind, sea, env, actions, start }) {
   fs.add(sea, 'auto').name('Волнение от ветра');
   fs.add(sea, 'state', 0, 1, 0.02).name('Волнение вручную');
 
+  const fr = gui.addFolder('Отражения');
+  fr.add(water.reflection, 'enabled').name('Отражение неба');
+  fr.add(water.reflection, 'strength', 0, 1, 0.05).name('Сила');
+  // больше — синяя вода у лодки тянется дальше к горизонту
+  fr.add(water.reflection, 'fresnel', 3, 25, 1).name('Дальность');
+
   const fc = gui.addFolder('Сцена');
   fc.add(state, 'timeOfDay', 0, 1, 0.01).name('Время суток').onChange((v) => env.setTimeOfDay(v));
   fc.add(state, 'clouds', env.cloudTypes).name('Облачность').onChange((v) => env.setCloudType(v));
@@ -58,7 +64,7 @@ export function createWeatherPanel({ wind, sea, env, actions, start }) {
 
   // на маленьких экранах панель и второстепенные папки свёрнуты
   const small = matchMedia(SMALL_SCREEN).matches;
-  if (small) { fs.close(); fc.close(); }
+  if (small) { fs.close(); fr.close(); fc.close(); }
   const saved = loadState('weather');
   if (saved ?? small) gui.close();
   gui.title(`<i class="ico">${ICONS.weather}</i><span class="gui-title-text">Погода и сцена</span>`);

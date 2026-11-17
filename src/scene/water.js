@@ -34,7 +34,11 @@ export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
     uWakeCenter: { value: new THREE.Vector2() },
     uOvercast: { value: 0 },
     uRipple: { value: 0.5 },
+    uReflect: { value: 1 },
+    uFresnelPow: { value: 19 },
   };
+  // настройки отражения неба (меняются из панели «Погода и сцена»)
+  const reflection = { enabled: true, strength: 1, fresnel: 19 };
   const skyUniforms = {};
   for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo']) skyUniforms[k] = sky.uniforms[k];
 
@@ -118,7 +122,10 @@ export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
   const farMat = new THREE.MeshStandardMaterial({ color: 0x3a98c4, roughness: 0.5, metalness: 0.02 });
   // то же отражение неба, иначе на стыке с ближней водой видна граница яркости
   farMat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, skyUniforms, { uSunDir: uniforms.uSunDir, uSunColor: uniforms.uSunColor });
+    Object.assign(shader.uniforms, skyUniforms, {
+      uSunDir: uniforms.uSunDir, uSunColor: uniforms.uSunColor,
+      uReflect: uniforms.uReflect, uFresnelPow: uniforms.uFresnelPow,
+    });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\n varying vec3 vFarPos;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n vFarPos = (modelMatrix * vec4(position, 1.0)).xyz;');
@@ -150,6 +157,8 @@ export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
       uniforms.uWaveQ.value[i] = w.q[i];
     }
     uniforms.uAmp.value = Math.max(0.15, w.maxAmplitude());
+    uniforms.uReflect.value = reflection.enabled ? reflection.strength : 0;
+    uniforms.uFresnelPow.value = reflection.fresnel;
     if (fx) {
       uniforms.uTime.value = fx.time;
       uniforms.uSunDir.value.copy(fx.sunDir);
@@ -164,5 +173,5 @@ export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
     }
   }
 
-  return { mesh, far, update, uniforms };
+  return { mesh, far, update, uniforms, reflection };
 }
