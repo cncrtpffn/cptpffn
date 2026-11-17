@@ -32,7 +32,7 @@ const POLE = new THREE.Vector3(0, Math.sin(LAT), Math.cos(LAT));
 const SKY_GLSL = `
   uniform vec3 uSunDir; uniform vec3 uZenith; uniform vec3 uHorizon; uniform vec3 uAntiHorizon;
   uniform vec3 uSunGlow; uniform vec3 uBelt; uniform vec3 uSunColor;
-  uniform float uHalo; uniform float uStars; uniform float uTime;
+  uniform float uHalo; uniform float uDisc; uniform float uStars; uniform float uTime;
   uniform vec3 uPole; uniform float uStarAngle;
   varying vec3 vW;
   ${NOISE_GLSL}
@@ -71,6 +71,7 @@ export function createSky({ radius = 2500 } = {}) {
     uBelt: { value: new THREE.Color() },
     uSunColor: { value: new THREE.Color() },
     uHalo: { value: 1 },
+    uDisc: { value: 1 },
     uStars: { value: 0 },
     uTime: { value: 0 },
     uPole: { value: POLE },
@@ -102,7 +103,7 @@ export function createSky({ radius = 2500 } = {}) {
           float mu = dot(d, s);
           float m = max(mu, 0.0);
           col += uSunColor * (pow(m, 8.0) * 0.15 + pow(m, 200.0) * 0.6) * uHalo;
-          float disc = smoothstep(0.99980, 0.99987, mu) * smoothstep(-0.01, 0.0, d.y);
+          float disc = smoothstep(0.99980, 0.99987, mu) * smoothstep(-0.01, 0.0, d.y) * uDisc;
           col = mix(col, uSunColor * 3.0 + vec3(0.4), disc);
           // звёзды — на тёмной части неба, тают к горизонту
           if (uStars > 0.0) {
@@ -124,11 +125,18 @@ export function createSky({ radius = 2500 } = {}) {
   const light = {
     sunColor: new THREE.Color(), sunI: 0,
     hemi: new THREE.Color(), ground: new THREE.Color(), hemiI: 0,
-    fog: new THREE.Color(), glint: new THREE.Color(),
+    fog: new THREE.Color(), glint: new THREE.Color(), shadow: 1,
+  };
+  const grey = new THREE.Color();
+  // затянутость: цвет к серому той же яркости, чуть темнее
+  const toGrey = (c, k) => {
+    const l = c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722;
+    return c.lerp(grey.setRGB(l * 0.95, l, l * 1.05).multiplyScalar(0.8), k);
   };
 
-  // dayPhase — 0..1 время суток, поворачивает звёздное небо вокруг полюса
-  function setSun(sunDir, dayPhase = 0.5) {
+  // dayPhase — 0..1 время суток, поворачивает звёздное небо вокруг полюса;
+  // overcast — 0..1 затянутость облаками: серое небо, слабое солнце, без звёзд
+  function setSun(sunDir, dayPhase = 0.5, overcast = 0) {
     uniforms.uSunDir.value.copy(sunDir);
     uniforms.uStarAngle.value = (dayPhase - 0.5) * Math.PI * 2;
     const elev = Math.asin(THREE.MathUtils.clamp(sunDir.y, -1, 1)) * 180 / Math.PI;
@@ -144,18 +152,26 @@ export function createSky({ radius = 2500 } = {}) {
     mix('belt', uniforms.uBelt.value);
     mix('sun', uniforms.uSunColor.value);
     uniforms.uStars.value = THREE.MathUtils.lerp(A.stars, B.stars, t);
-    uniforms.uHalo.value = THREE.MathUtils.smoothstep(elev, -4, 1);
+    uniforms.uHalo.value = THREE.MathUtils.smoothstep(elev, -4, 1) * (1 - overcast);
+    uniforms.uDisc.value = 1 - overcast;
+    uniforms.uStars.value *= Math.max(0, 1 - 1.5 * overcast);
+    toGrey(uniforms.uZenith.value, overcast);
+    toGrey(uniforms.uHorizon.value, overcast);
+    toGrey(uniforms.uAntiHorizon.value, overcast);
+    uniforms.uSunGlow.value.multiplyScalar(1 - overcast);
+    uniforms.uBelt.value.multiplyScalar(1 - overcast);
 
     // солнце под горизонтом не светит — иначе подсветка снизу
     const vis = THREE.MathUtils.smoothstep(elev, -1, 3);
     mix('sun', light.sunColor);
-    light.sunI = THREE.MathUtils.lerp(A.sunI, B.sunI, t) * vis;
-    mix('hemi', light.hemi);
-    mix('ground', light.ground);
-    light.hemiI = THREE.MathUtils.lerp(A.hemiI, B.hemiI, t);
+    light.sunI = THREE.MathUtils.lerp(A.sunI, B.sunI, t) * vis * (1 - 0.85 * overcast);
+    toGrey(mix('hemi', light.hemi), overcast * 0.8);
+    toGrey(mix('ground', light.ground), overcast * 0.5);
+    light.hemiI = THREE.MathUtils.lerp(A.hemiI, B.hemiI, t) * (1 + 0.1 * overcast);
+    light.shadow = 1 - 0.85 * overcast;
     // туман — горизонт под 90° к солнцу, между светлой и тёмной стороной
     light.fog.copy(uniforms.uAntiHorizon.value).lerp(uniforms.uHorizon.value, 0.5);
-    light.glint.copy(light.sunColor).multiplyScalar(vis);
+    light.glint.copy(light.sunColor).multiplyScalar(vis * (1 - overcast));
     return light;
   }
 

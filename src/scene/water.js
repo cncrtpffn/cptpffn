@@ -30,6 +30,7 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
     uTrail: { value: Array.from({ length: WAKE_POINTS }, () => new THREE.Vector4()) },
     uTrailCount: { value: 0 },
     uWakeCenter: { value: new THREE.Vector2() },
+    uOvercast: { value: 0 },
   };
 
   const mat = new THREE.MeshStandardMaterial({
@@ -60,7 +61,7 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
         vWorldPos = wp + disp * edge;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-        uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 uFoam; uniform float uAmp;
+        uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 uFoam; uniform float uAmp; uniform float uOvercast;
         varying float vWaveH; varying float vSteep;
         ${FX_UNIFORMS_GLSL}${NOISE_GLSL}${WAKE_GLSL}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
@@ -70,6 +71,8 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
         // крупные пятна оттенка, медленно дрейфуют
         float tint = vnoise(wxz * 0.025 + uTime * 0.012) * 0.65 + vnoise(wxz * 0.11 - uTime * 0.03) * 0.35;
         diffuseColor.rgb *= mix(vec3(0.88, 0.98, 1.05), vec3(1.07, 1.03, 0.92), tint);
+        // под облаками море серее и темнее
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722))), uOvercast * 0.55) * (1.0 - 0.2 * uOvercast);
         // барашки: порог ниже при сильном ветре, рваные шумом
         vec2 drift = uWindDir * uTime * 0.6;
         float lo = mix(0.36, 0.2, uWhitecap);
@@ -122,6 +125,7 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
       uniforms.uTrail.value = fx.wake.trail;
       uniforms.uTrailCount.value = fx.wake.count;
       uniforms.uWakeCenter.value.copy(fx.wake.center);
+      uniforms.uOvercast.value = fx.overcast || 0;
     }
   }
 

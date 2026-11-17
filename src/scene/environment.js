@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { makeIsland } from './island.js';
 import { createSky } from './sky.js';
+import { createClouds, CLOUD_TYPES } from './clouds.js';
 
 const flat = (color) => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.9 });
 
@@ -19,20 +20,6 @@ function makeBuoy(def) {
   return g;
 }
 
-function makeCloud(rng) {
-  const g = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, roughness: 1, transparent: true, opacity: 0.92 });
-  const n = 3 + Math.floor(rng() * 4);
-  for (let i = 0; i < n; i++) {
-    const s = 6 + rng() * 10;
-    const m = new THREE.Mesh(new THREE.SphereGeometry(s, 7, 5), mat);
-    m.position.set((i - n / 2) * s * 0.9 + rng() * 4, rng() * 3, (rng() - 0.5) * 8);
-    m.scale.y = 0.55;
-    g.add(m);
-  }
-  return g;
-}
-
 function mulberry32(a) {
   return function () {
     a |= 0; a = (a + 0x6D2B79F5) | 0;
@@ -47,6 +34,8 @@ export function createEnvironment(scene, cfg) {
 
   const sky = createSky();
   scene.add(sky.mesh);
+  const clouds = createClouds(sky);
+  scene.add(clouds.group);
 
   const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x2b6f9a, 0.7);
   scene.add(hemi);
@@ -63,22 +52,23 @@ export function createEnvironment(scene, cfg) {
 
   const islands = cfg.islands.map((d) => { const g = makeIsland(d, rng); scene.add(g); return g; });
   const buoys = cfg.buoys.map((d) => { const g = makeBuoy(d); scene.add(g); return { g, d }; });
-  const clouds = [];
-  for (let i = 0; i < 14; i++) {
-    const c = makeCloud(rng);
-    c.position.set((rng() - 0.5) * 1400, 90 + rng() * 60, (rng() - 0.5) * 1400);
-    scene.add(c); clouds.push(c);
-  }
 
   const sunDir = new THREE.Vector3(0.4, 0.8, 0.3);
   const sunGlint = new THREE.Color();
 
+  let dayPhase = 0.4;
   function setTimeOfDay(t) {
+    dayPhase = t;
     // на краях суток солнце уходит на 8° под горизонт — сумерки со звёздами
     const elev = (-8 + 85 * Math.pow(Math.sin(Math.PI * t), 1.5)) * Math.PI / 180;
     const az = (-80 + 160 * t) * Math.PI / 180; // восток -> запад
     sunDir.set(Math.sin(az) * Math.cos(elev), Math.sin(elev), -Math.cos(az) * Math.cos(elev)).normalize();
-    const L = sky.setSun(sunDir, t);
+    applyLighting();
+  }
+
+  function applyLighting() {
+    const ov = clouds.state.overcast;
+    const L = sky.setSun(sunDir, dayPhase, ov);
     sun.color.copy(L.sunColor);
     sun.intensity = L.sunI;
     hemi.color.copy(L.hemi);
@@ -86,6 +76,11 @@ export function createEnvironment(scene, cfg) {
     hemi.intensity = L.hemiI;
     scene.fog.color.copy(L.fog);
     sunGlint.copy(L.glint);
+    sun.shadow.intensity = L.shadow;
+    // в пасмурную погоду дымка гуще
+    scene.fog.near = 140 - 60 * ov;
+    scene.fog.far = 1100 - 350 * ov;
+    clouds.setSun(sunDir);
   }
 
   const tmp = new THREE.Vector3();
@@ -100,16 +95,10 @@ export function createEnvironment(scene, cfg) {
       g.rotation.z = -s.sx * 0.8;
       g.rotation.x = s.sz * 0.8;
     }
-    const w = wind.vector();
-    for (const c of clouds) {
-      c.position.x += w.x * dt * 2.5;
-      c.position.z += w.z * dt * 2.5;
-      const dx = c.position.x - boat.x, dz = c.position.z - boat.z;
-      if (dx > 800) c.position.x -= 1600; if (dx < -800) c.position.x += 1600;
-      if (dz > 800) c.position.z -= 1600; if (dz < -800) c.position.z += 1600;
-    }
+    if (clouds.update(dt, wind, boat.x, boat.z)) applyLighting();
   }
 
   setTimeOfDay(0.4);
-  return { update, setTimeOfDay, sun, sunDir, sunGlint, islands };
+  const setCloudType = (name, instant) => { clouds.setType(name, instant); if (instant) applyLighting(); };
+  return { update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, sunDir, sunGlint, islands };
 }

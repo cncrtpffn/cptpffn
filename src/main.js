@@ -110,9 +110,12 @@ if (params.has('winddir')) wind.baseDirDeg = parseFloat(params.get('winddir'));
 if (params.has('cam')) followCam.mode = params.get('cam');
 if (params.has('camaz')) followCam.azimuth = parseFloat(params.get('camaz')) * DEG;
 if (params.has('campolar')) followCam.polar = parseFloat(params.get('campolar'));
+if (params.has('camdist')) followCam.distance = parseFloat(params.get('camdist'));
+const camPitch = parseFloat(params.get('campitch') || '0') * DEG;
 if (params.has('reefs')) { boat.sail.reefTarget = boat.sail.reefLevel = parseInt(params.get('reefs'), 10); }
 if (params.has('board')) boat.board = parseFloat(params.get('board'));
 if (params.has('tod')) env.setTimeOfDay(parseFloat(params.get('tod')));
+if (params.has('clouds')) env.setCloudType(params.get('clouds'), true);
 const autoTwa = parseFloat(params.get('twa') || '60') * DEG;
 function autopilotControls() {
   const targetPsi = wind.dir - autoTwa;
@@ -167,10 +170,11 @@ function frame(now) {
   if (!halted) spray.update(dt, boat, waves, wind, boatMesh);
   water.update(waves, boat.x, boat.z, {
     time: waves.time, sunDir: env.sunDir, sunColor: env.sunGlint, windDir: wind.vector(),
-    whitecap: THREE.MathUtils.clamp((wind.speed - 5) / 10, 0, 1), wake,
+    whitecap: THREE.MathUtils.clamp((wind.speed - 5) / 10, 0, 1), wake, overcast: env.overcast,
   });
   env.update(halted ? 0 : dt, waves, wind, boat);
   followCam.update(dt || 0.016, boat, boatMesh);
+  if (camPitch) camera.rotateX(camPitch);
   hud.update({ boat, wind, cameraMode: followCam.mode });
   renderer.render(scene, camera);
   if (debugLog && Math.floor(simTime) !== Math.floor(simTime - dt)) {

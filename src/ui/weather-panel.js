@@ -13,9 +13,19 @@ const PRESETS = {
   'Шторм': { speed: 19, gusts: true, gustStrength: 0.4, shiftDeg: 18 },
 };
 
+// облачность, которую выставляет пресет ветра (потом её можно сменить вручную)
+const PRESET_CLOUDS = {
+  'Штиль': 'Ясно',
+  'Лёгкий бриз': 'Перистые',
+  'Умеренный': 'Кучевые',
+  'Свежий ветер': 'Холодный фронт',
+  'Крепкий ветер': 'Пасмурно',
+  'Шторм': 'Гроза',
+};
+
 export function createWeatherPanel({ wind, sea, env, actions }) {
   const gui = new GUI({ title: 'Погода и сцена', width: 270 });
-  const state = { preset: 'Умеренный', timeOfDay: 0.4 };
+  const state = { preset: 'Умеренный', timeOfDay: 0.4, clouds: 'Кучевые' };
 
   const fw = gui.addFolder('Ветер');
   const speedCtl = fw.add(wind, 'baseSpeed', 0, 22, 0.5).name('Скорость, м/с');
@@ -29,6 +39,8 @@ export function createWeatherPanel({ wind, sea, env, actions }) {
   fw.add(state, 'preset', Object.keys(PRESETS)).name('Пресет').onChange((name) => {
     Object.assign(wind, PRESETS[name]);
     wind.baseSpeed = PRESETS[name].speed;
+    state.clouds = PRESET_CLOUDS[name];
+    env.setCloudType(state.clouds);
     sea.auto = true;
     gui.controllersRecursive().forEach((c) => c.updateDisplay());
     updateBf();
@@ -40,6 +52,7 @@ export function createWeatherPanel({ wind, sea, env, actions }) {
 
   const fc = gui.addFolder('Сцена');
   fc.add(state, 'timeOfDay', 0, 1, 0.01).name('Время суток').onChange((v) => env.setTimeOfDay(v));
+  fc.add(state, 'clouds', env.cloudTypes).name('Облачность').onChange((v) => env.setCloudType(v));
   fc.add({ f: actions.righten }, 'f').name('Поставить лодку');
   fc.add({ f: actions.resetBoat }, 'f').name('Вернуть в начало');
 
@@ -76,5 +89,6 @@ export function createWeatherPanel({ wind, sea, env, actions }) {
   gui.$title.addEventListener('click', sync);
 
   env.setTimeOfDay(state.timeOfDay);
+  env.setCloudType(state.clouds, true);
   return gui;
 }
