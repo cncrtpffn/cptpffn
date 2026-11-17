@@ -179,6 +179,7 @@ function frame(now) {
   water.update(waves, boat.x, boat.z, {
     time: waves.time, sunDir: env.sunDir, sunColor: env.sunGlint, windDir: wind.vector(),
     whitecap: THREE.MathUtils.clamp((wind.speed - 5) / 10, 0, 1), wake, overcast: env.overcast,
+    ripple: THREE.MathUtils.clamp((wind.speed - 1) / 9, 0.05, 1),
   });
   env.update(halted ? 0 : dt, waves, wind, boat);
   followCam.update(dt || 0.016, boat, boatMesh);

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MAX_COMP } from '../physics/waves.js';
-import { WAKE_POINTS, FX_UNIFORMS_GLSL, NOISE_GLSL, WAKE_GLSL, GLINT_GLSL, SKY_REFLECT_GLSL } from './water-fx.js';
+import { WAKE_POINTS, FX_UNIFORMS_GLSL, NOISE_GLSL, WAKE_GLSL, GLINT_GLSL, SKY_REFLECT_GLSL, RIPPLE_GLSL } from './water-fx.js';
 import { SKY_UNIFORMS_GLSL, SKY_COLOR_GLSL } from './sky.js';
 
 // Вода: MeshStandardMaterial + вершинный шейдер Герстнера (те же параметры, что в физике).
@@ -33,6 +33,7 @@ export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
     uTrailCount: { value: 0 },
     uWakeCenter: { value: new THREE.Vector2() },
     uOvercast: { value: 0 },
+    uRipple: { value: 0.5 },
   };
   const skyUniforms = {};
   for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo']) skyUniforms[k] = sky.uniforms[k];
@@ -75,7 +76,7 @@ export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
       .replace('#include <common>', `#include <common>
         uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 uFoam; uniform float uAmp; uniform float uOvercast;
         varying float vWaveH; varying float vSteep;
-        ${FX_UNIFORMS_GLSL}${SKY_UNIFORMS_GLSL}${NOISE_GLSL}${WAKE_GLSL}${SKY_COLOR_GLSL}${SKY_REFLECT_GLSL}`)
+        ${FX_UNIFORMS_GLSL}${SKY_UNIFORMS_GLSL}${NOISE_GLSL}${RIPPLE_GLSL}${WAKE_GLSL}${SKY_COLOR_GLSL}${SKY_REFLECT_GLSL}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         float hh = smoothstep(-uAmp, uAmp, vWaveH);
         diffuseColor.rgb *= mix(uDeep, uShallow, hh);
@@ -96,7 +97,12 @@ export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
         float streak = smoothstep(0.8, 0.9, sn) * uWhitecap * 0.35 * smoothstep(-0.3, 0.4, hh);
         float waterFoam = clamp(max(max(crest * 0.85, streak), wakeFoam(wxz)), 0.0, 1.0);
         diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, waterFoam);`)
-      .replace('#include <opaque_fragment>', `outgoingLight = skyReflect(outgoingLight, normalize(vWaveN), vWorldPos, 1.0 - waterFoam);
+      // рябь возмущает нормаль: освещение, отражение неба и блики — по ней
+      .replace('#include <normal_fragment_maps>', `
+        vec2 rs = rippleSlope(vWorldPos.xz) * (1.0 - waterFoam);
+        vec3 waterN = normalize(normalize(vWaveN) - vec3(rs.x, 0.0, rs.y));
+        normal = normalize((viewMatrix * vec4(waterN, 0.0)).xyz);`)
+      .replace('#include <opaque_fragment>', `outgoingLight = skyReflect(outgoingLight, waterN, vWorldPos, 1.0 - waterFoam);
         ${GLINT_GLSL}
         #include <opaque_fragment>`);
   };
@@ -154,6 +160,7 @@ export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
       uniforms.uTrailCount.value = fx.wake.count;
       uniforms.uWakeCenter.value.copy(fx.wake.center);
       uniforms.uOvercast.value = fx.overcast || 0;
+      uniforms.uRipple.value = fx.ripple ?? 0.5;
     }
   }
 
