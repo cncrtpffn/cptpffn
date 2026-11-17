@@ -2,6 +2,8 @@
 // Слайдер работает как джойстик: точка касания — центр, отклонение пальца задаёт
 // скорость перекладки (как удержание клавиши, только плавно).
 
+import { ICONS } from './icons.js';
+
 const DEADZONE = 0.08;
 
 const capture = (el, id) => { try { el.setPointerCapture(id); } catch { /* указатель уже отпущен */ } };
@@ -64,9 +66,9 @@ export function createTouchControls(input) {
   ui.innerHTML = `
     <div class="t-left">
       <div class="t-buttons t-btns">
-        <div class="t-group"><span>шверт</span><button data-board="-1">▲</button><button data-board="1">▼</button></div>
-        <div class="t-group"><span>риф</span><button data-reef="1">+</button><button data-reef="-1">−</button></div>
-        <div class="t-group"><span>экипаж</span><button data-crew="-1">◀</button><button data-crew="0">●</button><button data-crew="1">▶</button></div>
+        <div class="t-group"><span class="t-ico" role="img" aria-label="Шверт" title="Шверт">${ICONS.board}</span><button data-board="-1">▲</button><button data-board="1">▼</button></div>
+        <div class="t-group"><span class="t-ico" role="img" aria-label="Рифы" title="Рифы">${ICONS.reef}</span><button data-reef="1">+</button><button data-reef="-1">−</button></div>
+        <div class="t-group"><span class="t-ico" role="img" aria-label="Экипаж" title="Экипаж">${ICONS.crew}</span><button data-crew="-1">◀</button><button data-crew="0">●</button><button data-crew="1">▶</button></div>
       </div>
       <div class="t-slider h" id="t-rudder"><div class="t-track"><div class="t-knob"></div></div><span class="t-label">руль</span></div>
     </div>

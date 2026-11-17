@@ -14,6 +14,7 @@ import { Hud } from './ui/hud.js';
 import { createWeatherPanel } from './ui/weather-panel.js';
 import { createTouchControls, isTouchDevice } from './ui/touch.js';
 import { makeCollapsible } from './ui/collapse.js';
+import { applyIcons } from './ui/icons.js';
 import './debug/polar.js';
 
 const STEP = 1 / 120;
@@ -70,6 +71,7 @@ document.getElementById('help').addEventListener('click', (e) => { if (e.target.
 document.getElementById('pause').addEventListener('click', () => input.trigger('pause'));
 
 // тач-управление и сворачиваемые панели
+applyIcons();
 createTouchControls(input);
 const touch = isTouchDevice();
 // на таче органы управления живут в колонке над слайдером руля
