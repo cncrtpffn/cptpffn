@@ -16,6 +16,7 @@ const NEAR_WRAP = 1400;   // полупериод переноса кучевы�
 const FAR_WRAP = 2600;    // для фронта и грозовых ячеек
 const CIRRUS_WRAP = 2800;
 const DECK_Y = 230;
+const CLOUD_SCALE = 1.3;  // общий масштаб объёмных облаков
 
 function mulberry32(a) {
   return function () {
@@ -294,11 +295,11 @@ export function createClouds(sky) {
       const c = { x: cx + dx, z: cz + dz, baseY, start: used, count: n, local: new Float32Array(n * 16), far: !!opts.far };
       for (let i = 0; i < n; i++) {
         const p = shape.puffs[i];
-        pos.set(p.x, p.y, p.z).applyQuaternion(q);
+        pos.set(p.x, p.y, p.z).multiplyScalar(CLOUD_SCALE).applyQuaternion(q);
         qs.setFromAxisAngle(Y, (rng() - 0.5) * 0.6).premultiply(q);
-        m4.compose(pos, qs, scl.set(p.sx, p.sy, p.sz));
+        m4.compose(pos, qs, scl.set(p.sx, p.sy, p.sz).multiplyScalar(CLOUD_SCALE));
         c.local.set(m4.elements, i * 16);
-        aCloud.setXYZ(used + i, baseY, shape.height, shape.density);
+        aCloud.setXYZ(used + i, baseY, shape.height * CLOUD_SCALE, shape.density);
       }
       used += n;
       clouds.push(c);

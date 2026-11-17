@@ -74,6 +74,7 @@ python3 -m http.server 8080
 ## Структура
 
 Как устроены ветер и волны: [docs/wind-and-waves.md](docs/wind-and-waves.md).
+Облака и типы облачности: [docs/clouds.md](docs/clouds.md).
 
 ```
 index.html, style.css      — разметка HUD, стили
