@@ -35,7 +35,7 @@ export function createWater(waves, { size = 440, segments = 176, sky, planar } =
     uWakeCenter: { value: new THREE.Vector2() },
     uOvercast: { value: 0 },
     uRipple: { value: 0.5 },
-    uReflect: { value: 1 },
+    uReflect: { value: 0.3 },
     uFresnelPow: { value: 19 },
     uReflTex: { value: planar.texture },
     uReflMatrix: { value: planar.matrix },
@@ -45,7 +45,7 @@ export function createWater(waves, { size = 440, segments = 176, sky, planar } =
   // настройки отражения неба (меняются из панели «Погода и сцена»)
   // planar… — отражение лодки, островов и облаков вторым рендером (planar-reflection.js)
   const reflection = {
-    enabled: true, strength: 1, fresnel: 19,
+    enabled: true, strength: 0.3, fresnel: 19,
     planar: true, planarStrength: 1, distort: 0.03, resolution: 0.5,
     // облака по умолчанию не отражаем: с френелем объектов они светятся у лодки, где неба в воде почти нет
     clouds: false,
