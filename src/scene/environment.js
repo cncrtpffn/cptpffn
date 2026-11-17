@@ -1,69 +1,7 @@
 import * as THREE from 'three';
+import { makeIsland } from './island.js';
 
 const flat = (color) => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.9 });
-
-function makeIsland(def, rng) {
-  const g = new THREE.Group();
-  g.position.set(def.x, 0, def.z);
-  const sand = new THREE.Mesh(new THREE.ConeGeometry(def.r, 1.6, 14, 1), flat(0xe9dcb2));
-  sand.position.y = -0.6;
-  sand.receiveShadow = true;
-  g.add(sand);
-  // холм: деформированный конус
-  const hillGeo = new THREE.ConeGeometry(def.r * 0.72, def.h, 12, 4);
-  const pos = hillGeo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const n = 1 + (rng() - 0.5) * 0.35;
-    pos.setXYZ(i, x * n, y + (rng() - 0.5) * def.h * 0.08, z * n);
-  }
-  hillGeo.computeVertexNormals();
-  const hill = new THREE.Mesh(hillGeo, flat(0x7fb069));
-  hill.position.y = def.h / 2 - 0.3;
-  hill.castShadow = true; hill.receiveShadow = true;
-  g.add(hill);
-  // деревья
-  const trunkMat = flat(0x8a5a3c), leafMat = flat(0x3f7d4e), leafMat2 = flat(0x5e9a52);
-  for (let i = 0; i < def.trees; i++) {
-    const ang = rng() * Math.PI * 2, rad = rng() * def.r * 0.6;
-    const x = Math.cos(ang) * rad, z = Math.sin(ang) * rad;
-    const hAt = Math.max(0, def.h * (1 - rad / (def.r * 0.72)) - 0.3);
-    const t = new THREE.Group();
-    t.position.set(x, hAt, z);
-    const sc = 0.8 + rng() * 0.7;
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25 * sc, 0.35 * sc, 2.2 * sc, 5), trunkMat);
-    trunk.position.y = 1.1 * sc;
-    const crown = new THREE.Mesh(new THREE.ConeGeometry(1.6 * sc, 4.2 * sc, 6), rng() > 0.5 ? leafMat : leafMat2);
-    crown.position.y = 2.2 * sc + 2.1 * sc;
-    trunk.castShadow = crown.castShadow = true;
-    t.add(trunk, crown);
-    g.add(t);
-  }
-  // камни
-  for (let i = 0; i < 4; i++) {
-    const ang = rng() * Math.PI * 2;
-    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2 + rng() * 1.8, 0), flat(0x9a9a92));
-    rock.position.set(Math.cos(ang) * def.r * 0.85, 0.2, Math.sin(ang) * def.r * 0.85);
-    rock.rotation.set(rng() * 3, rng() * 3, 0);
-    rock.castShadow = true;
-    g.add(rock);
-  }
-  if (def.lighthouse) {
-    const lh = new THREE.Group();
-    lh.position.set(0, def.h - 0.5, 0);
-    const tower = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.9, 9, 10), flat(0xf4f1e8));
-    tower.position.y = 4.5;
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(1.62, 1.72, 2, 10), flat(0xe9553b));
-    band.position.y = 4.5;
-    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 1.6, 8), new THREE.MeshStandardMaterial({ color: 0xfff3b0, emissive: 0xffd36b, emissiveIntensity: 0.9 }));
-    lamp.position.y = 9.8;
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.5, 1.6, 8), flat(0xb8463a));
-    roof.position.y = 11.4;
-    [tower, band, lamp, roof].forEach((m) => { m.castShadow = true; lh.add(m); });
-    g.add(lh);
-  }
-  return g;
-}
 
 function makeBuoy(def) {
   const g = new THREE.Group();
