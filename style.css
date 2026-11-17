@@ -65,6 +65,8 @@ kbd { font-family: inherit; font-size: 10px; background: #fff; border: 1px solid
 #warnings .w.info { background: rgba(47, 127, 209, 0.9); }
 #warnings .w.soft { background: rgba(240, 154, 44, 0.92); }
 #btn-pause { position: absolute; right: 16px; bottom: 56px; pointer-events: auto; }
+#btn-fullscreen { position: absolute; right: 68px; bottom: 56px; pointer-events: auto; }
+.btn-fullscreen svg { width: 22px; height: 22px; display: block; margin: auto; }
 #hint { position: absolute; right: 16px; bottom: 16px; font-size: 12px; color: var(--ink); background: var(--card); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--card-border); }
 
 .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(30, 40, 60, 0.35); z-index: 1100; } /* выше lil-gui (1001) */
@@ -227,6 +229,13 @@ body.touch .lil-gui.root:not(.closed) {
 body.touch .lil-gui.root:not(.closed) > .title { height: 40px; padding: 0 12px; }
 #weather-backdrop { position: fixed; inset: 0; background: rgba(30, 40, 60, 0.35); z-index: 1150; }
 #weather-backdrop.hidden { display: none; }
+
+/* ---------- телефоны: только портрет ---------- */
+#rotate { display: none; z-index: 1300; background: rgba(30, 40, 60, 0.85); }
+#rotate .rotate-ico { display: block; margin: 0 auto 6px; color: var(--ink); }
+@media (orientation: landscape) and (max-height: 500px) {
+  body.touch #rotate { display: flex; }
+}
 
 /* ---------- маленькие экраны ---------- */
 @media (max-width: 700px), (max-height: 500px) {

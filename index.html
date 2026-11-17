@@ -7,6 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#9fd3ec">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Кэтбот">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
   <script type="importmap">
   {
     "imports": {
@@ -53,6 +61,7 @@
     </div>
 
     <div id="warnings"></div>
+    <button id="btn-fullscreen" class="ui-btn soft kbd-only btn-fullscreen"></button>
     <button id="btn-pause" class="ui-btn soft kbd-only" title="Пауза и справка (Space)" aria-label="Пауза и справка">❚❚</button>
     <div id="hint"><span class="hint-text">Камера: <b id="hud-camera">орбита</b><span class="kbd-only"> · <kbd>V</kbd> вид · <kbd>Space</kbd> пауза и справка · мышь — обзор, колесо — зум</span><span class="touch-only"> · палец — обзор, щипок — зум</span></span></div>
   </div>
@@ -107,6 +116,14 @@
       <h2>Лодка перевернулась!</h2>
       <p id="capsize-text">Слишком много парусов для такого ветра.</p>
       <button id="btn-righten">Поставить лодку <kbd class="kbd-only">Enter</kbd></button>
+    </div>
+  </div>
+
+  <div id="rotate" class="overlay">
+    <div class="card small">
+      <svg class="rotate-ico" viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="22" y="8" width="22" height="40" rx="4"/><path d="M30 42h6"/><path d="M12 30a20 20 0 0 0 10 17"/><path d="M12 39v-9h9"/></svg>
+      <h2>Поверните телефон</h2>
+      <p>Кэтбот на телефоне играется только в вертикальной ориентации.</p>
     </div>
   </div>
 

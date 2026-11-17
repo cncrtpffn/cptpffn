@@ -14,6 +14,7 @@ import { Hud } from './ui/hud.js';
 import { createWeatherPanel } from './ui/weather-panel.js';
 import { createTouchControls, isTouchDevice } from './ui/touch.js';
 import { makeCollapsible } from './ui/collapse.js';
+import { setupFullscreen } from './ui/fullscreen.js';
 import { applyIcons } from './ui/icons.js';
 import './debug/polar.js';
 
@@ -77,6 +78,9 @@ document.getElementById('help').addEventListener('click', (e) => { if (e.target.
 applyIcons();
 createTouchControls(input);
 const touch = isTouchDevice();
+setupFullscreen([...document.querySelectorAll('.btn-fullscreen')], { lockPortrait: touch });
+// на телефонах только портрет: в ландшафте поверх игры заглушка (CSS #rotate), симуляция стоит
+const phoneLandscape = matchMedia('(orientation: landscape) and (max-height: 500px)');
 const hudMain = document.getElementById('hud-main'), hudControls = document.getElementById('hud-controls');
 makeCollapsible(hudMain, { key: 'main', title: 'Приборы' });
 const controlsPanel = makeCollapsible(hudControls, { key: 'controls', title: 'Органы управления', ...(touch && { defaultCollapsed: true }) });
@@ -139,7 +143,8 @@ function frame(now) {
   requestAnimationFrame(frame);
   let dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  if (!paused) {
+  const halted = paused || (touch && phoneLandscape.matches);
+  if (!halted) {
     acc += dt;
     const seaState = sea.auto ? Math.min(1, 0.006 * wind.baseSpeed * wind.baseSpeed) : sea.state;
     if (sea.auto) sea.state = seaState;
@@ -157,12 +162,12 @@ function frame(now) {
   }
   wake.update(simTime, boat);
   boatMesh.update(boat, simTime);
-  if (!paused) spray.update(dt, boat, waves, wind, boatMesh);
+  if (!halted) spray.update(dt, boat, waves, wind, boatMesh);
   water.update(waves, boat.x, boat.z, {
     time: waves.time, sunDir: env.sunDir, sunColor: env.sun.color, windDir: wind.vector(),
     whitecap: THREE.MathUtils.clamp((wind.speed - 5) / 10, 0, 1), wake,
   });
-  env.update(paused ? 0 : dt, waves, wind, boat);
+  env.update(halted ? 0 : dt, waves, wind, boat);
   followCam.update(dt || 0.016, boat, boatMesh);
   hud.update({ boat, wind, cameraMode: followCam.mode });
   renderer.render(scene, camera);

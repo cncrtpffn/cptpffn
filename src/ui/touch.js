@@ -74,6 +74,7 @@ export function createTouchControls(input) {
     </div>
     <div class="t-right">
       <div class="t-buttons col t-btns">
+        <button class="btn-fullscreen"></button>
         <button data-act="camera" title="Вид камеры">🎥</button>
         <button data-act="pause" title="Пауза и справка">❚❚</button>
       </div>
