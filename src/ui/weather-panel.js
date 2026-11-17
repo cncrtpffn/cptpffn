@@ -1,6 +1,8 @@
 import GUI from 'three/addons/libs/lil-gui.module.min.js';
 import { beaufort, BEAUFORT_NAMES } from '../config.js';
 import { SMALL_SCREEN, loadState, saveState } from './collapse.js';
+import { ICONS } from './icons.js';
+import { isTouchDevice } from './touch.js';
 
 const PRESETS = {
   'Штиль': { speed: 1.5, gusts: false, gustStrength: 0.2, shiftDeg: 5 },
@@ -46,8 +48,32 @@ export function createWeatherPanel({ wind, sea, env, actions }) {
   if (small) { fs.close(); fc.close(); }
   const saved = loadState('weather');
   if (saved ?? small) gui.close();
+  gui.title(`<i class="ico">${ICONS.weather}</i><span class="gui-title-text">Погода и сцена</span>`);
+  gui.$title.title = 'Погода и сцена';
+
+  // на таче свёрнутая панель — кнопка-облачко, развёрнутая — диалог поверх всего
+  let backdrop = null;
+  if (isTouchDevice()) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'weather-backdrop';
+    backdrop.addEventListener('click', () => { gui.close(); sync(); });
+    document.body.appendChild(backdrop);
+    // без анимации раскрытия: при переходе из кнопки в диалог openAnimated
+    // застревает с нулевой высотой содержимого
+    gui.domElement.addEventListener('click', (e) => {
+      if (!gui.$title.contains(e.target)) return;
+      e.stopPropagation();
+      gui.open(gui._closed);
+      sync();
+    }, true);
+  }
+  const sync = () => {
+    saveState('weather', gui._closed);
+    if (backdrop) backdrop.classList.toggle('hidden', gui._closed);
+  };
+  if (backdrop) backdrop.classList.toggle('hidden', gui._closed);
   // встроенная в three версия lil-gui без onOpenClose — слушаем заголовок
-  gui.$title.addEventListener('click', () => saveState('weather', gui._closed));
+  gui.$title.addEventListener('click', sync);
 
   env.setTimeOfDay(state.timeOfDay);
   return gui;

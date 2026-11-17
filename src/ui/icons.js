@@ -8,6 +8,8 @@ export const ICONS = {
   // риф: мачта, гафельный грот, гик и риф-сезни
   reef: svg('<path d="M6 2v20"/><path d="M7 8l11-6 1 17H7z" fill="currentColor" fill-opacity="0.35"/><path d="M5 19h15"/><path d="M10 15.5v1.5M13 15.5v1.5M16 15.5v1.5" stroke-width="1.5"/>'),
   // экипаж: схематичный человек
+  // погода: облачко
+  weather: svg('<path d="M7 19h10.5a4 4 0 0 0 .4-7.98A6 6 0 0 0 6.3 10.1 4.5 4.5 0 0 0 7 19z" fill="currentColor" fill-opacity="0.35"/>'),
   crew: svg('<circle cx="12" cy="4.5" r="2.5" fill="currentColor"/><path d="M12 8v7M6 10.5l6-1.5 6 1.5M12 15l-4 6.5M12 15l4 6.5"/>'),
 };
 
