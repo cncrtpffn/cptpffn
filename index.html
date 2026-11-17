@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Кэтбот — парусная демо-сцена</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <div id="hud">
+    <div class="panel" id="hud-main">
+      <svg id="rose" viewBox="-60 -60 120 120" width="150" height="150">
+        <circle r="56" class="rose-ring"/>
+        <g class="rose-ticks" id="rose-ticks"></g>
+        <text x="0" y="-45" class="rose-label">N</text>
+        <text x="47" y="4" class="rose-label">E</text>
+        <text x="0" y="52" class="rose-label">S</text>
+        <text x="-47" y="4" class="rose-label">W</text>
+        <g id="rose-true"><path d="M0,-54 L5,-42 L-5,-42 Z" class="arrow-true"/><line x1="0" y1="-42" x2="0" y2="-30" class="arrow-true-line"/></g>
+        <g id="rose-app"><path d="M0,-40 L4,-30 L-4,-30 Z" class="arrow-app"/></g>
+        <g id="rose-boat"><path d="M0,-18 C6,-10 7,4 5,14 L-5,14 C-7,4 -6,-10 0,-18 Z" class="rose-boat"/><line x1="0" y1="-20" x2="0" y2="-28" class="rose-boat-line"/></g>
+      </svg>
+      <div class="readouts">
+        <div class="big"><span id="hud-speed">0.0</span><small>уз</small></div>
+        <div class="row"><span>Курс</span><b id="hud-heading">000°</b></div>
+        <div class="row"><span class="dot true"></span><span>Истинный</span><b><span id="hud-tws">0</span> м/с · <span id="hud-twa">0°</span></b></div>
+        <div class="row"><span class="dot app"></span><span>Вымпельный</span><b><span id="hud-aws">0</span> м/с · <span id="hud-awa">0°</span></b></div>
+        <div class="row"><span>Крен</span><b id="hud-heel">0°</b></div>
+        <div class="row"><span>Дрейф</span><b id="hud-leeway">0°</b></div>
+        <div class="row muted"><span id="hud-beaufort">—</span></div>
+      </div>
+    </div>
+
+    <div class="panel" id="hud-controls">
+      <div class="ctl"><label>Руль <kbd>←</kbd><kbd>→</kbd></label><div class="bar centered"><div class="fill" id="bar-rudder"></div><div class="mid"></div></div></div>
+      <div class="ctl"><label>Грота-шкот <kbd>↑</kbd><kbd>↓</kbd> <em id="lbl-sheet">выбран</em></label><div class="bar"><div class="fill" id="bar-sheet"></div></div></div>
+      <div class="ctl"><label>Шверт <kbd>Q</kbd><kbd>E</kbd> <em id="lbl-board"></em></label><div class="bar"><div class="fill" id="bar-board"></div></div></div>
+      <div class="ctl"><label>Экипаж <kbd>Z</kbd><kbd>X</kbd><kbd>C</kbd></label><div class="bar centered crew"><div class="marker" id="crew-marker"></div><div class="mid"></div></div></div>
+      <div class="ctl"><label>Рифы <kbd>R</kbd><kbd>F</kbd></label><div class="chips"><span class="chip" id="reef-0">полный</span><span class="chip" id="reef-1">1 риф</span><span class="chip" id="reef-2">2 рифа</span></div></div>
+      <div class="ctl status"><span id="sail-status">Парус полощет</span></div>
+    </div>
+
+    <div id="warnings"></div>
+    <div id="hint">Камера: <b id="hud-camera">орбита</b> · <kbd>V</kbd> вид · <kbd>H</kbd> помощь · мышь — обзор, колесо — зум</div>
+  </div>
+
+  <div id="help" class="overlay hidden">
+    <div class="card">
+      <h2>Кэтбот</h2>
+      <p>Гафельный одномачтовый парусник Новой Англии: мачта в самом носу, один большой грот, широкий корпус, шверт и «амбарная дверь» вместо руля. Управляется так же, как настоящий.</p>
+      <div class="cols">
+        <div>
+          <h3>Управление</h3>
+          <table>
+            <tr><td><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd></td><td>руль (сам возвращается в ДП)</td></tr>
+            <tr><td><kbd>↑</kbd> <kbd>↓</kbd> / <kbd>W</kbd> <kbd>S</kbd></td><td>грота-шкот: выбрать / потравить</td></tr>
+            <tr><td><kbd>Q</kbd> <kbd>E</kbd></td><td>шверт: поднять / опустить</td></tr>
+            <tr><td><kbd>R</kbd> <kbd>F</kbd></td><td>взять риф / отдать риф</td></tr>
+            <tr><td><kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd></td><td>экипаж на левый борт / в центр / на правый борт</td></tr>
+            <tr><td><kbd>V</kbd></td><td>вид камеры</td></tr>
+            <tr><td><kbd>Enter</kbd></td><td>поставить лодку после переворота</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>пауза</td></tr>
+            <tr><td><kbd>H</kbd></td><td>эта справка</td></tr>
+          </table>
+        </div>
+        <div>
+          <h3>Как ходить под парусом</h3>
+          <ul>
+            <li><b>Бейдевинд</b> (острый курс, 40–60° к ветру): шкот выбран почти полностью, шверт опущен, экипаж на наветренном борту. Острее 35° парус заполощет.</li>
+            <li><b>Галфвинд и бакштаг</b>: травите шкот, пока парус не начнёт полоскать у мачты, и чуть выберите обратно.</li>
+            <li><b>Фордевинд</b>: шкот травится полностью, шверт можно поднять. Осторожно — если ветер перейдёт через корму, гик перелетит на другой борт с ударом.</li>
+            <li><b>Крен</b>: пересаживайтесь на наветренный борт, травите шкот в порывах, берите рифы. Крен выше 50° — вода в кокпите, дальше — переворот.</li>
+            <li><b>Шверт</b>: поднятый шверт резко увеличивает дрейф на острых курсах, зато уменьшает сопротивление по ветру.</li>
+            <li>Кэтбот при крене сильно <b>приводится к ветру</b> — держите руль.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="muted">Закрыть — <kbd>H</kbd> или <kbd>Esc</kbd></p>
+    </div>
+  </div>
+
+  <div id="capsize" class="overlay hidden">
+    <div class="card small">
+      <h2>Лодка перевернулась!</h2>
+      <p id="capsize-text">Слишком много парусов для такого ветра.</p>
+      <button id="btn-righten">Поставить лодку <kbd>Enter</kbd></button>
+    </div>
+  </div>
+
+  <div id="pause" class="overlay hidden"><div class="card small"><h2>Пауза</h2><p><kbd>Space</kbd> — продолжить</p></div></div>
+
+  <div id="loading">Загрузка…</div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
