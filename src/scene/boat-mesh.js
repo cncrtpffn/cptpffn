@@ -5,15 +5,16 @@ import { DEG } from '../config.js';
 // Физика: x (вперёд) -> -Z, y (правый борт) -> +X.
 
 const flat = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.85, metalness: 0, ...extra });
+// корпус двусторонний: если где-то останется щель, видна внутренность, а не вода
 const MAT = {
-  hull: flat(0x4f8fb5),
-  hullBottom: flat(0xc9503f),
-  deck: flat(0xe8d6b0),
+  hull: flat(0x4f8fb5, { side: THREE.DoubleSide }),
+  hullBottom: flat(0xc9503f, { side: THREE.DoubleSide }),
+  deck: flat(0xe8d6b0, { side: THREE.DoubleSide }),
   wood: flat(0xa5703f),
   darkWood: flat(0x6e4a2b),
   sail: new THREE.MeshStandardMaterial({ color: 0xf7f0dc, flatShading: true, roughness: 0.9, side: THREE.DoubleSide }),
   spar: flat(0xc8a06a),
-  white: flat(0xf4f1e8),
+  white: flat(0xf4f1e8, { side: THREE.DoubleSide }),
   skin: flat(0xf1c7a0),
   shirt: flat(0xe9553b),
   hat: flat(0xf4e3b2),
@@ -31,7 +32,8 @@ const STATIONS = [
   { x: 1.60, b: 1.02, d: 0.42, s: 0.64 },
   { x: 2.20, b: 0.72, d: 0.30, s: 0.72 },
   { x: 2.60, b: 0.36, d: 0.16, s: 0.82 },
-  { x: 2.80, b: 0.03, d: 0.05, s: 0.90 },
+  { x: 2.80, b: 0.00, d: 0.05, s: 0.90 }, // форштевень сходится в линию
+
 ];
 const NA = 6; // точек на четверть шпангоута
 
@@ -98,6 +100,8 @@ function buildHull() {
     const arr = parts[bandOfSeg(k)];
     push(arr, center); push(arr, r0[k]); push(arr, r0[k + 1]);
   }
+  // верх транца: от правого планширя к левому
+  push(parts.top, center); push(parts.top, r0[n - 1]); push(parts.top, r0[0]);
   const out = {};
   for (const key of Object.keys(parts)) {
     const g = new THREE.BufferGeometry();
@@ -112,17 +116,25 @@ function buildDeck() {
   const pos = [];
   const push = (p) => pos.push(p.x, p.y, p.z);
   const quad = (a, b, c, d) => { push(a); push(b); push(c); push(a); push(c); push(d); };
-  const cockpit = (x) => (x > -2.35 && x < 0.65) ? 0.95 : (x > -2.5 && x < 0.8 ? 0.5 : 0);
-  const deckPt = (st, x) => new THREE.Vector3(x, st.s + 0.08 * (1 - (x / st.b) ** 2), -st.x);
-  for (let i = 0; i < STATIONS.length - 1; i++) {
-    const A = STATIONS[i], B = STATIONS[i + 1];
-    const ca = cockpit(A.x), cb = cockpit(B.x);
-    if (ca === 0 && cb === 0) {
-      quad(deckPt(A, -A.b), deckPt(A, A.b), deckPt(B, B.b), deckPt(B, -B.b));
-    } else {
-      quad(deckPt(A, -A.b), deckPt(A, -Math.min(ca || cb, A.b)), deckPt(B, -Math.min(cb || ca, B.b)), deckPt(B, -B.b));
-      quad(deckPt(A, Math.min(ca || cb, A.b)), deckPt(A, A.b), deckPt(B, B.b), deckPt(B, Math.min(cb || ca, B.b)));
-    }
+  // вырез кокпита совпадает с полом и комингсами: x физики -2.35..0.65, полуширина 0.95
+  const CP0 = -2.35, CP1 = 0.65, CPW = 0.95;
+  // станции палубы: корпусные + интерполированные на границах кокпита (лежат на рёбрах корпуса)
+  const lerpSt = (x) => {
+    const i = STATIONS.findIndex((st) => st.x > x);
+    const A = STATIONS[i - 1], B = STATIONS[i], t = (x - A.x) / (B.x - A.x);
+    return { x, b: A.b + (B.b - A.b) * t, s: A.s + (B.s - A.s) * t };
+  };
+  const sts = [...STATIONS, lerpSt(CP0), lerpSt(CP1)].sort((a, b) => a.x - b.x);
+  const deckPt = (st, x) => new THREE.Vector3(x, st.s + (st.b > 0 ? 0.08 * (1 - (x / st.b) ** 2) : 0), -st.x);
+  // три полосы поперёк: борт, середина, борт — одинаковые вершины у соседних секций
+  const halfW = (st) => Math.min(CPW, 0.8 * st.b);
+  for (let i = 0; i < sts.length - 1; i++) {
+    const A = sts[i], B = sts[i + 1];
+    const wa = halfW(A), wb = halfW(B);
+    quad(deckPt(A, -A.b), deckPt(A, -wa), deckPt(B, -wb), deckPt(B, -B.b));
+    quad(deckPt(A, wa), deckPt(A, A.b), deckPt(B, B.b), deckPt(B, wb));
+    const inCockpit = A.x >= CP0 - 1e-6 && B.x <= CP1 + 1e-6;
+    if (!inCockpit) quad(deckPt(A, -wa), deckPt(A, wa), deckPt(B, wb), deckPt(B, -wb));
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -156,7 +168,7 @@ export function createBoatMesh() {
   coam(0.06, 0.55, 3.0, -0.95, floorY + 0.28, 0.85);
   coam(0.06, 0.55, 3.0, 0.95, floorY + 0.28, 0.85);
   coam(1.96, 0.55, 0.06, 0, floorY + 0.28, 2.35);
-  coam(1.96, 0.3, 0.06, 0, floorY + 0.6, -0.65);
+  coam(1.96, 0.75, 0.06, 0, floorY + 0.375, -0.65); // передняя переборка от пола до рубки
   // банки (сиденья)
   add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 2.6), MAT.wood)).position.set(-0.78, floorY + 0.33, 0.85);
   add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 2.6), MAT.wood)).position.set(0.78, floorY + 0.33, 0.85);
