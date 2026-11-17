@@ -100,5 +100,5 @@ export function createEnvironment(scene, cfg) {
 
   setTimeOfDay(cfg.timeOfDay ?? 0.5);
   const setCloudType = (name, instant) => { clouds.setType(name, instant); if (instant) applyLighting(); };
-  return { update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, sunDir, sunGlint, islands };
+  return { update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, sunDir, sunGlint, islands, sky };
 }

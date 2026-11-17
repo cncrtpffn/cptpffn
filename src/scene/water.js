@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { MAX_COMP } from '../physics/waves.js';
-import { WAKE_POINTS, FX_UNIFORMS_GLSL, NOISE_GLSL, WAKE_GLSL, GLINT_GLSL } from './water-fx.js';
+import { WAKE_POINTS, FX_UNIFORMS_GLSL, NOISE_GLSL, WAKE_GLSL, GLINT_GLSL, SKY_REFLECT_GLSL } from './water-fx.js';
+import { SKY_UNIFORMS_GLSL, SKY_COLOR_GLSL } from './sky.js';
 
 // Вода: MeshStandardMaterial + вершинный шейдер Герстнера (те же параметры, что в физике).
 // Гладкое затенение по аналитическим нормалям Герстнера; цвет по высоте с пятнами оттенка,
-// рваная пена на гребнях и полосы по ветру, кильватерный след, блики солнца.
-export function createWater(waves, { size = 440, segments = 176 } = {}) {
+// рваная пена на гребнях и полосы по ветру, кильватерный след, отражение неба, блики солнца.
+// sky — из createSky: его униформы палитры подключаются по ссылке.
+export function createWater(waves, { size = 440, segments = 176, sky } = {}) {
   const geo = new THREE.PlaneGeometry(size, size, segments, segments);
   geo.rotateX(-Math.PI / 2);
   const cell = size / segments;
@@ -32,13 +34,15 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
     uWakeCenter: { value: new THREE.Vector2() },
     uOvercast: { value: 0 },
   };
+  const skyUniforms = {};
+  for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo']) skyUniforms[k] = sky.uniforms[k];
 
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: 0.38, metalness: 0.02,
     transparent: true, opacity: 0.94,
   });
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
+    Object.assign(shader.uniforms, uniforms, skyUniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         uniform vec2 uWaveDir[${MAX_COMP}]; uniform float uWaveA[${MAX_COMP}]; uniform float uWaveK[${MAX_COMP}];
@@ -71,7 +75,7 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
       .replace('#include <common>', `#include <common>
         uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 uFoam; uniform float uAmp; uniform float uOvercast;
         varying float vWaveH; varying float vSteep;
-        ${FX_UNIFORMS_GLSL}${NOISE_GLSL}${WAKE_GLSL}`)
+        ${FX_UNIFORMS_GLSL}${SKY_UNIFORMS_GLSL}${NOISE_GLSL}${WAKE_GLSL}${SKY_COLOR_GLSL}${SKY_REFLECT_GLSL}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         float hh = smoothstep(-uAmp, uAmp, vWaveH);
         diffuseColor.rgb *= mix(uDeep, uShallow, hh);
@@ -92,7 +96,8 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
         float streak = smoothstep(0.8, 0.9, sn) * uWhitecap * 0.35 * smoothstep(-0.3, 0.4, hh);
         float waterFoam = clamp(max(max(crest * 0.85, streak), wakeFoam(wxz)), 0.0, 1.0);
         diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, waterFoam);`)
-      .replace('#include <opaque_fragment>', `${GLINT_GLSL}
+      .replace('#include <opaque_fragment>', `outgoingLight = skyReflect(outgoingLight, normalize(vWaveN), vWorldPos, 1.0 - waterFoam);
+        ${GLINT_GLSL}
         #include <opaque_fragment>`);
   };
   // чтобы кэш шейдера различал материал с инъекцией
@@ -104,9 +109,24 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
 
   // Дальняя вода без волн — до горизонта, растворяется в тумане. Кольцо с дырой под ближней водой:
   // сплошная плоскость торчала бы из ложбин волн плоским полигоном.
+  const farMat = new THREE.MeshStandardMaterial({ color: 0x3a98c4, roughness: 0.5, metalness: 0.02 });
+  // то же отражение неба, иначе на стыке с ближней водой видна граница яркости
+  farMat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, skyUniforms, { uSunDir: uniforms.uSunDir, uSunColor: uniforms.uSunColor });
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\n varying vec3 vFarPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n vFarPos = (modelMatrix * vec4(position, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform vec3 uSunDir; uniform vec3 uSunColor; varying vec3 vFarPos;
+        ${SKY_UNIFORMS_GLSL}${SKY_COLOR_GLSL}${SKY_REFLECT_GLSL}`)
+      .replace('#include <opaque_fragment>', `outgoingLight = skyReflect(outgoingLight, vec3(0.0, 1.0, 0.0), vFarPos, 1.0);
+        #include <opaque_fragment>`);
+  };
+  farMat.customProgramCacheKey = () => 'cozy-water-far';
   const far = new THREE.Mesh(
     new THREE.RingGeometry(size * 0.5 * 0.97, 3000, 64, 1).rotateX(-Math.PI / 2),
-    new THREE.MeshStandardMaterial({ color: 0x3a98c4, roughness: 0.5, metalness: 0.02 }),
+    farMat,
   );
   far.position.y = -0.08;
   far.receiveShadow = false;

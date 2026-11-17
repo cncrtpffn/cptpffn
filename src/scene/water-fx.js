@@ -56,6 +56,20 @@ export const WAKE_GLSL = `
   }
 `;
 
+// Отражение неба по Френелю: у горизонта вода берёт цвет неба, под ногами — свой.
+// Диск солнца не отражаем: его даёт GLINT_GLSL. Нужен skyColor() из sky.js.
+export const SKY_REFLECT_GLSL = `
+  // показатель френеля (физически 5): больше — синяя вода у лодки тянется дальше к горизонту
+  const float FRESNEL_POW = 19.0;
+  vec3 skyReflect(vec3 col, vec3 n, vec3 p, float k) {
+    vec3 v = normalize(cameraPosition - p);
+    vec3 r = reflect(-v, n);
+    r.y = abs(r.y); // на крутом склоне отражённый луч смотрел бы в воду
+    float f = 0.02 + 0.98 * pow(1.0 - max(dot(n, v), 0.0), FRESNEL_POW);
+    return mix(col, skyColor(r, 0.0), f * k);
+  }
+`;
+
 // Блики солнца: мягкий отблеск на гранях + мерцающие искры.
 export const GLINT_GLSL = `
   {

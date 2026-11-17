@@ -50,7 +50,7 @@ const sea = { ...SEA, ...START.weather.sea };
 
 // --- сцена ---
 const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay });
-const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterSegments });
+const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterSegments, sky: env.sky });
 scene.add(water.mesh, water.far);
 const boatMesh = createBoatMesh();
 scene.add(boatMesh.group);

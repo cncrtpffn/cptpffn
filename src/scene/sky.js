@@ -29,13 +29,43 @@ const KEYS_LIN = KEYS.map((k) => {
 const LAT = 42 * Math.PI / 180;
 const POLE = new THREE.Vector3(0, Math.sin(LAT), Math.cos(LAT));
 
+// Палитра неба — общая с водой (отражение): вода подключает те же объекты-униформы.
+export const SKY_UNIFORMS_GLSL = `
+  uniform vec3 uZenith; uniform vec3 uHorizon; uniform vec3 uAntiHorizon;
+  uniform vec3 uSunGlow; uniform vec3 uBelt; uniform float uHalo;
+`;
+
+// Цвет неба в направлении d (без звёзд). Нужны также uSunDir и uSunColor; disc — множитель диска.
+export const SKY_COLOR_GLSL = `
+  vec3 skyColor(vec3 d, float disc) {
+    vec3 s = normalize(uSunDir);
+    float hp = max(d.y, 0.0);
+    // азимутальная близость к солнцу: 1 — под солнцем, 0 — напротив
+    vec2 dxz = d.xz, sxz = s.xz;
+    float a = (dot(dxz, dxz) > 1e-8 && dot(sxz, sxz) > 1e-8) ? dot(normalize(dxz), normalize(sxz)) * 0.5 + 0.5 : 0.5;
+    vec3 hor = mix(uAntiHorizon, uHorizon, a);
+    vec3 col = mix(hor, uZenith, pow(smoothstep(0.0, 0.6, hp), 0.75));
+    // зарево над горизонтом со стороны солнца
+    col += uSunGlow * pow(a, 3.0) * pow(1.0 - hp, 5.0);
+    // пояс Венеры — розовая полоса над тенью Земли
+    col += uBelt * pow(1.0 - a, 2.0) * exp(-pow((hp - 0.1) / 0.07, 2.0));
+    // ореол и диск солнца
+    float mu = dot(d, s);
+    float m = max(mu, 0.0);
+    col += uSunColor * (pow(m, 8.0) * 0.15 + pow(m, 200.0) * 0.6) * uHalo;
+    float dsc = smoothstep(0.99980, 0.99987, mu) * smoothstep(-0.01, 0.0, d.y) * disc;
+    return mix(col, uSunColor * 3.0 + vec3(0.4), dsc);
+  }
+`;
+
 const SKY_GLSL = `
-  uniform vec3 uSunDir; uniform vec3 uZenith; uniform vec3 uHorizon; uniform vec3 uAntiHorizon;
-  uniform vec3 uSunGlow; uniform vec3 uBelt; uniform vec3 uSunColor;
-  uniform float uHalo; uniform float uDisc; uniform float uStars; uniform float uTime;
+  uniform vec3 uSunDir; uniform vec3 uSunColor;
+  ${SKY_UNIFORMS_GLSL}
+  uniform float uDisc; uniform float uStars; uniform float uTime;
   uniform vec3 uPole; uniform float uStarAngle;
   varying vec3 vW;
   ${NOISE_GLSL}
+  ${SKY_COLOR_GLSL}
   vec3 hash33(vec3 p) {
     p = fract(p * vec3(0.1031, 0.1030, 0.0973));
     p += dot(p, p.yxz + 33.33);
@@ -88,23 +118,7 @@ export function createSky({ radius = 2500 } = {}) {
       fragmentShader: `${SKY_GLSL}
         void main() {
           vec3 d = normalize(vW - cameraPosition);
-          vec3 s = normalize(uSunDir);
-          float hp = max(d.y, 0.0);
-          // азимутальная близость к солнцу: 1 — под солнцем, 0 — напротив
-          vec2 dxz = d.xz, sxz = s.xz;
-          float a = (dot(dxz, dxz) > 1e-8 && dot(sxz, sxz) > 1e-8) ? dot(normalize(dxz), normalize(sxz)) * 0.5 + 0.5 : 0.5;
-          vec3 hor = mix(uAntiHorizon, uHorizon, a);
-          vec3 col = mix(hor, uZenith, pow(smoothstep(0.0, 0.6, hp), 0.75));
-          // зарево над горизонтом со стороны солнца
-          col += uSunGlow * pow(a, 3.0) * pow(1.0 - hp, 5.0);
-          // пояс Венеры — розовая полоса над тенью Земли
-          col += uBelt * pow(1.0 - a, 2.0) * exp(-pow((hp - 0.1) / 0.07, 2.0));
-          // ореол и диск солнца
-          float mu = dot(d, s);
-          float m = max(mu, 0.0);
-          col += uSunColor * (pow(m, 8.0) * 0.15 + pow(m, 200.0) * 0.6) * uHalo;
-          float disc = smoothstep(0.99980, 0.99987, mu) * smoothstep(-0.01, 0.0, d.y) * uDisc;
-          col = mix(col, uSunColor * 3.0 + vec3(0.4), disc);
+          vec3 col = skyColor(d, uDisc);
           // звёзды — на тёмной части неба, тают к горизонту
           if (uStars > 0.0) {
             float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
