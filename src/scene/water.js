@@ -90,18 +90,19 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
   mesh.receiveShadow = true;
   mesh.frustumCulled = false;
 
-  // Дальняя вода без волн — до горизонта, растворяется в тумане.
+  // Дальняя вода без волн — до горизонта, растворяется в тумане. Кольцо с дырой под ближней водой:
+  // сплошная плоскость торчала бы из ложбин волн плоским полигоном.
   const far = new THREE.Mesh(
-    new THREE.PlaneGeometry(6000, 6000, 1, 1).rotateX(-Math.PI / 2),
+    new THREE.RingGeometry(size * 0.5 * 0.97, 3000, 64, 1).rotateX(-Math.PI / 2),
     new THREE.MeshStandardMaterial({ color: 0x3a98c4, roughness: 0.5, metalness: 0.02 }),
   );
-  far.position.y = -0.05;
+  far.position.y = -0.08;
   far.receiveShadow = false;
 
   function update(w, cx, cz, fx) {
     const sx = Math.round(cx / cell) * cell, sz = Math.round(cz / cell) * cell;
     mesh.position.set(sx, 0, sz);
-    far.position.set(cx, -0.05, cz);
+    far.position.set(sx, -0.08, sz);
     uniforms.uCenter.value.set(sx, sz);
     for (let i = 0; i < 4; i++) {
       uniforms.uWaveDir.value[i].set(w.dirX[i], w.dirZ[i]);
