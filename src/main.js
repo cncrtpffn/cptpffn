@@ -5,6 +5,8 @@ import { Waves } from './physics/waves.js';
 import { Boat } from './physics/boat.js';
 import { createWater } from './scene/water.js';
 import { createBoatMesh } from './scene/boat-mesh.js';
+import { createWake } from './scene/wake.js';
+import { createSpray } from './scene/spray.js';
 import { createEnvironment } from './scene/environment.js';
 import { FollowCamera } from './scene/camera.js';
 import { Input } from './input.js';
@@ -40,6 +42,9 @@ const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterS
 scene.add(water.mesh, water.far);
 const boatMesh = createBoatMesh();
 scene.add(boatMesh.group);
+const wake = createWake();
+const spray = createSpray();
+scene.add(spray.mesh);
 const followCam = new FollowCamera(camera, canvas);
 
 // --- UI ---
@@ -48,7 +53,7 @@ const hud = new Hud();
 let paused = false;
 const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
-  resetBoat: () => { boat.reset(0, 0, SCENE.startHeadingDeg * DEG); input.crew = 0; },
+  resetBoat: () => { boat.reset(0, 0, SCENE.startHeadingDeg * DEG); input.crew = 0; wake.reset(); },
 };
 createWeatherPanel({ wind, sea, env, actions });
 input.on('reef', (d) => boat.sail.reef(d));
@@ -67,6 +72,7 @@ window.addEventListener('resize', () => {
 
 // --- отладка через URL: ?t=30&twa=60&wind=8&cam=chase&auto=1 ---
 const params = new URLSearchParams(location.search);
+let simTime = 0;
 const debugAuto = params.has('auto') || params.has('t');
 if (params.has('wind')) wind.baseSpeed = parseFloat(params.get('wind'));
 if (params.has('winddir')) wind.baseDirDeg = parseFloat(params.get('winddir'));
@@ -90,6 +96,8 @@ if (params.has('t')) {
     waves.configure(Math.min(1, 0.006 * wind.baseSpeed * wind.baseSpeed) * SEA.maxHeight, wind.dir, wind.baseSpeed);
     waves.update(STEP);
     boat.step(STEP, autopilotControls(), wind, waves, SCENE.islands);
+    simTime += STEP;
+    wake.update(simTime, boat);
   }
   waves.sigHeight = waves.targetHeight;
   boatMesh.update(boat, 0);
@@ -100,7 +108,6 @@ const debugLog = params.has('log');
 // --- цикл ---
 let last = performance.now();
 let acc = 0;
-let simTime = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = Math.min(0.1, (now - last) / 1000);
@@ -122,8 +129,13 @@ function frame(now) {
     }
     if (n === 12) acc = 0;
   }
-  water.update(waves, boat.x, boat.z);
+  wake.update(simTime, boat);
   boatMesh.update(boat, simTime);
+  if (!paused) spray.update(dt, boat, waves, wind, boatMesh);
+  water.update(waves, boat.x, boat.z, {
+    time: waves.time, sunDir: env.sunDir, sunColor: env.sun.color, windDir: wind.vector(),
+    whitecap: THREE.MathUtils.clamp((wind.speed - 5) / 10, 0, 1), wake,
+  });
   env.update(paused ? 0 : dt, waves, wind, boat);
   followCam.update(dt || 0.016, boat, boatMesh);
   hud.update({ boat, wind, paused, cameraMode: followCam.mode });
@@ -136,4 +148,4 @@ document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { boat, wind, waves, sea, env, followCam, scene };
+window.__sim = { boat, wind, waves, sea, env, followCam, scene, wake, spray };

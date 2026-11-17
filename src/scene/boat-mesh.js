@@ -274,6 +274,11 @@ export function createBoatMesh() {
     return target ? target.copy(eye) : eye.clone();
   }
   function setCrewVisible(v) { crew.visible = v; }
+  // мировая точка у форштевня на ватерлинии — для брызг
+  function bowWorld(target) {
+    target.set(0, 0.1, -2.6);
+    return group.localToWorld(target);
+  }
 
   function update(boat, time) {
     group.position.set(boat.x, boat.y, boat.z);
@@ -299,5 +304,5 @@ export function createBoatMesh() {
     crew.rotation.y = -boat.rudder * 0.3;
   }
 
-  return { group, update, eyeWorld, setCrewVisible };
+  return { group, update, eyeWorld, bowWorld, setCrewVisible };
 }

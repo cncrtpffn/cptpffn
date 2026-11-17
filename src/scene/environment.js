@@ -194,5 +194,5 @@ export function createEnvironment(scene, cfg) {
   }
 
   setTimeOfDay(0.4);
-  return { update, setTimeOfDay, sun, islands };
+  return { update, setTimeOfDay, sun, sunDir, islands };
 }
