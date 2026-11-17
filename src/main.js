@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BOAT, WIND, SEA, SCENE, DEG } from './config.js';
+import { BOAT, SEA, SCENE, DEG } from './config.js';
 import { Wind } from './physics/wind.js';
 import { Waves } from './physics/waves.js';
 import { Boat } from './physics/boat.js';
@@ -19,6 +19,8 @@ import { applyIcons } from './ui/icons.js';
 import './debug/polar.js';
 
 const STEP = 1 / 120;
+// стартовый сетап: время суток, погода, положение лодки
+const START = await (await fetch('start.json')).json();
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -34,14 +36,20 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.3, 5000);
 
 // --- модель ---
-const wind = new Wind(WIND);
+const wind = new Wind(START.weather.wind);
 const waves = new Waves();
 const boat = new Boat(BOAT);
-boat.reset(0, 0, SCENE.startHeadingDeg * DEG);
-const sea = { ...SEA };
+function placeBoat() {
+  const b = START.boat;
+  boat.reset(b.x, b.z, b.headingDeg * DEG);
+  boat.sail.reefTarget = boat.sail.reefLevel = b.reefs;
+  boat.board = b.board;
+}
+placeBoat();
+const sea = { ...SEA, ...START.weather.sea };
 
 // --- сцена ---
-const env = createEnvironment(scene, SCENE);
+const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay });
 const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterSegments });
 scene.add(water.mesh, water.far);
 const boatMesh = createBoatMesh();
@@ -57,9 +65,9 @@ const hud = new Hud();
 let paused = false;
 const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
-  resetBoat: () => { boat.reset(0, 0, SCENE.startHeadingDeg * DEG); input.crew = 0; wake.reset(); },
+  resetBoat: () => { placeBoat(); input.crew = 0; wake.reset(); },
 };
-createWeatherPanel({ wind, sea, env, actions });
+createWeatherPanel({ wind, sea, env, actions, start: START });
 input.on('reef', (d) => boat.sail.reef(d));
 input.on('camera', () => followCam.nextMode());
 // пауза показывает справку; закрыть справку — продолжить

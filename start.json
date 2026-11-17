@@ -1,0 +1,10 @@
+{
+  "timeOfDay": 0.21,
+  "weather": {
+    "preset": "Умеренный",
+    "clouds": "Кучевые",
+    "wind": { "speed": 7, "dirDeg": 0, "gusts": true, "gustStrength": 0.3, "shiftDeg": 12 },
+    "sea": { "auto": true, "state": 0.3 }
+  },
+  "boat": { "x": 0, "z": 0, "headingDeg": 90, "reefs": 0, "board": 1 }
+}

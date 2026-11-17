@@ -56,7 +56,7 @@ export function createEnvironment(scene, cfg) {
   const sunDir = new THREE.Vector3(0.4, 0.8, 0.3);
   const sunGlint = new THREE.Color();
 
-  let dayPhase = 0.4;
+  let dayPhase;
   function setTimeOfDay(t) {
     dayPhase = t;
     // на краях суток солнце уходит на 8° под горизонт — сумерки со звёздами
@@ -98,7 +98,7 @@ export function createEnvironment(scene, cfg) {
     if (clouds.update(dt, wind, boat.x, boat.z)) applyLighting();
   }
 
-  setTimeOfDay(0.4);
+  setTimeOfDay(cfg.timeOfDay ?? 0.5);
   const setCloudType = (name, instant) => { clouds.setType(name, instant); if (instant) applyLighting(); };
   return { update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, sunDir, sunGlint, islands };
 }

@@ -23,9 +23,9 @@ const PRESET_CLOUDS = {
   'Шторм': 'Гроза',
 };
 
-export function createWeatherPanel({ wind, sea, env, actions }) {
+export function createWeatherPanel({ wind, sea, env, actions, start }) {
   const gui = new GUI({ title: 'Погода и сцена', width: 270 });
-  const state = { preset: 'Умеренный', timeOfDay: 0.4, clouds: 'Кучевые' };
+  const state = { preset: start.weather.preset, timeOfDay: start.timeOfDay, clouds: start.weather.clouds };
 
   const fw = gui.addFolder('Ветер');
   const speedCtl = fw.add(wind, 'baseSpeed', 0, 22, 0.5).name('Скорость, м/с');

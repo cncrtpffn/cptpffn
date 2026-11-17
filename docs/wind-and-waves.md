@@ -100,17 +100,22 @@
 
 ## Параметры
 
-`src/config.js`:
+Стартовые значения — `start.json`:
 
 | Параметр | По умолчанию | Смысл |
 |---|---|---|
-| `WIND.speed` | 7 м/с | базовая скорость |
-| `WIND.dirDeg` | 0° | откуда дует |
-| `WIND.gusts` | true | порывы и заходы включены |
-| `WIND.gustStrength` | 0.3 | амплитуда порывов, доля скорости |
-| `WIND.shiftDeg` | 12° | амплитуда заходов |
-| `SEA.auto` | true | волнение от ветра (иначе `SEA.state`) |
-| `SEA.state` | 0.3 | ручное волнение 0..1 |
+| `weather.wind.speed` | 7 м/с | базовая скорость |
+| `weather.wind.dirDeg` | 0° | откуда дует |
+| `weather.wind.gusts` | true | порывы и заходы включены |
+| `weather.wind.gustStrength` | 0.3 | амплитуда порывов, доля скорости |
+| `weather.wind.shiftDeg` | 12° | амплитуда заходов |
+| `weather.sea.auto` | true | волнение от ветра (иначе `weather.sea.state`) |
+| `weather.sea.state` | 0.3 | ручное волнение 0..1 |
+
+Константы волн — `src/config.js`:
+
+| Параметр | По умолчанию | Смысл |
+|---|---|---|
 | `SEA.maxHeight` | 2.2 м | значимая высота при state = 1 |
 | `SEA.growTime` | 25 с | нарастание ветрового волнения |
 | `SEA.decayTime` | 45 с | затухание (для λ = 12 м) |
