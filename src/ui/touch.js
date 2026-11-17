@@ -65,10 +65,10 @@ export function createTouchControls(input) {
   ui.id = 'touch-ui';
   ui.innerHTML = `
     <div class="t-left">
-      <div class="t-buttons t-btns">
-        <div class="t-group"><span class="t-ico" role="img" aria-label="Шверт" title="Шверт">${ICONS.board}</span><button data-board="-1">▲</button><button data-board="1">▼</button></div>
-        <div class="t-group"><span class="t-ico" role="img" aria-label="Рифы" title="Рифы">${ICONS.reef}</span><button data-reef="1">+</button><button data-reef="-1">−</button></div>
-        <div class="t-group"><span class="t-ico" role="img" aria-label="Экипаж" title="Экипаж">${ICONS.crew}</span><button data-crew="-1">◀</button><button data-crew="0">●</button><button data-crew="1">▶</button></div>
+      <div class="t-panel t-btns">
+        <div class="t-sec" style="--n:2"><span class="t-ico" role="img" aria-label="Шверт" title="Шверт">${ICONS.board}</span><div class="t-row"><button data-board="-1">▲</button><button data-board="1">▼</button></div></div>
+        <div class="t-sec" style="--n:2"><span class="t-ico" role="img" aria-label="Рифы" title="Рифы">${ICONS.reef}</span><div class="t-row"><button data-reef="1">+</button><button data-reef="-1">−</button></div></div>
+        <div class="t-sec" style="--n:3"><span class="t-ico" role="img" aria-label="Экипаж" title="Экипаж">${ICONS.crew}</span><div class="t-row"><button data-crew="-1">◀</button><button data-crew="0">●</button><button data-crew="1">▶</button></div></div>
       </div>
       <div class="t-slider h" id="t-rudder"><div class="t-track"><div class="t-knob"></div></div><span class="t-label">руль</span></div>
     </div>

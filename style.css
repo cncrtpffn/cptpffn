@@ -129,15 +129,24 @@ body.touch #hud-controls kbd { display: none; }
 body.touch { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 #touch-ui { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
 .t-left, .t-right { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); display: flex; gap: 8px; }
-.t-left { left: max(12px, env(safe-area-inset-left)); flex-direction: column; align-items: flex-start; }
+.t-left { --t-w: min(46vw, 320px); left: max(12px, env(safe-area-inset-left)); flex-direction: column; align-items: flex-start; }
 .t-right { right: max(12px, env(safe-area-inset-right)); align-items: flex-end; }
 .t-left > *, .t-right > * { pointer-events: auto; }
 body.touch #hud-controls { position: relative; left: auto; bottom: auto; width: 240px; max-height: 50vh; overflow: auto; }
-.t-buttons { display: flex; flex-wrap: wrap; gap: 6px; max-width: min(520px, calc(100vw - 170px)); }
+.t-buttons { display: flex; gap: 6px; }
 .t-buttons.col { flex-direction: column; }
-.t-group { display: flex; align-items: center; gap: 4px; padding: 4px 6px; background: var(--card); border: 1px solid var(--card-border); border-radius: 14px; box-shadow: 0 4px 14px rgba(40, 30, 10, 0.1); }
-.t-ico { flex: none; display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; color: var(--ink-soft); }
-.t-ico svg { width: 20px; height: 20px; }
+/* шверт, рифы и экипаж — один блок шириной с руль */
+.t-panel {
+  display: flex; width: var(--t-w); padding: 4px 6px 6px;
+  background: var(--card); border: 1px solid var(--card-border); border-radius: 16px; box-shadow: 0 6px 24px rgba(40, 30, 10, 0.12);
+}
+.t-sec { flex: var(--n) 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 0 4px; }
+.t-sec + .t-sec { border-left: 1px solid var(--card-border); }
+.t-sec:first-child { padding-left: 0; } .t-sec:last-child { padding-right: 0; }
+.t-row { display: flex; gap: 4px; width: 100%; }
+.t-row .ui-btn { flex: 1; width: auto; min-width: 0; }
+.t-ico { flex: none; display: flex; align-items: center; justify-content: center; height: 18px; color: var(--ink-soft); }
+.t-ico svg { width: 18px; height: 18px; }
 .ico { display: inline-flex; color: var(--ink-soft); }
 .ico svg { width: 14px; height: 14px; vertical-align: -2px; }
 .card td .ico svg { width: 16px; height: 16px; }
@@ -154,13 +163,11 @@ body.touch #hud-controls { position: relative; left: auto; bottom: auto; width: 
   position: relative; display: flex; align-items: center; justify-content: center;
   background: var(--card); border: 1px solid var(--card-border); border-radius: 999px; box-shadow: 0 6px 24px rgba(40, 30, 10, 0.12);
 }
-.t-slider.h .t-track { width: min(46vw, 320px); height: 60px; }
+.t-slider.h .t-track { width: var(--t-w); height: 60px; }
 /* портрет: кнопки камеры над слайдером шкота, слева больше места под руль */
 @media (orientation: portrait) {
   .t-right { flex-direction: column; align-items: center; }
-  .t-slider.h .t-track { width: min(320px, calc(100vw - 100px)); }
-  .t-buttons.t-btns:not(.col) { max-width: calc(100vw - 100px); }
-  .t-group { gap: 3px; padding: 4px 5px; }
+  .t-left { --t-w: min(320px, calc(100vw - 100px)); }
 }
 .t-slider.v .t-track { width: 60px; height: min(42vh, 220px); }
 .t-track::before { content: ''; position: absolute; background: var(--bar); border-radius: 4px; }
