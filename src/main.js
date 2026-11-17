@@ -108,6 +108,8 @@ const debugAuto = params.has('auto') || params.has('t');
 if (params.has('wind')) wind.baseSpeed = parseFloat(params.get('wind'));
 if (params.has('winddir')) wind.baseDirDeg = parseFloat(params.get('winddir'));
 if (params.has('cam')) followCam.mode = params.get('cam');
+if (params.has('camaz')) followCam.azimuth = parseFloat(params.get('camaz')) * DEG;
+if (params.has('campolar')) followCam.polar = parseFloat(params.get('campolar'));
 if (params.has('reefs')) { boat.sail.reefTarget = boat.sail.reefLevel = parseInt(params.get('reefs'), 10); }
 if (params.has('board')) boat.board = parseFloat(params.get('board'));
 if (params.has('tod')) env.setTimeOfDay(parseFloat(params.get('tod')));
@@ -164,7 +166,7 @@ function frame(now) {
   boatMesh.update(boat, simTime);
   if (!halted) spray.update(dt, boat, waves, wind, boatMesh);
   water.update(waves, boat.x, boat.z, {
-    time: waves.time, sunDir: env.sunDir, sunColor: env.sun.color, windDir: wind.vector(),
+    time: waves.time, sunDir: env.sunDir, sunColor: env.sunGlint, windDir: wind.vector(),
     whitecap: THREE.MathUtils.clamp((wind.speed - 5) / 10, 0, 1), wake,
   });
   env.update(halted ? 0 : dt, waves, wind, boat);

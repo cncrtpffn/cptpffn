@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { makeIsland } from './island.js';
+import { createSky } from './sky.js';
 
 const flat = (color) => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.9 });
 
@@ -44,25 +45,8 @@ function mulberry32(a) {
 export function createEnvironment(scene, cfg) {
   const rng = mulberry32(7);
 
-  // небо: градиентный купол
-  const skyUniforms = {
-    top: { value: new THREE.Color(0x6fb7e8) },
-    horizon: { value: new THREE.Color(0xdcecf5) },
-  };
-  const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(2500, 24, 12),
-    new THREE.ShaderMaterial({
-      uniforms: skyUniforms,
-      side: THREE.BackSide, depthWrite: false, fog: false,
-      vertexShader: `varying vec3 vW; void main(){ vW = (modelMatrix * vec4(position,1.0)).xyz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader: `uniform vec3 top; uniform vec3 horizon; varying vec3 vW;
-        void main(){ float h = normalize(vW - cameraPosition).y; float t = smoothstep(-0.05, 0.45, h); gl_FragColor = vec4(mix(horizon, top, t), 1.0); }`,
-    }),
-  );
-  scene.add(sky);
-
-  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(40, 12, 8), new THREE.MeshBasicMaterial({ color: 0xfff1c0, fog: false }));
-  scene.add(sunDisc);
+  const sky = createSky();
+  scene.add(sky.mesh);
 
   const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x2b6f9a, 0.7);
   scene.add(hemi);
@@ -86,26 +70,22 @@ export function createEnvironment(scene, cfg) {
     scene.add(c); clouds.push(c);
   }
 
-  const palette = {
-    noon: { top: 0x6fb7e8, horizon: 0xdcecf5, sun: 0xfff2d8, sunI: 2.4, hemi: 0xcfe8ff, ground: 0x2b6f9a, fog: 0xdcecf5 },
-    low: { top: 0x5a5a9a, horizon: 0xf6b07a, sun: 0xffb070, sunI: 1.7, hemi: 0xe8b8c8, ground: 0x2a4d6f, fog: 0xf2c2a0 },
-  };
   const sunDir = new THREE.Vector3(0.4, 0.8, 0.3);
-  const cA = new THREE.Color(), cB = new THREE.Color();
-  const lerpColor = (a, b, t) => cA.set(a).lerp(cB.set(b), t).clone();
+  const sunGlint = new THREE.Color();
 
   function setTimeOfDay(t) {
-    const elev = (5 + 72 * Math.sin(Math.PI * t)) * Math.PI / 180;
+    // на краях суток солнце уходит на 8° под горизонт — сумерки со звёздами
+    const elev = (-8 + 85 * Math.pow(Math.sin(Math.PI * t), 1.5)) * Math.PI / 180;
     const az = (-80 + 160 * t) * Math.PI / 180; // восток -> запад
     sunDir.set(Math.sin(az) * Math.cos(elev), Math.sin(elev), -Math.cos(az) * Math.cos(elev)).normalize();
-    const low = Math.pow(1 - Math.sin(Math.PI * t), 2.2);
-    skyUniforms.top.value.copy(lerpColor(palette.noon.top, palette.low.top, low));
-    skyUniforms.horizon.value.copy(lerpColor(palette.noon.horizon, palette.low.horizon, low));
-    sun.color.copy(lerpColor(palette.noon.sun, palette.low.sun, low));
-    sun.intensity = THREE.MathUtils.lerp(palette.noon.sunI, palette.low.sunI, low);
-    hemi.color.copy(lerpColor(palette.noon.hemi, palette.low.hemi, low));
-    hemi.groundColor.copy(lerpColor(palette.noon.ground, palette.low.ground, low));
-    scene.fog.color.copy(lerpColor(palette.noon.fog, palette.low.fog, low));
+    const L = sky.setSun(sunDir, t);
+    sun.color.copy(L.sunColor);
+    sun.intensity = L.sunI;
+    hemi.color.copy(L.hemi);
+    hemi.groundColor.copy(L.ground);
+    hemi.intensity = L.hemiI;
+    scene.fog.color.copy(L.fog);
+    sunGlint.copy(L.glint);
   }
 
   const tmp = new THREE.Vector3();
@@ -113,8 +93,7 @@ export function createEnvironment(scene, cfg) {
     // солнце и тени следуют за лодкой
     sun.target.position.set(boat.x, 0, boat.z);
     sun.position.copy(tmp.copy(sunDir).multiplyScalar(120).add(sun.target.position));
-    sunDisc.position.copy(tmp.copy(sunDir).multiplyScalar(2200).add(new THREE.Vector3(boat.x, 0, boat.z)));
-    sky.position.set(boat.x, 0, boat.z);
+    sky.update(boat.x, boat.z, waves.time);
     for (const { g, d } of buoys) {
       const s = waves.sample(d.x, d.z);
       g.position.y = s.h - 0.1;
@@ -132,5 +111,5 @@ export function createEnvironment(scene, cfg) {
   }
 
   setTimeOfDay(0.4);
-  return { update, setTimeOfDay, sun, sunDir, islands };
+  return { update, setTimeOfDay, sun, sunDir, sunGlint, islands };
 }
