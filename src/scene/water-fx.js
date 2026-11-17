@@ -6,7 +6,7 @@ export const FX_UNIFORMS_GLSL = `
   uniform float uTime; uniform vec3 uSunDir; uniform vec3 uSunColor;
   uniform vec2 uWindDir; uniform float uWhitecap;
   uniform vec4 uTrail[${WAKE_POINTS}]; uniform int uTrailCount; uniform vec2 uWakeCenter;
-  varying vec3 vWorldPos;
+  varying vec3 vWorldPos; varying vec3 vWaveN;
 `;
 
 export const NOISE_GLSL = `
@@ -59,11 +59,10 @@ export const WAKE_GLSL = `
 // Блики солнца: мягкий отблеск на гранях + мерцающие искры.
 export const GLINT_GLSL = `
   {
-    vec3 nf = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
-    if (nf.y < 0.0) nf = -nf;
+    vec3 nf = normalize(vWaveN);
     vec3 vd = normalize(cameraPosition - vWorldPos);
     float rl = max(dot(reflect(-vd, nf), normalize(uSunDir)), 0.0);
-    // отблеск граней — пятнами, а не по всем граням сразу
+    // отблеск волн — пятнами, а не по всей поверхности сразу
     float sheen = pow(rl, 300.0) * 0.45 * smoothstep(0.45, 0.75, vnoise(vWorldPos.xz * 0.08 + uTime * 0.05));
     // искра — маленькая точка в случайном месте ячейки
     vec2 g = vWorldPos.xz * 1.6;

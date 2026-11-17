@@ -3,7 +3,7 @@ import { MAX_COMP } from '../physics/waves.js';
 import { WAKE_POINTS, FX_UNIFORMS_GLSL, NOISE_GLSL, WAKE_GLSL, GLINT_GLSL } from './water-fx.js';
 
 // Вода: MeshStandardMaterial + вершинный шейдер Герстнера (те же параметры, что в физике).
-// Плоское затенение даёт гранёный low-poly вид; цвет по высоте с пятнами оттенка,
+// Гладкое затенение по аналитическим нормалям Герстнера; цвет по высоте с пятнами оттенка,
 // рваная пена на гребнях и полосы по ветру, кильватерный след, блики солнца.
 export function createWater(waves, { size = 440, segments = 176 } = {}) {
   const geo = new THREE.PlaneGeometry(size, size, segments, segments);
@@ -34,7 +34,7 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
   };
 
   const mat = new THREE.MeshStandardMaterial({
-    color: 0xffffff, roughness: 0.38, metalness: 0.02, flatShading: true,
+    color: 0xffffff, roughness: 0.38, metalness: 0.02,
     transparent: true, opacity: 0.94,
   });
   mat.onBeforeCompile = (shader) => {
@@ -43,19 +43,27 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
       .replace('#include <common>', `#include <common>
         uniform vec2 uWaveDir[${MAX_COMP}]; uniform float uWaveA[${MAX_COMP}]; uniform float uWaveK[${MAX_COMP}];
         uniform float uWavePhase[${MAX_COMP}]; uniform float uWaveQ[${MAX_COMP}]; uniform vec2 uCenter; uniform float uRadius;
-        varying float vWaveH; varying float vSteep; varying vec3 vWorldPos;`)
-      .replace('#include <begin_vertex>', `
-        vec3 transformed = vec3(position);
+        varying float vWaveH; varying float vSteep; varying vec3 vWorldPos; varying vec3 vWaveN;`)
+      // beginnormal_vertex идёт раньше begin_vertex: здесь и смещение, и аналитическая нормаль
+      .replace('#include <beginnormal_vertex>', `
         vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
         float edge = 1.0 - smoothstep(uRadius * 0.72, uRadius * 0.98, length(wp.xz - uCenter));
-        vec3 disp = vec3(0.0); float steep = 0.0;
+        vec3 disp = vec3(0.0); float steep = 0.0; vec3 nd = vec3(0.0);
         for (int i = 0; i < ${MAX_COMP}; i++) {
           float th = uWaveK[i] * dot(uWaveDir[i], wp.xz) - uWavePhase[i];
           float c = cos(th), s = sin(th);
+          float wa = uWaveK[i] * uWaveA[i];
           disp.xz += uWaveQ[i] * uWaveA[i] * uWaveDir[i] * c;
           disp.y += uWaveA[i] * s;
-          steep += uWaveA[i] * uWaveK[i] * s;
+          steep += wa * s;
+          nd.xz += uWaveDir[i] * wa * c;
+          nd.y += uWaveQ[i] * wa * s;
         }
+        // сетка только сдвигается, так что нормаль в объекте = мировая
+        vec3 objectNormal = normalize(vec3(-nd.x * edge, 1.0 - nd.y * edge, -nd.z * edge));
+        vWaveN = objectNormal;`)
+      .replace('#include <begin_vertex>', `
+        vec3 transformed = vec3(position);
         transformed += disp * edge;
         vWaveH = disp.y * edge; vSteep = steep * edge;
         vWorldPos = wp + disp * edge;`);
