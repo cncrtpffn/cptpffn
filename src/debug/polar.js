@@ -14,7 +14,6 @@ export function runCase(opts) {
   const wind = new Wind({ speed: tws, dirDeg: 0, gusts, gustStrength: 0.3, shiftDeg: 12 });
   const waves = new Waves();
   waves.configure(sea, 0, tws);
-  waves.sigHeight = sea; waves.targetHeight = sea;
   const boat = new Boat();
   const psi0 = ((-twa * DEG) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
   boat.reset(0, 0, psi0);

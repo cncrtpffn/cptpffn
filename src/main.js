@@ -124,13 +124,13 @@ if (params.has('t')) {
   const secs = parseFloat(params.get('t'));
   for (let i = 0; i < secs / STEP; i++) {
     wind.update(STEP);
-    waves.configure(Math.min(1, 0.006 * wind.baseSpeed * wind.baseSpeed) * SEA.maxHeight, wind.dir, wind.baseSpeed);
+    waves.configure(Math.min(1, 0.006 * wind.baseSpeed * wind.baseSpeed) * SEA.maxHeight, wind.baseDirDeg * DEG, wind.baseSpeed);
     waves.update(STEP);
     boat.step(STEP, autopilotControls(), wind, waves, SCENE.islands);
     simTime += STEP;
     wake.update(simTime, boat);
   }
-  waves.sigHeight = waves.targetHeight;
+  waves.settle();
   boatMesh.update(boat, 0);
   followCam.update(100, boat, boatMesh);
 }
@@ -148,7 +148,7 @@ function frame(now) {
     acc += dt;
     const seaState = sea.auto ? Math.min(1, 0.006 * wind.baseSpeed * wind.baseSpeed) : sea.state;
     if (sea.auto) sea.state = seaState;
-    waves.configure(seaState * SEA.maxHeight, wind.dir, wind.baseSpeed);
+    waves.configure(seaState * SEA.maxHeight, wind.baseDirDeg * DEG, wind.baseSpeed);
     const controls = debugAuto ? autopilotControls() : input.controls;
     let n = 0;
     while (acc >= STEP && n < 12) {

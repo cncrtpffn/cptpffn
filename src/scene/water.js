@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MAX_COMP } from '../physics/waves.js';
 import { WAKE_POINTS, FX_UNIFORMS_GLSL, NOISE_GLSL, WAKE_GLSL, GLINT_GLSL } from './water-fx.js';
 
 // Вода: MeshStandardMaterial + вершинный шейдер Герстнера (те же параметры, что в физике).
@@ -10,11 +11,11 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
   const cell = size / segments;
 
   const uniforms = {
-    uWaveDir: { value: [new THREE.Vector2(), new THREE.Vector2(), new THREE.Vector2(), new THREE.Vector2()] },
-    uWaveA: { value: new Float32Array(4) },
-    uWaveK: { value: new Float32Array(4) },
-    uWavePhase: { value: new Float32Array(4) },
-    uWaveQ: { value: new Float32Array(4) },
+    uWaveDir: { value: Array.from({ length: MAX_COMP }, () => new THREE.Vector2()) },
+    uWaveA: { value: new Float32Array(MAX_COMP) },
+    uWaveK: { value: new Float32Array(MAX_COMP) },
+    uWavePhase: { value: new Float32Array(MAX_COMP) },
+    uWaveQ: { value: new Float32Array(MAX_COMP) },
     uCenter: { value: new THREE.Vector2() },
     uRadius: { value: size * 0.5 },
     uAmp: { value: 0.3 },
@@ -39,15 +40,15 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
-        uniform vec2 uWaveDir[4]; uniform float uWaveA[4]; uniform float uWaveK[4];
-        uniform float uWavePhase[4]; uniform float uWaveQ[4]; uniform vec2 uCenter; uniform float uRadius;
+        uniform vec2 uWaveDir[${MAX_COMP}]; uniform float uWaveA[${MAX_COMP}]; uniform float uWaveK[${MAX_COMP}];
+        uniform float uWavePhase[${MAX_COMP}]; uniform float uWaveQ[${MAX_COMP}]; uniform vec2 uCenter; uniform float uRadius;
         varying float vWaveH; varying float vSteep; varying vec3 vWorldPos;`)
       .replace('#include <begin_vertex>', `
         vec3 transformed = vec3(position);
         vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
         float edge = 1.0 - smoothstep(uRadius * 0.72, uRadius * 0.98, length(wp.xz - uCenter));
         vec3 disp = vec3(0.0); float steep = 0.0;
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < ${MAX_COMP}; i++) {
           float th = uWaveK[i] * dot(uWaveDir[i], wp.xz) - uWavePhase[i];
           float c = cos(th), s = sin(th);
           disp.xz += uWaveQ[i] * uWaveA[i] * uWaveDir[i] * c;
@@ -104,7 +105,7 @@ export function createWater(waves, { size = 440, segments = 176 } = {}) {
     mesh.position.set(sx, 0, sz);
     far.position.set(sx, -0.08, sz);
     uniforms.uCenter.value.set(sx, sz);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < MAX_COMP; i++) {
       uniforms.uWaveDir.value[i].set(w.dirX[i], w.dirZ[i]);
       uniforms.uWaveA.value[i] = w.amp[i];
       uniforms.uWaveK.value[i] = w.k[i];

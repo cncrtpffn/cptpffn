@@ -73,11 +73,13 @@ python3 -m http.server 8080
 
 ## Структура
 
+Как устроены ветер и волны: [docs/wind-and-waves.md](docs/wind-and-waves.md).
+
 ```
 index.html, style.css      — разметка HUD, стили
 src/config.js              — все параметры лодки и среды
 src/physics/wind.js        — истинный/вымпельный ветер, порывы
-src/physics/waves.js       — волны Герстнера (CPU-часть)
+src/physics/waves.js       — волны Герстнера (CPU-часть), системы волн и зыбь
 src/physics/sail.js        — грот: шкот, гик, рифы, заполаскивание, фордевинд, силы
 src/physics/boat.js        — корпус, шверт, руль, остойчивость, заливание, переворот
 src/scene/*                — вода (шейдер), модель лодки, окружение, камера
