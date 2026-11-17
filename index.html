@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Кэтбот — парусная демо-сцена</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
@@ -53,17 +53,27 @@
     </div>
 
     <div id="warnings"></div>
-    <div id="hint">Камера: <b id="hud-camera">орбита</b> · <kbd>V</kbd> вид · <kbd>H</kbd> помощь · мышь — обзор, колесо — зум</div>
+    <div id="hint"><span class="hint-text">Камера: <b id="hud-camera">орбита</b><span class="kbd-only"> · <kbd>V</kbd> вид · <kbd>H</kbd> помощь · мышь — обзор, колесо — зум</span><span class="touch-only"> · палец — обзор, щипок — зум</span></span></div>
   </div>
 
   <div id="help" class="overlay hidden">
     <div class="card">
+      <button class="close" id="btn-help-close" aria-label="Закрыть">✕</button>
       <h2>Кэтбот</h2>
       <p>Гафельный одномачтовый парусник Новой Англии: мачта в самом носу, один большой грот, широкий корпус, шверт и «амбарная дверь» вместо руля. Управляется так же, как настоящий.</p>
       <div class="cols">
         <div>
           <h3>Управление</h3>
-          <table>
+          <table class="touch-only">
+            <tr><td>слайдер «руль»</td><td>отклоните палец влево/вправо — руль перекладывается тем быстрее, чем дальше; отпустите — вернётся в ДП</td></tr>
+            <tr><td>слайдер «шкот»</td><td>вверх — выбрать, вниз — потравить</td></tr>
+            <tr><td>шверт ▲ ▼</td><td>держите, чтобы поднять / опустить</td></tr>
+            <tr><td>риф + −</td><td>взять риф / отдать риф</td></tr>
+            <tr><td>экипаж ◀ ● ▶</td><td>на левый борт / в центр / на правый борт</td></tr>
+            <tr><td>🎥 ❚❚ ?</td><td>вид камеры, пауза, эта справка</td></tr>
+            <tr><td>палец / щипок</td><td>обзор камерой / зум</td></tr>
+          </table>
+          <table class="kbd-only">
             <tr><td><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd></td><td>руль (сам возвращается в ДП)</td></tr>
             <tr><td><kbd>↑</kbd> <kbd>↓</kbd> / <kbd>W</kbd> <kbd>S</kbd></td><td>грота-шкот: выбрать / потравить</td></tr>
             <tr><td><kbd>Q</kbd> <kbd>E</kbd></td><td>шверт: поднять / опустить</td></tr>
@@ -87,7 +97,7 @@
           </ul>
         </div>
       </div>
-      <p class="muted">Закрыть — <kbd>H</kbd> или <kbd>Esc</kbd></p>
+      <p class="muted kbd-only">Закрыть — <kbd>H</kbd> или <kbd>Esc</kbd></p>
     </div>
   </div>
 
@@ -95,11 +105,11 @@
     <div class="card small">
       <h2>Лодка перевернулась!</h2>
       <p id="capsize-text">Слишком много парусов для такого ветра.</p>
-      <button id="btn-righten">Поставить лодку <kbd>Enter</kbd></button>
+      <button id="btn-righten">Поставить лодку <kbd class="kbd-only">Enter</kbd></button>
     </div>
   </div>
 
-  <div id="pause" class="overlay hidden"><div class="card small"><h2>Пауза</h2><p><kbd>Space</kbd> — продолжить</p></div></div>
+  <div id="pause" class="overlay hidden"><div class="card small"><h2>Пауза</h2><p class="kbd-only"><kbd>Space</kbd> — продолжить</p><p class="touch-only">Коснитесь, чтобы продолжить</p></div></div>
 
   <div id="loading">Загрузка…</div>
   <script type="module" src="src/main.js"></script>

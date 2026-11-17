@@ -1,5 +1,6 @@
 import GUI from 'three/addons/libs/lil-gui.module.min.js';
 import { beaufort, BEAUFORT_NAMES } from '../config.js';
+import { SMALL_SCREEN, loadState, saveState } from './collapse.js';
 
 const PRESETS = {
   'Штиль': { speed: 1.5, gusts: false, gustStrength: 0.2, shiftDeg: 5 },
@@ -39,6 +40,14 @@ export function createWeatherPanel({ wind, sea, env, actions }) {
   fc.add(state, 'timeOfDay', 0, 1, 0.01).name('Время суток').onChange((v) => env.setTimeOfDay(v));
   fc.add({ f: actions.righten }, 'f').name('Поставить лодку');
   fc.add({ f: actions.resetBoat }, 'f').name('Вернуть в начало');
+
+  // на маленьких экранах панель и второстепенные папки свёрнуты
+  const small = matchMedia(SMALL_SCREEN).matches;
+  if (small) { fs.close(); fc.close(); }
+  const saved = loadState('weather');
+  if (saved ?? small) gui.close();
+  // встроенная в three версия lil-gui без onOpenClose — слушаем заголовок
+  gui.$title.addEventListener('click', () => saveState('weather', gui._closed));
 
   env.setTimeOfDay(state.timeOfDay);
   return gui;

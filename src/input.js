@@ -1,8 +1,9 @@
-// Клавиатура: непрерывные оси и одиночные события.
+// Клавиатура и экранные контролы: непрерывные оси и одиночные события.
 export class Input {
   constructor() {
     this.keys = new Set();
     this.crew = 0;
+    this.touch = { rudder: 0, sheet: 0, board: 0 }; // аналоговые оси с экранных контролов
     this.handlers = {};
     window.addEventListener('keydown', (e) => this._down(e));
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -11,6 +12,7 @@ export class Input {
 
   on(name, fn) { (this.handlers[name] ||= []).push(fn); return this; }
   _emit(name, arg) { (this.handlers[name] || []).forEach((f) => f(arg)); }
+  trigger(name, arg) { this._emit(name, arg); }
 
   _down(e) {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
@@ -43,6 +45,8 @@ export class Input {
     if (k.has('ArrowDown', 'KeyS')) sheet -= 1;
     if (k.has('KeyQ')) board -= 1;
     if (k.has('KeyE')) board += 1;
-    return { rudder, sheet, board, crew: this.crew };
+    const t = this.touch;
+    const clamp = (v) => Math.max(-1, Math.min(1, v));
+    return { rudder: clamp(rudder + t.rudder), sheet: clamp(sheet + t.sheet), board: clamp(board + t.board), crew: this.crew };
   }
 }

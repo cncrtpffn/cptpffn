@@ -11,18 +11,34 @@ export class FollowCamera {
     this.distance = 16;
     this.pos = new THREE.Vector3(0, 8, 14);
     this.look = new THREE.Vector3();
-    this._drag = null;
-    dom.addEventListener('pointerdown', (e) => { this._drag = { x: e.clientX, y: e.clientY }; dom.setPointerCapture(e.pointerId); });
+    // активные указатели: один — вращение, два — щипок (зум)
+    this._ptrs = new Map();
+    this._span = 0;
+    const span = () => { const [a, b] = [...this._ptrs.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+    dom.addEventListener('pointerdown', (e) => {
+      this._ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this._ptrs.size === 2) this._span = span();
+      try { dom.setPointerCapture(e.pointerId); } catch { /* указатель уже отпущен */ }
+    });
     dom.addEventListener('pointermove', (e) => {
-      if (!this._drag) return;
-      const dx = e.clientX - this._drag.x, dy = e.clientY - this._drag.y;
-      this._drag = { x: e.clientX, y: e.clientY };
+      const p = this._ptrs.get(e.pointerId);
+      if (!p) return;
+      const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      p.x = e.clientX; p.y = e.clientY;
+      if (this._ptrs.size >= 2) {
+        const s = span();
+        if (this._span > 0 && s > 0) this.distance = THREE.MathUtils.clamp(this.distance * this._span / s, 5, 70);
+        this._span = s;
+        return;
+      }
       if (this.mode === 'deck') this.deckYaw = (this.deckYaw || 0) - dx * 0.006;
       else this.azimuth -= dx * 0.006;
       this.polar = THREE.MathUtils.clamp(this.polar + dy * 0.004, 0.2, 1.5);
       if (this.mode === 'chase') this.mode = 'orbit';
     });
-    dom.addEventListener('pointerup', () => { this._drag = null; });
+    const up = (e) => { this._ptrs.delete(e.pointerId); this._span = this._ptrs.size === 2 ? span() : 0; };
+    dom.addEventListener('pointerup', up);
+    dom.addEventListener('pointercancel', up);
     dom.addEventListener('wheel', (e) => {
       this.distance = THREE.MathUtils.clamp(this.distance * Math.exp(e.deltaY * 0.0012), 5, 70);
     }, { passive: true });

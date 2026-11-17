@@ -12,6 +12,8 @@ import { FollowCamera } from './scene/camera.js';
 import { Input } from './input.js';
 import { Hud } from './ui/hud.js';
 import { createWeatherPanel } from './ui/weather-panel.js';
+import { createTouchControls, isTouchDevice } from './ui/touch.js';
+import { makeCollapsible } from './ui/collapse.js';
 import './debug/polar.js';
 
 const STEP = 1 / 120;
@@ -63,6 +65,18 @@ input.on('escape', () => hud.showHelp(false));
 input.on('righten', actions.righten);
 input.on('pause', () => { paused = !paused; });
 document.getElementById('btn-righten').addEventListener('click', actions.righten);
+document.getElementById('btn-help-close').addEventListener('click', () => hud.showHelp(false));
+document.getElementById('help').addEventListener('click', (e) => { if (e.target.id === 'help') hud.showHelp(false); });
+document.getElementById('pause').addEventListener('click', () => input.trigger('pause'));
+
+// тач-управление и сворачиваемые панели
+createTouchControls(input);
+const touch = isTouchDevice();
+// на таче органы управления живут в колонке над слайдером руля
+if (touch) document.querySelector('#touch-ui .t-left').prepend(document.getElementById('hud-controls'));
+makeCollapsible(document.getElementById('hud-main'), { key: 'main', title: 'Приборы' });
+makeCollapsible(document.getElementById('hud-controls'), { key: 'controls', title: 'Органы управления', ...(touch && { defaultCollapsed: true }) });
+makeCollapsible(document.getElementById('hint'), { key: 'hint', title: 'Подсказка', ...(touch && { defaultCollapsed: true }) });
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -148,4 +162,4 @@ document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { boat, wind, waves, sea, env, followCam, scene, wake, spray };
+window.__sim = { boat, wind, waves, sea, env, followCam, scene, wake, spray, input };
