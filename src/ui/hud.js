@@ -19,7 +19,7 @@ export class Hud {
       rudder: $('bar-rudder'), sheet: $('bar-sheet'), board: $('bar-board'), crew: $('crew-marker'),
       lblSheet: $('lbl-sheet'), lblBoard: $('lbl-board'), reefs: [$('reef-0'), $('reef-1'), $('reef-2')],
       status: $('sail-status'), statusBox: $('sail-status').parentElement, warnings: $('warnings'),
-      camera: $('hud-camera'), help: $('help'), capsize: $('capsize'), capsizeText: $('capsize-text'), pause: $('pause'),
+      camera: $('hud-camera'), help: $('help'), capsize: $('capsize'), capsizeText: $('capsize-text'),
     };
     const ticks = $('rose-ticks');
     let s = '';
@@ -34,11 +34,8 @@ export class Hud {
   }
 
   showHelp(v) { this.el.help.classList.toggle('hidden', !v); }
-  toggleHelp() { this.el.help.classList.toggle('hidden'); return !this.el.help.classList.contains('hidden'); }
-  get helpVisible() { return !this.el.help.classList.contains('hidden'); }
-  showPause(v) { this.el.pause.classList.toggle('hidden', !v); }
 
-  update({ boat, wind, paused, cameraMode }) {
+  update({ boat, wind, cameraMode }) {
     const e = this.el;
     const aw = boat.aw;
     const headingDeg = boat.psi / DEG;
@@ -93,6 +90,5 @@ export class Hud {
         : 'Даже с рифами надо травить шкот в порывах и держать экипаж на наветренном борту.';
     }
     e.camera.textContent = CAMERA_NAMES[cameraMode] || cameraMode;
-    this.showPause(paused);
   }
 }

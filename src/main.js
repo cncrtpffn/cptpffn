@@ -61,14 +61,17 @@ const actions = {
 createWeatherPanel({ wind, sea, env, actions });
 input.on('reef', (d) => boat.sail.reef(d));
 input.on('camera', () => followCam.nextMode());
-input.on('help', () => hud.toggleHelp());
-input.on('escape', () => hud.showHelp(false));
+// пауза показывает справку; закрыть справку — продолжить
+const setPaused = (v) => { paused = v; hud.showHelp(v); };
+input.on('pause', () => setPaused(!paused));
+input.on('help', () => setPaused(!paused));
+input.on('escape', () => setPaused(false));
 input.on('righten', actions.righten);
-input.on('pause', () => { paused = !paused; });
 document.getElementById('btn-righten').addEventListener('click', actions.righten);
-document.getElementById('btn-help-close').addEventListener('click', () => hud.showHelp(false));
-document.getElementById('help').addEventListener('click', (e) => { if (e.target.id === 'help') hud.showHelp(false); });
-document.getElementById('pause').addEventListener('click', () => input.trigger('pause'));
+document.getElementById('btn-pause').addEventListener('click', () => input.trigger('pause'));
+document.getElementById('btn-resume').addEventListener('click', () => setPaused(false));
+document.getElementById('btn-help-close').addEventListener('click', () => setPaused(false));
+document.getElementById('help').addEventListener('click', (e) => { if (e.target.id === 'help') setPaused(false); });
 
 // тач-управление и сворачиваемые панели
 applyIcons();
@@ -128,7 +131,6 @@ function frame(now) {
   requestAnimationFrame(frame);
   let dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  if (hud.helpVisible) dt = 0;
   if (!paused) {
     acc += dt;
     const seaState = sea.auto ? Math.min(1, 0.006 * wind.baseSpeed * wind.baseSpeed) : sea.state;
@@ -154,7 +156,7 @@ function frame(now) {
   });
   env.update(paused ? 0 : dt, waves, wind, boat);
   followCam.update(dt || 0.016, boat, boatMesh);
-  hud.update({ boat, wind, paused, cameraMode: followCam.mode });
+  hud.update({ boat, wind, cameraMode: followCam.mode });
   renderer.render(scene, camera);
   if (debugLog && Math.floor(simTime) !== Math.floor(simTime - dt)) {
     console.log(`[sim] t=${simTime.toFixed(1)} boat=(${boat.x.toFixed(1)},${boat.y.toFixed(2)},${boat.z.toFixed(1)}) u=${boat.u.toFixed(2)} heel=${(boat.phi / DEG).toFixed(1)} cam=(${camera.position.x.toFixed(1)},${camera.position.y.toFixed(1)},${camera.position.z.toFixed(1)}) tws=${wind.speed.toFixed(1)} H=${waves.sigHeight.toFixed(2)}`);

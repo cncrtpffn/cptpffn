@@ -64,9 +64,10 @@ kbd { font-family: inherit; font-size: 10px; background: #fff; border: 1px solid
 #warnings .w { background: rgba(233, 85, 59, 0.92); color: #fff; font-weight: 800; padding: 6px 14px; border-radius: 999px; box-shadow: 0 4px 14px rgba(0,0,0,0.15); font-size: 14px; }
 #warnings .w.info { background: rgba(47, 127, 209, 0.9); }
 #warnings .w.soft { background: rgba(240, 154, 44, 0.92); }
+#btn-pause { position: absolute; right: 16px; bottom: 56px; pointer-events: auto; }
 #hint { position: absolute; right: 16px; bottom: 16px; font-size: 12px; color: var(--ink); background: var(--card); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--card-border); }
 
-.overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(30, 40, 60, 0.35); z-index: 10; }
+.overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(30, 40, 60, 0.35); z-index: 1100; } /* выше lil-gui (1001) */
 .overlay.hidden { display: none; }
 .card { background: #fffaf0; border-radius: 20px; padding: 22px 28px; max-width: 860px; width: calc(100% - 32px); box-shadow: 0 20px 60px rgba(0,0,0,0.25); font-size: 14px; line-height: 1.45; }
 .card.small { max-width: 420px; text-align: center; }
@@ -74,12 +75,13 @@ kbd { font-family: inherit; font-size: 10px; background: #fff; border: 1px solid
 .card h3 { margin: 10px 0 6px; font-size: 15px; color: var(--ink-soft); }
 .card .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .card table td { padding: 2px 8px 2px 0; vertical-align: top; }
+.card table td:first-child { white-space: nowrap; }
 .card ul { padding-left: 18px; margin: 0; }
 .card li { margin: 4px 0; }
 .card .muted { color: var(--ink-soft); font-size: 12px; margin: 10px 0 0; }
 .card button { font: inherit; font-weight: 800; font-size: 15px; background: var(--accent); color: #fff; border: 0; border-radius: 12px; padding: 10px 18px; cursor: pointer; }
 .card button kbd { margin-left: 6px; }
-#loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; color: var(--ink); background: #9fd3ec; z-index: 20; }
+#loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 20px; color: var(--ink); background: #9fd3ec; z-index: 1200; }
 
 .lil-gui { --background-color: rgba(255,250,240,0.9) !important; --text-color: #2c3440 !important; --title-background-color: #eee6d5 !important; --title-text-color: #2c3440 !important; --widget-color: #e6dcc8 !important; --hover-color: #d9cfb8 !important; --focus-color: #cbbfa4 !important; --number-color: #2f7fd1 !important; --string-color: #8d2b19 !important; --font-family: 'Nunito', system-ui, sans-serif !important; --font-size: 12px !important; --input-font-size: 12px !important; border-radius: 14px; overflow: hidden; box-shadow: 0 6px 24px rgba(40,30,10,0.12); top: 16px !important; right: 16px !important; }
 @media (max-width: 900px) {
@@ -119,13 +121,13 @@ body.touch #hud-controls kbd { display: none; }
 
 .card { position: relative; max-height: calc(100% - 24px); overflow: auto; }
 .card button.close { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; padding: 0; border-radius: 50%; background: #eee6d5; color: var(--ink); font-size: 16px; }
-#pause { cursor: pointer; }
+.card .badge { display: inline-block; margin-bottom: 6px; padding: 2px 10px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 12px; font-weight: 800; }
+.card .actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 
 /* ---------- тач-управление ---------- */
 #c, #touch-ui { touch-action: none; }
 body.touch { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 #touch-ui { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
-#touch-ui .t-btns button { touch-action: none; -webkit-tap-highlight-color: transparent; }
 .t-left, .t-right { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); display: flex; gap: 8px; }
 .t-left { left: max(12px, env(safe-area-inset-left)); flex-direction: column; align-items: flex-start; }
 .t-right { right: max(12px, env(safe-area-inset-right)); align-items: flex-end; }
@@ -139,13 +141,14 @@ body.touch #hud-controls { position: relative; left: auto; bottom: auto; width: 
 .ico { display: inline-flex; color: var(--ink-soft); }
 .ico svg { width: 14px; height: 14px; vertical-align: -2px; }
 .card td .ico svg { width: 16px; height: 16px; }
-#touch-ui .t-btns button {
+.ui-btn {
+  touch-action: none; -webkit-tap-highlight-color: transparent; cursor: pointer;
   width: 44px; height: 44px; padding: 0; border: 1px solid var(--card-border); border-radius: 12px;
   background: #fffaf0; color: var(--ink); font: 800 17px/1 'Nunito', system-ui, sans-serif; box-shadow: 0 2px 6px rgba(40, 30, 10, 0.1);
 }
-.t-buttons.col button { background: var(--card); }
-#touch-ui .t-btns button.down, #touch-ui .t-btns button:active { background: var(--bar-fill); color: #fff; }
-#touch-ui .t-btns button.on { background: var(--ink); color: #fff; }
+.ui-btn.soft { background: var(--card); backdrop-filter: blur(6px); }
+#touch-ui .ui-btn.down, .ui-btn:active { background: var(--bar-fill); color: #fff; }
+#touch-ui .ui-btn.on { background: var(--ink); color: #fff; }
 .t-slider { position: relative; }
 .t-track {
   position: relative; display: flex; align-items: center; justify-content: center;

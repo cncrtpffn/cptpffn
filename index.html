@@ -53,12 +53,14 @@
     </div>
 
     <div id="warnings"></div>
-    <div id="hint"><span class="hint-text">Камера: <b id="hud-camera">орбита</b><span class="kbd-only"> · <kbd>V</kbd> вид · <kbd>H</kbd> помощь · мышь — обзор, колесо — зум</span><span class="touch-only"> · палец — обзор, щипок — зум</span></span></div>
+    <button id="btn-pause" class="ui-btn soft kbd-only" title="Пауза и справка (Space)" aria-label="Пауза и справка">❚❚</button>
+    <div id="hint"><span class="hint-text">Камера: <b id="hud-camera">орбита</b><span class="kbd-only"> · <kbd>V</kbd> вид · <kbd>Space</kbd> пауза и справка · мышь — обзор, колесо — зум</span><span class="touch-only"> · палец — обзор, щипок — зум</span></span></div>
   </div>
 
   <div id="help" class="overlay hidden">
     <div class="card">
       <button class="close" id="btn-help-close" aria-label="Закрыть">✕</button>
+      <span class="badge">❚❚ Пауза</span>
       <h2>Кэтбот</h2>
       <p>Гафельный одномачтовый парусник Новой Англии: мачта в самом носу, один большой грот, широкий корпус, шверт и «амбарная дверь» вместо руля. Управляется так же, как настоящий.</p>
       <div class="cols">
@@ -70,7 +72,7 @@
             <tr><td><i class="ico" data-icon="board"></i> шверт ▲ ▼</td><td>держите, чтобы поднять / опустить</td></tr>
             <tr><td><i class="ico" data-icon="reef"></i> риф + −</td><td>взять риф / отдать риф</td></tr>
             <tr><td><i class="ico" data-icon="crew"></i> экипаж ◀ ● ▶</td><td>на левый борт / в центр / на правый борт</td></tr>
-            <tr><td>🎥 ❚❚ ?</td><td>вид камеры, пауза, эта справка</td></tr>
+            <tr><td>🎥 ❚❚</td><td>вид камеры; пауза и эта справка</td></tr>
             <tr><td>палец / щипок</td><td>обзор камерой / зум</td></tr>
           </table>
           <table class="kbd-only">
@@ -81,8 +83,7 @@
             <tr><td><kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd></td><td>экипаж на левый борт / в центр / на правый борт</td></tr>
             <tr><td><kbd>V</kbd></td><td>вид камеры</td></tr>
             <tr><td><kbd>Enter</kbd></td><td>поставить лодку после переворота</td></tr>
-            <tr><td><kbd>Space</kbd></td><td>пауза</td></tr>
-            <tr><td><kbd>H</kbd></td><td>эта справка</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>пауза и эта справка</td></tr>
           </table>
         </div>
         <div>
@@ -97,7 +98,7 @@
           </ul>
         </div>
       </div>
-      <p class="muted kbd-only">Закрыть — <kbd>H</kbd> или <kbd>Esc</kbd></p>
+      <div class="actions"><button id="btn-resume">▶ Продолжить <kbd class="kbd-only">Space</kbd></button></div>
     </div>
   </div>
 
@@ -108,8 +109,6 @@
       <button id="btn-righten">Поставить лодку <kbd class="kbd-only">Enter</kbd></button>
     </div>
   </div>
-
-  <div id="pause" class="overlay hidden"><div class="card small"><h2>Пауза</h2><p class="kbd-only"><kbd>Space</kbd> — продолжить</p><p class="touch-only">Коснитесь, чтобы продолжить</p></div></div>
 
   <div id="loading">Загрузка…</div>
   <script type="module" src="src/main.js"></script>
