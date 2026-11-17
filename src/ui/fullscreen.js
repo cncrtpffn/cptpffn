@@ -6,8 +6,9 @@ const doc = document;
 const el = doc.documentElement;
 const enabled = () => !!(doc.fullscreenEnabled || doc.webkitFullscreenEnabled);
 const current = () => doc.fullscreenElement || doc.webkitFullscreenElement;
-// уже запущено как приложение с экрана «Домой»
-const standalone = () => matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone === true;
+// уже запущено как приложение с экрана «Домой». (display-mode: fullscreen) сюда не годится:
+// в Chrome он совпадает и когда само окно браузера развёрнуто на весь экран
+const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 
 async function enter(lockPortrait) {
   await (el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen());
