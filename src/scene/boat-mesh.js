@@ -56,6 +56,7 @@ const STATIONS = [
 ].map(([f, b, r, d]) => { const x = LOA / 2 - LOA * f; return { x, b, r, d, s: sheerAt(x) }; });
 STATIONS[0].rake = 0.08;
 const BAND = { bottom: 4, stripe: 1, top: 4 }; // точек на пояс в полушпангоуте
+const STRIPE = { lo: 0.14, hi: 0.24 }; // белая отбивка ≈ на середине высоты борта миделя
 
 // точка в СК модели по координатам физики: x вперёд, y вверх, z на правый борт
 const pt = (x, y, z) => new THREE.Vector3(z, y, -x);
@@ -120,11 +121,11 @@ function toGeo(arr) {
   return g;
 }
 
-// Корпус, разрезанный по ватерлинии: подводная часть, полоса ватерлинии, надводная часть.
+// Корпус, разрезанный белой отбивкой на середине борта: красное днище, полоса, синий борт.
 function buildHull() {
   const parts = { bottom: [], stripe: [], top: [] };
   const rings = STATIONS.map((st) => {
-    const tB = findT(st, -0.1), tW = findT(st, 0.0);
+    const tB = findT(st, STRIPE.lo), tW = findT(st, STRIPE.hi);
     return ring(st, [[0, tB, BAND.bottom], [tB, tW, BAND.stripe], [tW, 1, BAND.top]]);
   });
   const n = rings[0].length;
@@ -139,13 +140,12 @@ function buildHull() {
       quad(parts[bandOfSeg(k)], rings[i][k], rings[i + 1][k], rings[i + 1][k + 1], rings[i][k + 1]);
     }
   }
-  // транец (нормаль назад, +Z): веер из середины, верх повторяет погибь палубы
+  // транец (нормаль назад, +Z): горизонтальные полосы между симметричными точками кольца,
+  // каждая в цвет своего пояса — пояса на транце продолжают борта; верх повторяет погибь палубы
   const st0 = STATIONS[0], r0 = rings[0];
-  const center = new THREE.Vector3(0, (st0.s - st0.d) / 2, -(st0.x + st0.rake * 0.5));
-  // транец почти целиком над водой — красим в цвет борта, иначе веер из центра даёт большие белые треугольники
-  for (let k = 0; k < n - 1; k++) { pushV(parts.top, center); pushV(parts.top, r0[k]); pushV(parts.top, r0[k + 1]); }
+  for (let k = 0; k < half; k++) quad(parts[bandOfSeg(k)], r0[k], r0[k + 1], r0[n - 2 - k], r0[n - 1 - k]);
   const topC = pt(st0.x, deckY(st0, 0), 0);
-  for (const [a, b] of [[r0[n - 1], topC], [topC, r0[0]]]) { pushV(parts.top, center); pushV(parts.top, a); pushV(parts.top, b); }
+  pushV(parts.top, r0[0]); pushV(parts.top, r0[n - 1]); pushV(parts.top, topC);
   const out = {};
   for (const key of Object.keys(parts)) out[key] = toGeo(parts[key]);
   return out;
