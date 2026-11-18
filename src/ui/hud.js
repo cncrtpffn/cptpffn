@@ -31,6 +31,10 @@ export class Hud {
     }
     ticks.innerHTML = s;
     this._tick = 0;
+    // сообщение о мели держится 3 с после последнего касания: на волнении касания
+    // короткие и частые, без задержки надпись мерцает
+    this._agroundUntil = 0;
+    this._agroundMsg = '';
   }
 
   showHelp(v) { this.el.help.classList.toggle('hidden', !v); }
@@ -74,7 +78,12 @@ export class Hud {
 
     // предупреждения
     const w = [];
-    if (boat.aground) w.push(['Мель! Отойдите от берега', '']);
+    const now = performance.now();
+    if (boat.aground) {
+      this._agroundUntil = now + 3000;
+      this._agroundMsg = boat.boardAground ? 'Шверт задевает дно — поднимите шверт' : 'Мель! Отойдите от берега';
+    }
+    if (now < this._agroundUntil) w.push([this._agroundMsg, '']);
     if (boat.gybeFlash > 0) w.push(['Фордевинд! Гик перелетел', '']);
     if (!boat.capsized && Math.abs(heel) > 45) w.push(['Крен критический — травите шкот', '']);
     else if (!boat.capsized && Math.abs(heel) > 32) w.push(['Сильный крен', 'soft']);

@@ -57,7 +57,7 @@ const bakeT0 = performance.now();
 const shoreMap = bakeShoreMap(env.islands.map((g) => g.userData.shore));
 const bakeMs = performance.now() - bakeT0;
 // физика гасит волны у берега так же, как вершинный шейдер воды
-waves.damp = (x, z) => shoreDamp(shoreMap.info(x, z).depth);
+waves.damp = (x, z) => shoreDamp(shoreMap.depthAt(x, z));
 const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterSegments, sky: env.sky, planar, shoreMap });
 // второй рендер дорог: на телефонах и планшетах отражение объектов по умолчанию выключено
 water.reflection.planar = !isTouchDevice();
@@ -123,6 +123,12 @@ window.addEventListener('resize', () => {
 const params = new URLSearchParams(location.search);
 let simTime = 0;
 const debugAuto = params.has('auto') || params.has('t');
+// pos — первым: reset() сбрасывает шверт и рифы, заданные ниже
+if (params.has('pos')) {
+  // pos=x,z[,курс°] — поставить лодку в точку
+  const [x, z, h = 0] = params.get('pos').split(',').map(Number);
+  boat.reset(x, z, h * DEG);
+}
 if (params.has('wind')) wind.baseSpeed = parseFloat(params.get('wind'));
 if (params.has('winddir')) wind.baseDirDeg = parseFloat(params.get('winddir'));
 if (params.has('cam')) followCam.mode = params.get('cam');
@@ -143,18 +149,13 @@ function autopilotControls() {
   const sheetAngle = Math.abs(boat.aw.awa) - 24 * DEG;
   return { rudderAngle, sheetAngle, crew: Math.sign(boat.aw.twa || 1), board: 0, rudder: 0, sheet: 0 };
 }
-if (params.has('pos')) {
-  // pos=x,z[,курс°] — поставить лодку в точку
-  const [x, z, h = 0] = params.get('pos').split(',').map(Number);
-  boat.reset(x, z, h * DEG);
-}
 if (params.has('t')) {
   const secs = parseFloat(params.get('t'));
   for (let i = 0; i < secs / STEP; i++) {
     wind.update(STEP);
     waves.configure(Math.min(1, 0.006 * wind.baseSpeed * wind.baseSpeed) * SEA.maxHeight, wind.baseDirDeg * DEG, wind.baseSpeed);
     waves.update(STEP);
-    boat.step(STEP, autopilotControls(), wind, waves, SCENE.islands);
+    boat.step(STEP, autopilotControls(), wind, waves, shoreMap);
     simTime += STEP;
     wake.update(simTime, boat);
   }
@@ -183,7 +184,7 @@ function frame(now) {
     while (acc >= STEP && n < 12) {
       wind.update(STEP);
       waves.update(STEP);
-      boat.step(STEP, controls, wind, waves, SCENE.islands);
+      boat.step(STEP, controls, wind, waves, shoreMap);
       acc -= STEP; n++;
       simTime += STEP;
     }

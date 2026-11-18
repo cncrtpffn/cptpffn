@@ -91,15 +91,33 @@ export function bakeShoreMap(shores, { texel = 0.6, maxSize = 2048, range = 16, 
   texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
   texture.needsUpdate = true;
 
-  // то же на CPU: расстояние до берега (м) и глубина в точке
+  // то же на CPU, билинейно (как LinearFilter в шейдере): для физики волн и мели
+  const depth = new Float32Array(N);
+  for (let k = 0; k < N; k++) depth[k] = Math.min(maxDepth, Math.max(0, -height[k]));
+  const inside = (x, z) => x >= x0 && z >= z0 && x < x0 + W * step && z < z0 + H * step;
+  function bilinear(a, x, z) {
+    const fx = Math.min(W - 1, Math.max(0, (x - x0) / step - 0.5));
+    const fz = Math.min(H - 1, Math.max(0, (z - z0) / step - 0.5));
+    const i = Math.min(W - 2, Math.floor(fx)), j = Math.min(H - 2, Math.floor(fz));
+    const tx = fx - i, tz = fz - j, k = j * W + i;
+    return (a[k] * (1 - tx) + a[k + 1] * tx) * (1 - tz) + (a[k + W] * (1 - tx) + a[k + W + 1] * tx) * tz;
+  }
+  // глубина (м)
+  function depthAt(x, z) {
+    return inside(x, z) ? bilinear(depth, x, z) : maxDepth;
+  }
+  // расстояние до кромки (м, плюс — вода), глубина и нормаль от берега (в сторону воды)
   function info(x, z) {
-    const i = Math.floor((x - x0) / step), j = Math.floor((z - z0) / step);
-    if (i < 0 || j < 0 || i >= W || j >= H) return { dist: Infinity, depth: maxDepth };
-    const k = j * W + i;
-    return { dist: dist[k], depth: Math.max(0, -height[k]) };
+    if (!inside(x, z)) return { dist: Infinity, depth: maxDepth, nx: 0, nz: 0 };
+    // широкий шаблон (±4 текселя) сглаживает «лесенку» контура: у кромки ошибка ~5° вместо ~25°
+    const e = 4 * step;
+    const gx = bilinear(dist, x + e, z) - bilinear(dist, x - e, z);
+    const gz = bilinear(dist, x, z + e) - bilinear(dist, x, z - e);
+    const gl = Math.hypot(gx, gz) || 1;
+    return { dist: bilinear(dist, x, z), depth: bilinear(depth, x, z), nx: gx / gl, nz: gz / gl };
   }
 
-  return { texture, bounds: new THREE.Vector4(x0, z0, W * step, H * step), range, maxDepth, info, width: W, height: H };
+  return { texture, bounds: new THREE.Vector4(x0, z0, W * step, H * step), range, maxDepth, info, depthAt, width: W, height: H };
 }
 
 // Квадрат евклидова расстояния от каждого текселя до ближайшего с mask == target

@@ -54,6 +54,7 @@ export class Boat {
     this.water = 0;
     this.capsized = false;
     this.aground = false;
+    this.boardAground = false;
     this.leeway = 0;
     this.aw = { awa: 0, aws: 0, twa: 0, tws: 0 };
     this.forces = {};
@@ -89,7 +90,8 @@ export class Boat {
   }
 
   // controls: { rudder: -1..1, sheet: -1..1 (+1 выбрать), board: -1..1 (+1 опустить), crew: -1|0|1 }
-  step(dt, controls, wind, waves, islands) {
+  // shore — карта берега с info(x, z) → { dist, depth, nx, nz } (shore-map.js); null — без мели
+  step(dt, controls, wind, waves, shore) {
     const c = this.cfg;
     const cap = this.capsized;
 
@@ -229,25 +231,38 @@ export class Boat {
       else if (a < 25 * DEG) this.water = Math.max(0, this.water - c.bailRate * dt);
     }
 
-    // мель
+    // мель: нос, корма и середина (там шверт) по карте берега
     this.aground = false;
-    if (islands) {
-      for (const isl of islands) {
-        const dx = this.x - isl.x, dz = this.z - isl.z;
-        const d = Math.hypot(dx, dz);
-        const lim = isl.r * 0.92 + 1.5;
-        if (d < lim) {
-          const nx = dx / (d || 1), nz = dz / (d || 1);
-          this.x = isl.x + nx * lim; this.z = isl.z + nz * lim;
-          const vn = vx * nx + vz * nz;
-          if (vn < 0) {
-            // гасим составляющую в сторону берега
-            const bu = fwdX * nx + fwdZ * nz, bv = stbX * nx + stbZ * nz;
-            this.u -= vn * bu * 1.2; this.v -= vn * bv * 1.2;
-          }
-          this.u *= 0.9; this.v *= 0.9;
-          this.aground = true;
+    this.boardAground = false;
+    if (shore) {
+      const half = c.length / 2 - 0.3;
+      const boardDraft = c.hullDraft + this.board * (c.boardDraft - c.hullDraft);
+      // заглубление точки, м по горизонтали; подводный склон ~0.4 м на метр — отсюда ×2.5
+      const pen = (s, draft) => Math.max(c.shoreClearance - s.dist, (draft - s.depth) * 2.5);
+      let px = 0, pz = 0, nx = 0, nz = 0, hullHit = false;
+      for (const k of [1, -1, 0]) {
+        const s = shore.info(this.x + fwdX * half * k, this.z + fwdZ * half * k);
+        const p = pen(s, k === 0 ? boardDraft : c.hullDraft);
+        if (p <= 0) continue;
+        px += s.nx * p; pz += s.nz * p; nx += s.nx; nz += s.nz;
+        if (k !== 0 || pen(s, c.hullDraft) > 0) hullHit = true;
+      }
+      if (px || pz) {
+        // выталкиваем плавно, не больше 0.3 м за шаг
+        const pl = Math.hypot(px, pz), m = Math.min(1, 0.3 / pl);
+        this.x += px * m; this.z += pz * m;
+        const nl = Math.hypot(nx, nz) || 1;
+        nx /= nl; nz /= nl;
+        const vn = vx * nx + vz * nz;
+        if (vn < 0) {
+          // гасим составляющую в сторону берега
+          const bu = fwdX * nx + fwdZ * nz, bv = stbX * nx + stbZ * nz;
+          this.u -= vn * bu * 1.2; this.v -= vn * bv * 1.2;
         }
+        this.u *= 0.9; this.v *= 0.9;
+        this.aground = true;
+        // задевает только шверт — с поднятым прошли бы
+        this.boardAground = !hullHit;
       }
     }
 
