@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BOAT, SEA, SCENE, DEG } from './config.js';
 import { Wind } from './physics/wind.js';
 import { Waves } from './physics/waves.js';
-import { Boat } from './physics/boat.js';
+import { Boat, crewMove } from './physics/boat.js';
 import { createWater } from './scene/water.js';
 import { createPlanarReflection } from './scene/planar-reflection.js';
 import { bakeShoreMap, shoreDamp } from './scene/shore-map.js';
@@ -82,10 +82,11 @@ const hud = new Hud();
 let paused = false;
 const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
-  resetBoat: () => { placeBoat(); input.crew = 0; wake.reset(); },
+  resetBoat: () => { placeBoat(); wake.reset(); },
 };
 createWeatherPanel({ wind, sea, env, water, particles, actions, start: START });
 input.on('reef', (d) => boat.sail.reef(d));
+input.on('crew', (a) => { if (boat.crewPos) boat.crewPos = crewMove(boat.crewPos, a); });
 input.on('camera', () => followCam.nextMode());
 // пауза показывает справку; закрыть справку — продолжить
 const setPaused = (v) => { paused = v; hud.showHelp(v); };
@@ -154,7 +155,7 @@ function autopilotControls() {
   err = Math.atan2(Math.sin(err), Math.cos(err));
   const rudderAngle = Math.max(-35 * DEG, Math.min(35 * DEG, 1.2 * err - 1.6 * boat.r));
   const sheetAngle = Math.abs(boat.aw.awa) - 24 * DEG;
-  return { rudderAngle, sheetAngle, crew: Math.sign(boat.aw.twa || 1), board: 0, rudder: 0, sheet: 0 };
+  return { rudderAngle, sheetAngle, crewPos: 2 * Math.sign(boat.aw.twa || 1), board: 0, rudder: 0, sheet: 0 };
 }
 if (params.has('t')) {
   const secs = parseFloat(params.get('t'));

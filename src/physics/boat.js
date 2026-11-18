@@ -35,6 +35,15 @@ function foilForces(u, v, area, ar, stall, delta, cd0, cc) {
   return { fx, fy, cl };
 }
 
+// положения рулевого слева направо: откренка L, банка L, банка R, откренка R
+export const CREW_POSITIONS = [-2, -1, 1, 2];
+// следующее положение: 'left' / 'right' — шаг по цепочке, 'swap' — на другой борт в то же положение
+export function crewMove(pos, action) {
+  if (action === 'swap') return -pos;
+  const i = CREW_POSITIONS.indexOf(pos) + (action === 'left' ? -1 : 1);
+  return CREW_POSITIONS[Math.max(0, Math.min(CREW_POSITIONS.length - 1, i))];
+}
+
 export class Boat {
   constructor(cfg = BOAT) {
     this.cfg = cfg;
@@ -51,6 +60,9 @@ export class Boat {
     this.rudder = 0;
     this.board = 1;
     this.crewY = 0; this.crewTarget = 0;
+    this.crewPos = 0; // 0 — выберется наветренная банка на первом шаге
+    this.crewSeat = { side: 1, hike: false }; // для модели: борт и откренка
+    this.maneuver = { count: 0, type: null }; this.awaSide = 0;
     this.water = 0;
     this.capsized = false;
     this.aground = false;
@@ -89,7 +101,8 @@ export class Boat {
     return Math.sign(phi) * raw * (1 - c.swampGzLoss * this.water);
   }
 
-  // controls: { rudder: -1..1, sheet: -1..1 (+1 выбрать), board: -1..1 (+1 опустить), crew: -1|0|1 }
+  // controls: { rudder: -1..1, sheet: -1..1 (+1 выбрать), board: -1..1 (+1 опустить),
+  //             crewPos: −2|−1|1|2 — необязательно, задать положение рулевого (иначе остаётся this.crewPos) }
   // shore — карта берега с info(x, z) → { dist, depth, nx, nz } (shore-map.js); null — без мели
   step(dt, controls, wind, waves, shore) {
     const c = this.cfg;
@@ -108,16 +121,31 @@ export class Boat {
       }
       if (controls.board) this.board = Math.max(0, Math.min(1, this.board + controls.board * c.boardRate * dt));
     }
-    this.crewTarget = (controls.crew || 0) * c.crewMaxY;
+    // --- ветер и парус ---
+    const aw = wind.apparent(this.psi, this.u, this.v);
+    this.aw = aw;
+
+    // рулевой: 4 положения (CREW_POSITIONS), знак — борт (+ правый), |2| — откренка. 0 — ещё не выбрано: наветренная банка
+    if (controls.crewPos) this.crewPos = controls.crewPos;
+    if (!this.crewPos) this.crewPos = Math.sign(this.aw.twa || 1);
+    this.crewSeat.side = Math.sign(this.crewPos);
+    this.crewSeat.hike = Math.abs(this.crewPos) === 2;
+    this.crewTarget = this.crewSeat.side * (this.crewSeat.hike ? c.crewMaxY : c.crewBenchY);
     const dc = this.crewTarget - this.crewY;
     const mvc = c.crewRate * dt;
     this.crewY = Math.abs(dc) <= mvc ? this.crewTarget : this.crewY + Math.sign(dc) * mvc;
 
-    // --- ветер и парус ---
-    const aw = wind.apparent(this.psi, this.u, this.v);
-    this.aw = aw;
     if (controls.sheetAngle !== undefined) this.sail.sheet = Math.max(c.sheetMin, Math.min(c.sheetMax, controls.sheetAngle));
+    const wasGybing = this.sail.gybing;
     const sf = this.sail.update(dt, aw.awa, aw.aws, this.phi, cap ? 0 : controls.sheet);
+    // события манёвров для анимации: maneuver.count растёт на каждом повороте.
+    // Фордевинд — начало переброски гика; оверштаг — вымпельный ветер сменил борт носом (|awa| < 90°)
+    if (!wasGybing && this.sail.gybing) { this.maneuver.count++; this.maneuver.type = 'gybe'; }
+    if (Math.abs(aw.awa) > 3 * DEG && Math.abs(aw.awa) < Math.PI / 2) {
+      const s = Math.sign(aw.awa);
+      if (this.awaSide && s !== this.awaSide) { this.maneuver.count++; this.maneuver.type = 'tack'; }
+      this.awaSide = s;
+    }
     const gybeImp = this.sail.takeGybeImpulse();
     if (gybeImp) this.gybeFlash = 1.5;
     this.gybeFlash = Math.max(0, this.gybeFlash - dt);

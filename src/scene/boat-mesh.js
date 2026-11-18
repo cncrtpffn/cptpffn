@@ -464,12 +464,8 @@ export function createBoatMesh() {
     if (visRudder === null) visRudder = boat.rudder;
     rudderPivot.rotation.y = visRudder;
 
-    // рулевой: борт и откренка — из boat.crewSeat (стенд), иначе из crewY (до этапа 2 физика знает только crewY)
-    let seat = boat.crewSeat;
-    if (!seat) {
-      const cy = boat.crewY;
-      seat = { side: Math.sign(cy) || Math.sign(boat.aw.twa || boat.aw.awa || 1), hike: Math.abs(cy) > 0.6 * boat.cfg.crewMaxY };
-    }
+    // рулевой: борт и откренка — из физики (boat.crewSeat, 4 положения); на стенде задаётся напрямую
+    const seat = boat.crewSeat || DEFAULT_SEAT;
     const dt = lastTime === null ? 0 : Math.min(0.1, Math.max(0, time - lastTime));
     lastTime = time;
 
@@ -505,14 +501,19 @@ export function createBoatMesh() {
     }
     group.updateMatrixWorld(true);
 
-    // манёвр: гик перешёл на другой борт. Поворот через фордевинд — пригнуться сильно и проводить гик взглядом,
-    // оверштаг — слегка пригнуться и посмотреть на парус
-    const bs = Math.abs(boat.sail.boom) > 0.1 ? Math.sign(boat.sail.boom) : boomSide;
-    if (boomSide !== 0 && bs !== boomSide && dt > 0) {
-      manT = 0;
-      manGybe = !!boat.sail.gybing || Math.abs(boat.aw.awa) > Math.PI / 2;
+    // манёвр: событие из физики (boat.maneuver), на стенде — гик перешёл на другой борт.
+    // Фордевинд — пригнуться сильно и проводить гик взглядом, оверштаг — слегка пригнуться и посмотреть на парус
+    if (boat.maneuver) {
+      if (boat.maneuver.count !== manCount && manCount !== null && dt > 0) { manT = 0; manGybe = boat.maneuver.type === 'gybe'; }
+      manCount = boat.maneuver.count;
+    } else {
+      const bs = Math.abs(boat.sail.boom) > 0.1 ? Math.sign(boat.sail.boom) : boomSide;
+      if (boomSide !== 0 && bs !== boomSide && dt > 0) {
+        manT = 0;
+        manGybe = !!boat.sail.gybing || Math.abs(boat.aw.awa) > Math.PI / 2;
+      }
+      boomSide = bs;
     }
-    boomSide = bs;
     let manDuck = 0, focus = null;
     if (manT >= 0) {
       manT += dt;
@@ -577,10 +578,11 @@ export function createBoatMesh() {
     rig.update(boat, time, crew.visible ? group.worldToLocal(sheetLocal) : null);
   }
   let lastTime = null, lastSheet = 0, sheetRate = 0;
+  const DEFAULT_SEAT = { side: 1, hike: false };
   // пересадка: откуда/куда, прогресс 0..1, через кокпит ли; handSide — борт, по которому раздаются руки
   let seatFrom = null, seatTo = null, seatU = 1, seatCross = false, handSide = 1;
-  // манёвр: борт гика, время с начала жеста (−1 — нет), фордевинд ли
-  let boomSide = 0, manT = -1, manGybe = false;
+  // манёвр: борт гика (стенд) или счётчик событий физики, время с начала жеста (−1 — нет), фордевинд ли
+  let boomSide = 0, manT = -1, manGybe = false, manCount = null;
   const lookCourse = new THREE.Vector3(), lookSail = new THREE.Vector3(), lookPennant = new THREE.Vector3();
   const lookAt = { course: lookCourse, sail: lookSail, pennant: lookPennant }, refUp = new THREE.Vector3();
   // видимый угол руля и точка хвата на удлинителе (м от шарнира)

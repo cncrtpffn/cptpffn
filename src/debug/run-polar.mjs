@@ -7,7 +7,7 @@ for (const tws of [4, 7, 10, 13]) {
 }
 out('\n=== TWS 10, шверт поднят ===');
 out(formatRows(polar(10, { board: 0 })));
-out('\n=== TWS 16, без рифов, экипаж в центре ===');
+out('\n=== TWS 16, без рифов, рулевой на наветренной банке ===');
 out(formatRows(polar(16, { hike: false })));
 out('\n=== TWS 16, 2 рифа, откренивание ===');
 out(formatRows(polar(16, { reefs: 2 })));

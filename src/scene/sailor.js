@@ -243,10 +243,13 @@ export function createSailor({ seed = 1 } = {}) {
   let duckS = 0;
   const qInv = new THREE.Quaternion(), upL = V(), refL = V(), lookL = V(), WORLD_UP = V(0, 1, 0);
 
-  const eye = V();
+  // глаз для камеры с палубы — от посадки, а не от головы: повороты головы, дыхание и качка тела камеру не дёргают.
+  // Наклон откренки и пересадка (поза группы) учитываются. EYE_UP поднимает глаз над центром головы (единицы модели,
+  // ×1.1 ≈ 15 см), чтобы с банки крыша рубки не закрывала полкадра.
+  const eye = V(), EYE_UP = 0.14;
   function eyeWorld(target) {
-    eye.set(0, 0.2, 0.1);
-    head.localToWorld(eye);
+    eye.set(0, 0.47 + HC.y + EYE_UP, 0.12);
+    group.localToWorld(eye);
     return target ? target.copy(eye) : eye.clone();
   }
 

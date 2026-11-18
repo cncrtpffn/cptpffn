@@ -2,7 +2,6 @@
 export class Input {
   constructor() {
     this.keys = new Set();
-    this.crew = 0;
     this.touch = { rudder: 0, sheet: 0, board: 0 }; // аналоговые оси с экранных контролов
     this.handlers = {};
     window.addEventListener('keydown', (e) => this._down(e));
@@ -20,9 +19,9 @@ export class Input {
       switch (e.code) {
         case 'KeyR': this._emit('reef', +1); break;
         case 'KeyF': this._emit('reef', -1); break;
-        case 'KeyZ': this.crew = -1; break;
-        case 'KeyX': this.crew = 0; break;
-        case 'KeyC': this.crew = 1; break;
+        case 'KeyZ': this._emit('crew', 'left'); break;
+        case 'KeyX': this._emit('crew', 'swap'); break;
+        case 'KeyC': this._emit('crew', 'right'); break;
         case 'KeyV': this._emit('camera'); break;
         case 'KeyH': this._emit('help'); break;
         case 'Escape': this._emit('escape'); break;
@@ -47,6 +46,6 @@ export class Input {
     if (k.has('KeyE')) board += 1;
     const t = this.touch;
     const clamp = (v) => Math.max(-1, Math.min(1, v));
-    return { rudder: clamp(rudder + t.rudder), sheet: clamp(sheet + t.sheet), board: clamp(board + t.board), crew: this.crew };
+    return { rudder: clamp(rudder + t.rudder), sheet: clamp(sheet + t.sheet), board: clamp(board + t.board) };
   }
 }

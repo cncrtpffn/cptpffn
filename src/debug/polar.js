@@ -29,8 +29,8 @@ export function runCase(opts) {
     const rudderAngle = Math.max(-35 * DEG, Math.min(35 * DEG, 1.2 * err - 1.6 * boat.r));
     const absAwa = Math.abs(boat.aw.awa);
     const sheetAngle = sheet !== undefined ? sheet * DEG : absAwa - alpha * DEG;
-    const crew = hike ? Math.sign(boat.aw.twa || 1) : 0;
-    boat.step(dt, { rudderAngle, sheetAngle, crew, board: 0 }, wind, waves, null);
+    const crewPos = (hike ? 2 : 1) * Math.sign(boat.aw.twa || 1); // откренка или банка на наветренном борту
+    boat.step(dt, { rudderAngle, sheetAngle, crewPos, board: 0 }, wind, waves, null);
     maxHeel = Math.max(maxHeel, Math.abs(boat.phi));
     if (boat.capsized && capsizedAt < 0) { capsizedAt = i * dt; break; }
     if (i >= steps - avgWindow) { sumU += boat.u; sumV += boat.v; sumHeel += Math.abs(boat.phi); sumLee += Math.abs(boat.leeway); n++; }

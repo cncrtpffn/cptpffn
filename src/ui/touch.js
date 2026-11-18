@@ -68,7 +68,7 @@ export function createTouchControls(input) {
       <div class="t-panel t-btns">
         <div class="t-sec" style="--n:2"><span class="t-ico" role="img" aria-label="Шверт" title="Шверт">${ICONS.board}</span><div class="t-row"><button data-board="-1">▲</button><button data-board="1">▼</button></div></div>
         <div class="t-sec" style="--n:2"><span class="t-ico" role="img" aria-label="Рифы" title="Рифы">${ICONS.reef}</span><div class="t-row"><button data-reef="1">+</button><button data-reef="-1">−</button></div></div>
-        <div class="t-sec" style="--n:3"><span class="t-ico" role="img" aria-label="Экипаж" title="Экипаж">${ICONS.crew}</span><div class="t-row"><button data-crew="-1">◀</button><button data-crew="0">●</button><button data-crew="1">▶</button></div></div>
+        <div class="t-sec" style="--n:3"><span class="t-ico" role="img" aria-label="Экипаж" title="Экипаж">${ICONS.crew}</span><div class="t-row"><button data-crew="left" aria-label="на шаг к левому борту">◀</button><button data-crew="swap" aria-label="на другой борт">⇄</button><button data-crew="right" aria-label="на шаг к правому борту">▶</button></div></div>
       </div>
       <div class="t-slider h" id="t-rudder"><div class="t-track"><div class="t-knob"></div></div><span class="t-label">руль</span></div>
     </div>
@@ -90,18 +90,6 @@ export function createTouchControls(input) {
   ui.querySelectorAll('[data-board]').forEach((b) => hold(b, () => { input.touch.board = +b.dataset.board; }, () => { input.touch.board = 0; }));
   ui.querySelectorAll('[data-reef]').forEach((b) => b.addEventListener('click', () => input.trigger('reef', +b.dataset.reef)));
   ui.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => input.trigger(b.dataset.act)));
-  const crewBtns = [...ui.querySelectorAll('[data-crew]')];
-  crewBtns.forEach((b) => b.addEventListener('click', () => { input.crew = +b.dataset.crew; }));
-
-  // подсветка текущего положения экипажа (его меняют и клавиши, и сброс лодки)
-  let lastCrew = null;
-  const sync = () => {
-    if (input.crew !== lastCrew) {
-      lastCrew = input.crew;
-      crewBtns.forEach((b) => b.classList.toggle('on', +b.dataset.crew === input.crew));
-    }
-    requestAnimationFrame(sync);
-  };
-  sync();
+  ui.querySelectorAll('[data-crew]').forEach((b) => b.addEventListener('click', () => input.trigger('crew', b.dataset.crew)));
   return ui;
 }
