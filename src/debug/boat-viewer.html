@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <title>Boat viewer</title>
   <!-- Стенд модели лодки: 4 ракурса на одном кадре. Открывать с корня проекта: /src/debug/boat-viewer.html
-       Параметры URL: boom (°, <0 — левый борт), sheet (°), reef (0..2), awa (°), aws (м/с), heel (°),
-       rudder (°), board (0..1), status (fill|luff|gybe), flutter (0..1), crew (0/1), water (0/1), views (ortho), t (с) -->
+       Параметры URL: boom (°, <0 — левый борт), sheet (°), reef (0..2), furl (0..1 — парус спущен), awa (°), aws (м/с), heel (°),
+       rudder (°), board (0..1), status (fill|luff|gybe), flutter (0..1), crew (0/1), water (0/1), views (ortho|detail), t (с) -->
   <style>html, body { margin: 0; height: 100%; background: #8fb6cf; overflow: hidden; } canvas { display: block; }
     .lbl { position: absolute; font: 12px sans-serif; color: #fff; background: #0006; padding: 2px 6px; }</style>
   <script type="importmap">
@@ -57,7 +57,7 @@ const boat = {
   board: num('board', 1), rudder: num('rudder', 0) * DEG, crewY: 0, cfg: { crewMaxY: 1.15 },
   aw: { awa: num('awa', 45) * DEG, aws: num('aws', 6), twa: 0, tws: 0 },
   sail: { boom: num('boom', 25) * DEG, sheet: num('sheet', 25) * DEG, reefLevel: num('reef', 0),
-    status: q.get('status') || 'fill', flutter: num('flutter', 0) },
+    status: q.get('status') || 'fill', flutter: num('flutter', 0), furl: num('furl', 0) },
 };
 // прогреваем анимацию (вымпел, сглаживание), затем фиксируем кадр в момент t
 const T = num('t', 3);
@@ -71,6 +71,15 @@ const VIEWS = [
   [[-3.2, 5.2, 6.0], [0, 0.4, 0.3], 45, 'корма сверху'],
   [[-12, 3, -5], [0, 3.8, -0.5], 50, '3/4 сзади слева'],
 ];
+// views=detail — крупные планы такелажа: топ мачты, корма с погоном, гик сбоку, основание мачты
+const DETAIL = [
+  [[3.5, 8.5, 2.5], [0, 7.6, -1.2], 40, 'топ и гафель'],
+  [[2.2, 2.4, 5.2], [0, 1.0, 2.6], 45, 'корма, гика-шкот'],
+  [[7, 2.6, 2.5], [0, 2.0, 0.5], 45, 'гик сбоку'],
+  [[2.4, 1.9, -4.4], [0, 1.2, -2.4], 45, 'основание мачты'],
+];
+const detail = q.get('views') === 'detail';
+if (detail) VIEWS.splice(0, 4, ...DETAIL);
 // views=ortho — ортогональные проекции для сверки с чертежом: [позиция, up, центр кадра, полувысота кадра, подпись]
 const ORTHO = [
   [[0, 30, 0], [1, 0, 0], [0, 0, 0.4], 2.4, 'сверху (нос слева)'],

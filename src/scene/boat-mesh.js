@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { DEG } from '../config.js';
+import { createRig } from './boat-rigging.js';
 
 // Локальная СК модели: нос = -Z, правый борт = +X, вверх = +Y. Начало — на ватерлинии под ЦТ.
 // Физика: x (вперёд) -> -Z, y (правый борт) -> +X.
@@ -19,6 +20,7 @@ const MAT = {
   shirt: flat(0xe9553b),
   hat: flat(0xf4e3b2),
   metal: flat(0xa7b0b5, { metalness: 0.6, roughness: 0.4 }),
+  rope: flat(0xdccfb0, { side: THREE.DoubleSide }),
 };
 
 // Кетбот 6 м: обводы сняты с CatBoat 16 (references/catboat: 12a.jpg — вид сверху, sailplan.gif — профиль)
@@ -348,62 +350,19 @@ export function createBoatMesh() {
   add(new THREE.Mesh(new THREE.BoxGeometry(0.5, roofAtXc - CK.floorY - 0.32, 0.03), MAT.darkWood)).position.set(0, (roofAtXc + CK.floorY + 0.32) / 2, -CK.xc + 0.02);
   add(new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.07, 0.7), MAT.wood)).position.set(0, roofAtXc + 0.03, -(CK.xc + 0.38));
 
-  // мачта
-  const mastZ = -2.2, deckAtMast = 0.78;
-  const mastH = 7.4;
-  const mast = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, mastH, 7), MAT.spar));
-  mast.position.set(0, deckAtMast + mastH / 2, mastZ);
-  add(new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5), MAT.white)).position.set(0, deckAtMast + mastH + 0.05, mastZ);
-
-  // гик + гафель + парус: всё крутится вокруг мачты
-  const boomY = deckAtMast + 1.05;
-  const rig = new THREE.Group();
-  rig.position.set(0, boomY, mastZ);
-  group.add(rig);
-  const boomLen = 4.7;
-  const boom = add(new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, boomLen, 6).rotateX(Math.PI / 2), MAT.spar), rig);
-  boom.position.set(0, 0, boomLen / 2);
-  const gaffLen = 3.4, gaffAngle = 38 * DEG;
-  const gaff = add(new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, gaffLen, 6).rotateX(Math.PI / 2), MAT.spar), rig);
-  const gaffPivot = new THREE.Group();
-  gaffPivot.add(gaff);
-  gaff.position.set(0, 0, gaffLen / 2);
-  gaffPivot.rotation.x = -gaffAngle;
-  rig.add(gaffPivot);
-
-  const NU = 9, NV = 11;
-  const sailGeo = new THREE.PlaneGeometry(1, 1, NU - 1, NV - 1);
-  const sail = add(new THREE.Mesh(sailGeo, MAT.sail), rig);
-  const sailPos = sailGeo.attributes.position;
-  // точки крепления (в СК rig): галс, шкотовый угол, горло, пик
-  const tack = new THREE.Vector3(0, 0.05, 0.12), clew = new THREE.Vector3(), throat = new THREE.Vector3(), peak = new THREE.Vector3();
-  const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), p = new THREE.Vector3();
-
-  function updateSail(luff, clewZ, camber, side, flutter, time) {
-    throat.set(0, luff, 0.12);
-    gaffPivot.position.set(0, luff, 0.1);
-    peak.set(0, luff + Math.sin(gaffAngle) * gaffLen, 0.1 + Math.cos(gaffAngle) * gaffLen);
-    clew.set(0, 0.05, clewZ);
-    let k = 0;
-    for (let j = 0; j < NV; j++) {
-      const v = j / (NV - 1);
-      for (let i = 0; i < NU; i++) {
-        const u = i / (NU - 1);
-        tmpA.lerpVectors(tack, clew, u);
-        tmpB.lerpVectors(throat, peak, u);
-        p.lerpVectors(tmpA, tmpB, v);
-        const belly = Math.sin(Math.PI * u) * Math.pow(Math.sin(Math.PI * v), 0.7);
-        let x = side * camber * belly;
-        if (flutter > 0) {
-          x += flutter * 0.12 * belly * (Math.sin(time * 19 + u * 11 + v * 5) + 0.5 * Math.sin(time * 31 + v * 9));
-          x += flutter * 0.05 * Math.sin(time * 23 + u * 20) * (1 - v) * (1 - u);
-        }
-        sailPos.setXYZ(k++, x, p.y, p.z);
-      }
-    }
-    sailPos.needsUpdate = true;
-    sailGeo.computeBoundingSphere();
-  }
+  // мачта, рангоут, парус и такелаж (boat-rigging.js); мачта на баке, ~0.6 м от форштевня
+  const MAST_X = 2.4;
+  const horseX = -2.86, horseHW = 0.55;
+  const rig = createRig({
+    group, add, MAT,
+    mastZ: -MAST_X,
+    deckAtMast: deckY(lerpSt(MAST_X), 0),
+    stemHead: new THREE.Vector3(0, STATIONS[STATIONS.length - 1].s + 0.03, -(LOA / 2 - 0.02)),
+    // погон гика-шкота аркой над румпелем у транца
+    horse: { z: -horseX, hw: horseHW, yEnd: deckY(lerpSt(horseX), horseHW), h: 0.4 },
+    coaming: new THREE.Vector3(0.25, edge(CK.x0 + 0.05, 1).top + 0.05, -(CK.x0 + 0.05)),
+    coil: new THREE.Vector3(0.3, CK.floorY + 0.03, -(CK.x0 + 0.5)),
+  });
 
   // шверт: ось под рубкой, опущенный уходит назад-вниз через щель в киле
   const boardPivot = new THREE.Group();
@@ -467,15 +426,7 @@ export function createBoatMesh() {
     euler.set(boat.theta, -boat.psi, -boat.phi);
     group.rotation.copy(euler);
 
-    const s = boat.sail;
-    const reef = s.reefLevel;
-    const luff = 4.9 * (1 - 0.24 * Math.min(reef, 1) - 0.2 * Math.max(0, reef - 1));
-    const clewZ = 4.45 * (1 - 0.08 * Math.min(reef, 1) - 0.1 * Math.max(0, reef - 1));
-    rig.rotation.y = s.boom;
-    const side = s.boom < 0 ? -1 : 1; // пузо в подветренную сторону (туда, куда вынесен гик)
-    const fill = s.status === 'luff' ? 0.2 : s.status === 'gybe' ? 0.4 : 1;
-    const camber = 0.42 * fill * Math.min(1, boat.aw.aws / 5 + 0.2);
-    updateSail(luff, clewZ, camber, side, s.flutter, time);
+    rig.update(boat, time);
 
     boardPivot.rotation.x = boat.board * BOARD_DOWN;
     rudderPivot.rotation.y = boat.rudder;
