@@ -62,6 +62,11 @@ export function createWeatherPanel({ wind, sea, env, water, actions, start }) {
   fr.add(water.reflection, 'resolution', { '¼': 0.25, '½': 0.5, 'полное': 1 }).name('Разрешение');
   fr.add(water.reflection, 'clouds').name('Облака в отражении');
 
+  const fp = gui.addFolder('Прибой');
+  fp.add(water.surf, 'enabled').name('Прибой');
+  fp.add(water.surf, 'strength', 0, 2, 0.05).name('Сила');
+  fp.add(water.surf, 'shallows').name('Мелководье');
+
   const fc = gui.addFolder('Сцена');
   fc.add(state, 'timeOfDay', 0, 1, 0.01).name('Время суток').onChange((v) => env.setTimeOfDay(v));
   fc.add(state, 'clouds', env.cloudTypes).name('Облачность').onChange((v) => env.setCloudType(v));
@@ -70,7 +75,7 @@ export function createWeatherPanel({ wind, sea, env, water, actions, start }) {
 
   // на маленьких экранах панель и второстепенные папки свёрнуты
   const small = matchMedia(SMALL_SCREEN).matches;
-  if (small) { fs.close(); fr.close(); fc.close(); }
+  if (small) { fs.close(); fr.close(); fp.close(); fc.close(); }
   const saved = loadState('weather');
   if (saved ?? small) gui.close();
   gui.title(`<i class="ico">${ICONS.weather}</i><span class="gui-title-text">Погода и сцена</span>`);

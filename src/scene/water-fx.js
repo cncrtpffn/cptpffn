@@ -143,3 +143,59 @@ export const GLINT_GLSL = `
     outgoingLight += uSunColor * (sheen + sparkle) * (1.0 - waterFoam);
   }
 `;
+
+// Прибой и мелководье по карте берега (shore-map.js). Нужны vnoise, uTime, uWindDir.
+// shoreInfo: x — расстояние до берега (м, плюс — вода), y — глубина (м), zw — нормаль от берега.
+export const SURF_GLSL = `
+  uniform sampler2D uShoreTex; uniform vec4 uShoreBounds; uniform float uShoreRange; uniform float uShoreDepth;
+  // uSurf — сила прибоя (0 — выкл), uSurfAmp — сумма амплитуд волн (м), uShallows — сила цвета мелководья
+  uniform float uSurf; uniform float uSurfAmp; uniform float uShallows; uniform vec3 uLagoon;
+  vec4 shoreInfo(vec2 p) {
+    vec2 uv = (p - uShoreBounds.xy) / uShoreBounds.zw;
+    if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(uShoreRange, uShoreDepth, 0.0, 0.0);
+    vec4 t = texture2D(uShoreTex, uv);
+    return vec4((t.r * 2.0 - 1.0) * uShoreRange, t.g * uShoreDepth, t.ba * 2.0 - 1.0);
+  }
+  // доля бирюзы мелководья
+  float shallowMix(vec4 sh) {
+    float k = 1.0 - sh.y / uShoreDepth;
+    return uShallows * 0.55 * k * k;
+  }
+  // lines = 0 — только пена у кромки (дальняя вода)
+  float surfFoam(vec2 p, vec4 sh, float lines) {
+    float d = sh.x;
+    if (uSurf <= 0.0 || d > uShoreRange - 1.0) return 0.0;
+    float fpx = length(fwidth(p));
+    // наветренный берег — сильнее, подветренный — тише
+    float expo = mix(0.35, 1.0, smoothstep(-0.3, 0.6, dot(sh.zw, -uWindDir)));
+    float sea = smoothstep(0.03, 0.6, uSurfAmp * expo);
+    // мелкий шум гаснет вдали, иначе пена мерцает
+    float hf = mix(vnoise(p * 3.7 - uTime * 0.3), 0.5, smoothstep(0.08, 0.3, fpx));
+    float rag = vnoise(p * 1.1 + uTime * 0.12) * 0.6 + hf * 0.4;
+
+    // кромка: заплески «дышат» не в такт по всему берегу
+    float breathe = 0.5 + 0.5 * sin(uTime * 0.85 + vnoise(p * 0.04) * 12.0);
+    float edgeW = 0.5 + (0.6 + 1.6 * breathe) * (0.25 + sea);
+    float edge = smoothstep(-1.2, -0.2, d) * (1.0 - smoothstep(edgeW * 0.35, edgeW, d));
+    edge *= smoothstep(0.3, 0.55, rag + edge * 0.25);
+
+    // буруны: рушатся там, где глубина меньше ~1.3 высоты волны, и бегут к берегу
+    float foamLines = 0.0;
+    if (lines > 0.0) {
+      // склоны у островов крутые: глубина 4 м уже в ~10 м от кромки
+      float hb = (0.4 + 2.6 * uSurfAmp) * expo;
+      float zone = 1.0 - smoothstep(hb * 0.7, hb + 0.3, sh.y);
+      float lam = 2.2 + 2.0 * uSurfAmp;
+      float ph = d / lam + uTime * (0.12 + 0.08 * uSurfAmp) + vnoise(p * 0.07) * 1.5;
+      float fr = fract(ph);
+      // резкий передний край со стороны берега, хвост пены — в сторону моря
+      float w = 0.4;
+      float l = (1.0 - smoothstep(0.0, w, fr)) + smoothstep(0.96, 1.0, fr);
+      l *= smoothstep(0.3, 0.55, vnoise(p * 0.35 + sh.zw * uTime * 0.3) * 0.7 + hf * 0.3);
+      // тоньше пикселя — гасим; у кромки сливаются с ней
+      l *= 1.0 - smoothstep(0.3, 1.0, fpx / (lam * w));
+      foamLines = l * zone * smoothstep(0.0, 1.0, d) * sea * lines;
+    }
+    return clamp(max(edge, foamLines * 0.9) * uSurf, 0.0, 1.0);
+  }
+`;

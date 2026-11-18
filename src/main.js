@@ -5,6 +5,7 @@ import { Waves } from './physics/waves.js';
 import { Boat } from './physics/boat.js';
 import { createWater } from './scene/water.js';
 import { createPlanarReflection } from './scene/planar-reflection.js';
+import { bakeShoreMap } from './scene/shore-map.js';
 import { createBoatMesh } from './scene/boat-mesh.js';
 import { createWake } from './scene/wake.js';
 import { createSpray } from './scene/spray.js';
@@ -52,7 +53,10 @@ const sea = { ...SEA, ...START.weather.sea };
 // --- сцена ---
 const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay });
 const planar = createPlanarReflection(renderer);
-const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterSegments, sky: env.sky, planar });
+const bakeT0 = performance.now();
+const shoreMap = bakeShoreMap(env.islands.map((g) => g.userData.shore));
+const bakeMs = performance.now() - bakeT0;
+const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterSegments, sky: env.sky, planar, shoreMap });
 // второй рендер дорог: на телефонах и планшетах отражение объектов по умолчанию выключено
 water.reflection.planar = !isTouchDevice();
 scene.add(water.mesh, water.far);
@@ -137,6 +141,11 @@ function autopilotControls() {
   const sheetAngle = Math.abs(boat.aw.awa) - 24 * DEG;
   return { rudderAngle, sheetAngle, crew: Math.sign(boat.aw.twa || 1), board: 0, rudder: 0, sheet: 0 };
 }
+if (params.has('pos')) {
+  // pos=x,z[,курс°] — поставить лодку в точку
+  const [x, z, h = 0] = params.get('pos').split(',').map(Number);
+  boat.reset(x, z, h * DEG);
+}
 if (params.has('t')) {
   const secs = parseFloat(params.get('t'));
   for (let i = 0; i < secs / STEP; i++) {
@@ -152,6 +161,7 @@ if (params.has('t')) {
   followCam.update(100, boat, boatMesh);
 }
 const debugLog = params.has('log');
+if (debugLog) console.log(`[shore] ${shoreMap.width}×${shoreMap.height} за ${bakeMs.toFixed(0)} мс`);
 
 // --- цикл ---
 let last = performance.now();
@@ -205,4 +215,4 @@ document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { boat, wind, waves, sea, env, followCam, scene, wake, spray, input };
+window.__sim = { boat, wind, waves, sea, env, followCam, scene, wake, spray, input, water, shoreMap };

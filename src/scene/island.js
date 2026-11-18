@@ -145,6 +145,9 @@ export function makeIsland(defIn, rng) {
   g.position.set(def.x, 0, def.z);
   const terrain = makeTerrain(def, rng);
   g.add(buildTerrainMesh(terrain, def, rng, { ground: def.groundColor, sand: def.sandColor, cliff: def.cliffColor }));
+  // для карты берега (shore-map.js): рельеф в мировых координатах и следы прибрежных скал
+  const shore = { x: def.x, z: def.z, R: def.r, height: (wx, wz) => terrain.height(wx - def.x, wz - def.z), rocks: [] };
+  g.userData.shore = shore;
 
   const keepOut = [];
   if (def.lighthouse) {
@@ -211,7 +214,13 @@ export function makeIsland(defIn, rng) {
     const p = coastal ? spot(0.92, 1.08, 2, -1.5, 0.8) : spot(0.1, 0.9, 2, 0.5);
     if (!p) continue;
     const s = range(def.rockScale, rng) * (coastal ? 1.2 : 1);
-    addRock(props, place(p, s * 0.25), { scale: s, color: pick(rockColors, rng), cluster: rng() < 0.4 }, rng);
+    // порядок вызовов rng прежний — расстановка не меняется
+    const base = place(p, s * 0.25), color = pick(rockColors, rng), cluster = rng() < 0.4;
+    addRock(props, base, { scale: s, color, cluster }, rng);
+    // след на уровне воды: камень — эллипсоид с центром ~p.y и полувысотой ~0.6s (см. addRock);
+    // у кучки обломки лежат до ~1.4s от центра; утонувшие камни пены не дают
+    const cy = (p.y - 0.02 * s) / (0.6 * s);
+    if (coastal && cy > -0.9) shore.rocks.push({ x: def.x + p.x, z: def.z + p.z, r: Math.max(0.5, s * (cluster ? 1.2 : 0.9) * Math.sqrt(1 - Math.min(1, cy * cy))) });
   }
 
   const propMesh = props.toMesh(propMaterial());
