@@ -179,10 +179,11 @@ function outlineW(x) {
 }
 // высота комингса/стенки рубки над палубой: низкий комингс плавно переходит в рубку
 const wallH = (x) => CK.coaming + (CK.cabin - CK.coaming) * smooth(CK.xc - 0.6, CK.xc + 0.05, x);
-// x-сетка контура: сгущается к концам, переборка — точно в сетке
+// x-сетка контура: сгущается к концам, переборка — точно в сетке; шагов мало — скругления гранёные (low-poly)
+const OX_N = 20;
 const OX = (() => {
   const xs = [];
-  for (let i = 0; i <= 64; i++) xs.push(CK.x0 + (CK.x1 - CK.x0) * (0.5 - 0.5 * Math.cos(Math.PI * i / 64)));
+  for (let i = 0; i <= OX_N; i++) xs.push(CK.x0 + (CK.x1 - CK.x0) * (0.5 - 0.5 * Math.cos(Math.PI * i / OX_N)));
   xs.push(CK.xc);
   return [...new Set(xs)].sort((a, b) => a - b);
 })();
@@ -297,10 +298,28 @@ function sheerCurve(side) {
   const pts = STATIONS.map((st) => new THREE.Vector3(side * st.b, st.s + 0.02, -st.x));
   return new THREE.CatmullRomCurve3(pts);
 }
-// планширь комингса/рубки — замкнутая линия по верху стенок
-function capCurve() {
-  return new THREE.CatmullRomCurve3(inset(LOOP, 0.015, true).map((p) => pt(p.x, p.top, p.z)), true);
+// Гранёная труба по замкнутой ломаной: кольца в вершинах, разнесённые по биссектрисе (без сплайна, грани совпадают со стенкой).
+function polyTube(pts, r, sides) {
+  const n = pts.length, up = new THREE.Vector3(0, 1, 0), rings = [];
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], a = pts[(i - 1 + n) % n], b = pts[(i + 1) % n];
+    const d0 = p.clone().sub(a).setY(0).normalize(), d1 = b.clone().sub(p).setY(0).normalize();
+    const t = d0.clone().add(d1).normalize();
+    const side = new THREE.Vector3().crossVectors(t, up).normalize();
+    const miter = 1 / Math.max(0.5, side.dot(new THREE.Vector3().crossVectors(d1, up).normalize()));
+    const ring = [];
+    for (let k = 0; k <= sides; k++) {
+      const ang = 2 * Math.PI * k / sides;
+      ring.push(p.clone().addScaledVector(side, r * miter * Math.cos(ang)).addScaledVector(up, r * Math.sin(ang)));
+    }
+    rings.push(ring);
+  }
+  const pos = [];
+  for (let i = 0; i < n; i++) ribbon(pos, rings[(i + 1) % n], rings[i]);
+  return toGeo(pos);
 }
+// планширь комингса/рубки — замкнутая ломаная по верху стенок
+const capPoints = () => inset(LOOP, 0.015, true).map((p) => pt(p.x, p.top, p.z));
 
 export function createBoatMesh() {
   const group = new THREE.Group();
@@ -323,7 +342,7 @@ export function createBoatMesh() {
   add(new THREE.Mesh(ck.wood, MAT.wood));
   add(new THREE.Mesh(ck.floor, MAT.wood));
   add(new THREE.Mesh(ck.roof, MAT.deck));
-  add(new THREE.Mesh(new THREE.TubeGeometry(capCurve(), 200, 0.032, 5, true), MAT.darkWood));
+  add(new THREE.Mesh(polyTube(capPoints(), 0.032, 5), MAT.darkWood));
   // сходной люк в переборке и сдвижной люк на крыше
   const roofAtXc = edge(CK.xc, 1).top + CK.crown;
   add(new THREE.Mesh(new THREE.BoxGeometry(0.5, roofAtXc - CK.floorY - 0.32, 0.03), MAT.darkWood)).position.set(0, (roofAtXc + CK.floorY + 0.32) / 2, -CK.xc + 0.02);
