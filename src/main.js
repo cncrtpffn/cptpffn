@@ -5,7 +5,7 @@ import { Waves } from './physics/waves.js';
 import { Boat } from './physics/boat.js';
 import { createWater } from './scene/water.js';
 import { createPlanarReflection } from './scene/planar-reflection.js';
-import { bakeShoreMap } from './scene/shore-map.js';
+import { bakeShoreMap, shoreDamp } from './scene/shore-map.js';
 import { createBoatMesh } from './scene/boat-mesh.js';
 import { createWake } from './scene/wake.js';
 import { createSpray } from './scene/spray.js';
@@ -56,6 +56,8 @@ const planar = createPlanarReflection(renderer);
 const bakeT0 = performance.now();
 const shoreMap = bakeShoreMap(env.islands.map((g) => g.userData.shore));
 const bakeMs = performance.now() - bakeT0;
+// физика гасит волны у берега так же, как вершинный шейдер воды
+waves.damp = (x, z) => shoreDamp(shoreMap.info(x, z).depth);
 const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterSegments, sky: env.sky, planar, shoreMap });
 // второй рендер дорог: на телефонах и планшетах отражение объектов по умолчанию выключено
 water.reflection.planar = !isTouchDevice();

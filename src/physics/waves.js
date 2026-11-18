@@ -24,6 +24,7 @@ export class Waves {
     this.time = 0;
     this.sigHeight = 0;
     this.targetHeight = 0;
+    this.damp = null; // гашение у берега, см. _disp
     this.targetLambda = 12;
     this.windDir = 0;
     this.stableDir = 0;      // последнее устоявшееся направление ветра
@@ -148,6 +149,7 @@ export class Waves {
   }
 
   // Смещение Герстнера в точке параметризации p.
+  // damp(x, z) → множитель 0..1 (необязательно): гашение волн у берега, задаётся снаружи.
   _disp(px, pz, out) {
     let dx = 0, dz = 0, y = 0;
     for (let i = 0; i < this.count; i++) {
@@ -157,7 +159,8 @@ export class Waves {
       dz += this.q[i] * this.amp[i] * this.dirZ[i] * c;
       y += this.amp[i] * s;
     }
-    out.dx = dx; out.dz = dz; out.y = y;
+    const m = this.damp ? this.damp(px, pz) : 1;
+    out.dx = dx * m; out.dz = dz * m; out.y = y * m;
     return out;
   }
 

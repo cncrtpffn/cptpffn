@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MAX_COMP } from '../physics/waves.js';
-import { WAKE_POINTS, FX_UNIFORMS_GLSL, NOISE_GLSL, WAKE_GLSL, GLINT_GLSL, SKY_REFLECT_GLSL, RIPPLE_GLSL, SURF_GLSL } from './water-fx.js';
+import { WAKE_POINTS, FX_UNIFORMS_GLSL, NOISE_GLSL, WAKE_GLSL, GLINT_GLSL, SKY_REFLECT_GLSL, RIPPLE_GLSL, SURF_GLSL, SHORE_DAMP_GLSL } from './water-fx.js';
 import { SKY_UNIFORMS_GLSL, SKY_COLOR_GLSL } from './sky.js';
 
 // Вода: MeshStandardMaterial + вершинный шейдер Герстнера (те же параметры, что в физике).
@@ -75,11 +75,14 @@ export function createWater(waves, { size = 440, segments = 176, sky, planar, sh
       .replace('#include <common>', `#include <common>
         uniform vec2 uWaveDir[${MAX_COMP}]; uniform float uWaveA[${MAX_COMP}]; uniform float uWaveK[${MAX_COMP}];
         uniform float uWavePhase[${MAX_COMP}]; uniform float uWaveQ[${MAX_COMP}]; uniform vec2 uCenter; uniform float uRadius;
-        varying float vWaveH; varying float vSteep; varying vec3 vWorldPos; varying vec3 vWaveN;`)
+        varying float vWaveH; varying float vSteep; varying vec3 vWorldPos; varying vec3 vWaveN;
+        ${SHORE_DAMP_GLSL}`)
       // beginnormal_vertex идёт раньше begin_vertex: здесь и смещение, и аналитическая нормаль
       .replace('#include <beginnormal_vertex>', `
         vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
         float edge = 1.0 - smoothstep(uRadius * 0.72, uRadius * 0.98, length(wp.xz - uCenter));
+        // у берега волны затухают по глубине (как waves.damp на CPU): не выходят пластами на пляж
+        edge *= shoreDampAt(wp.xz);
         vec3 disp = vec3(0.0); float steep = 0.0; vec3 nd = vec3(0.0);
         for (int i = 0; i < ${MAX_COMP}; i++) {
           float th = uWaveK[i] * dot(uWaveDir[i], wp.xz) - uWavePhase[i];
