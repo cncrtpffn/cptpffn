@@ -92,16 +92,45 @@ function surfacePatch(poly, off, t) {
   return geo;
 }
 
+// общий масштаб модели: геометрия ниже задана для R = 0.197, в игре моряк на 10 % крупнее
+export const SAILOR_SCALE = 1.1;
+// досягаемость руки от «плеча», в единицах модели (до масштаба)
+export const SAILOR_REACH = 0.75;
+const REACH = SAILOR_REACH;
+
 // точка на сфере радиуса r по направлению d
 const onSphere = (d, r) => d.clone().normalize().multiplyScalar(r);
 
-export function createSailor() {
+// детерминированный генератор случайных чисел (mulberry32): одинаковые кадры на стенде при одном seed
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// цели взгляда: веса выбора и пауза на цели (с). side — случайный взгляд по сторонам
+const LOOK_W = { course: 4, sail: 3, pennant: 1.2, side: 1.5 };
+const LOOK_HOLD = { course: [2.5, 6], sail: [1.5, 4], pennant: [0.8, 1.8], side: [1.2, 3] };
+const YAW_MAX = 1.5, PITCH_MIN = -0.45, PITCH_MAX = 0.9; // рад, пределы поворота головы
+// реакция на крен: доля компенсации торсом и головой (голова держит горизонт сильнее), предел, рад
+const COMP_TORSO = 0.45, COMP_HEAD = 0.75, COMP_MAX = 0.4;
+
+export function createSailor({ seed = 1 } = {}) {
   const group = new THREE.Group();
+  group.scale.setScalar(SAILOR_SCALE);
   const add = (mesh, parent) => { mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh; };
+
+  // торс: тело и голова; наклоняется вокруг точки посадки, когда рука не дотягивается до цели
+  const torso = new THREE.Group();
+  group.add(torso);
 
   // ---- тело ----
   const body = new THREE.Group();
-  group.add(body);
+  torso.add(body);
   add(new THREE.Mesh(toDrop(new THREE.LatheGeometry(BODY_FRONT, 48, Math.PI)), MAT.coat), body); // шов развёртки — на спине
   // V-вырез с тельняшкой
   add(new THREE.Mesh(surfacePatch([[0, 0.24], [0.08, 0.465], [-0.08, 0.465]], 0.002, 0.002), MAT.shirt), body);
@@ -137,7 +166,7 @@ export function createSailor() {
   // ---- голова: шарнир у шеи, чтобы наклоны и повороты шли от основания; голова стоит на теле, не утоплена ----
   const head = new THREE.Group();
   head.position.y = 0.47;
-  group.add(head);
+  torso.add(head);
   const HEAD_R = 0.197, HC = V(0, 0.18, 0); // центр шара относительно шарнира
   add(new THREE.Mesh(new THREE.SphereGeometry(HEAD_R, 40, 28), MAT.skin), head).position.copy(HC);
   // глаза-точки; моргание — scale.y
@@ -179,14 +208,41 @@ export function createSailor() {
   }
   add(new THREE.Mesh(cuffGeo, MAT.wool), hat);
 
-  // ---- руки: сферы, висят у боков ----
-  const hands = [-1, 1].map((sx) => {
-    const h = add(new THREE.Mesh(new THREE.SphereGeometry(0.058, 24, 16), MAT.skin), group);
-    h.position.set(0.32 * sx, 0.16, 0.02);
+  // ---- руки: сферы, висят у боков; hands[0] — у левого бока моряка (−X), hands[1] — у правого (+X) ----
+  const HAND_R = 0.058;
+  const REST = [-1, 1].map((sx) => V(0.32 * sx, 0.16, 0.02));
+  const hands = REST.map((p) => {
+    const h = add(new THREE.Mesh(new THREE.SphereGeometry(HAND_R, 24, 16), MAT.skin), group);
+    h.position.copy(p);
     return h;
   });
+  // «плечо» — точка на боку под линией плеч, от неё считается досягаемость руки
+  const SHOULDER = [-1, 1].map((sx) => V(0.2 * sx, 0.36, 0));
+  const vel = hands.map(() => V());
+  const tgt = V(), off = V(), shTmp = V(), leanDir = new THREE.Vector2();
+  const targets = [null, null], targets_ = [V(), V()];
+  const LEAN_MAX = 0.55; // рад, наклон торса к недосягаемой цели
 
-  // ---- состояние ----
+  // ---- состояние фоновой анимации ----
+  const rand = rng(seed);
+  const range = ([lo, hi]) => lo + (hi - lo) * rand();
+  let clock = 0;
+  // взгляд: текущая цель, время смены, угол «по сторонам»; сам угол головы догоняет цель пружиной
+  let lookKey = 'course', lookUntil = 0, sideYaw = 0, sidePitch = 0;
+  const lookAng = { yaw: 0, pitch: 0, vy: 0, vp: 0 };
+  // моргание: время следующего, фаза текущего (−1 — нет)
+  let blinkAt = range([1, 3]), blinkT = -1, blinkTwice = 0; // blinkTwice: 1 — будет второе, 2 — идёт второе
+  // волна: пружины смещения торса и головы по вертикали, сглаженная вертикальная скорость точки посадки
+  const bob = { x: 0, v: 0, hx: 0, hv: 0 };
+  const lastPos = V(), curPos = V();
+  let lastVy = 0, hasPos = false;
+  // крен: сглаженные углы компенсации
+  const comp = { tx: 0, tz: 0, hx: 0, hz: 0 };
+  // наклон к недосягаемой цели (раньше писался прямо в torso.rotation)
+  const lean = { x: 0, z: 0 };
+  let duckS = 0;
+  const qInv = new THREE.Quaternion(), upL = V(), refL = V(), lookL = V(), WORLD_UP = V(0, 1, 0);
+
   const eye = V();
   function eyeWorld(target) {
     eye.set(0, 0.2, 0.1);
@@ -194,13 +250,173 @@ export function createSailor() {
     return target ? target.copy(eye) : eye.clone();
   }
 
-  // ctx: { look: { yaw, pitch } (рад), blink (0 — открыты, 1 — закрыты) }
-  function update(dt, ctx = {}) {
-    const look = ctx.look || { yaw: 0, pitch: 0 };
-    head.rotation.set(-look.pitch, look.yaw, 0, 'YXZ');
-    const b = 1 - 0.88 * (ctx.blink || 0);
-    for (const e of eyes) e.scale.y = b;
+  // мировая точка «плеча» руки i — чтобы снаружи выбрать, за какое место румпеля можно взяться
+  function shoulderWorld(i, target = V()) {
+    return torso.localToWorld(target.copy(SHOULDER[i]));
+  }
+  const shoulderLocal = (i, target) => target.copy(SHOULDER[i]).applyEuler(torso.rotation).add(torso.position);
+
+  // выбор следующей цели взгляда (взвешенно, не повторяя текущую)
+  function pickLook(avail) {
+    const keys = Object.keys(LOOK_W).filter((k) => k !== lookKey && (k === 'side' || avail[k]));
+    let sum = 0;
+    for (const k of keys) sum += LOOK_W[k];
+    let r = rand() * sum;
+    let k = keys[keys.length - 1];
+    for (const kk of keys) { r -= LOOK_W[kk]; if (r <= 0) { k = kk; break; } }
+    lookKey = k;
+    lookUntil = clock + range(LOOK_HOLD[k]);
+    if (k === 'side') { sideYaw = (rand() < 0.5 ? -1 : 1) * range([0.5, 1.3]); sidePitch = range([-0.15, 0.15]); }
   }
 
-  return { group, head, body, hands, eyes, update, eyeWorld };
+  // угол на мировую точку p из шарнира головы в СК торса (без собственного поворота головы)
+  function aimAt(p, out) {
+    torso.updateWorldMatrix(true, false);
+    lookL.copy(p);
+    torso.worldToLocal(lookL).sub(head.position);
+    lookL.y -= HC.y;
+    out.yaw = Math.atan2(lookL.x, lookL.z);
+    out.pitch = Math.atan2(lookL.y, Math.hypot(lookL.x, lookL.z));
+    return out;
+  }
+  const aim = { yaw: 0, pitch: 0 };
+
+  // ctx (всё необязательно):
+  //   look: { yaw, pitch } — ручной поворот головы (рад), отключает автоматический взгляд; blink — ручное моргание 0..1;
+  //   lookAt: { course, sail, pennant } — мировые точки, на которые моряк поглядывает (случайно, с паузами);
+  //   focus — ключ из lookAt, на который смотреть сейчас (жест при манёвре);
+  //   refUp — мировой «верх» лодки: торс и голова частично компенсируют его отклонение от вертикали (крен, дифферент);
+  //   duck — 0..1, пригнуться (под гиком при пересадке и переброске);
+  //   hands: [Vector3|null, Vector3|null] — мировые цели центров рук (null — поза покоя).
+  // Цель руки ограничивается досягаемостью REACH от плеча; рука догоняет цель пружиной с критическим демпфированием.
+  function update(dt, ctx = {}) {
+    const step = dt > 0 ? dt : 0;
+    clock += step;
+    group.updateWorldMatrix(true, false);
+
+    // ---- дыхание: период ~4 с, тело чуть растёт по высоте, голова поднимается вместе с ним ----
+    const br = Math.sin(clock * (2 * Math.PI / 4.2));
+    const breath = 0.012 * br;
+
+    // ---- волна: вертикальное ускорение точки посадки раскачивает пружины торса и головы ----
+    group.getWorldPosition(curPos);
+    if (hasPos && step > 0) {
+      const vy = (curPos.y - lastPos.y) / step;
+      const ay = THREE.MathUtils.clamp((vy - lastVy) / step, -20, 20);
+      lastVy += (vy - lastVy) * Math.min(1, step * 20);
+      // x'' = −ω²x − 2ζωx' − a·k : тело «проседает», когда лодку подбрасывает вверх
+      const Wt = 9, Wh = 6;
+      bob.v += (-Wt * Wt * bob.x - 2 * 0.45 * Wt * bob.v - ay * 0.6) * step;
+      bob.x = THREE.MathUtils.clamp(bob.x + bob.v * step, -0.04, 0.04);
+      bob.hv += (-Wh * Wh * bob.hx - 2 * 0.35 * Wh * bob.hv - ay * 0.5) * step;
+      bob.hx = THREE.MathUtils.clamp(bob.hx + bob.hv * step, -0.035, 0.035);
+    }
+    lastPos.copy(curPos); hasPos = true;
+
+    // ---- крен и дифферент: торс и голова частично держат вертикаль относительно «верха» лодки ----
+    let ctX = 0, ctz = 0, chx = 0, chz = 0;
+    if (ctx.refUp) {
+      group.getWorldQuaternion(qInv).invert();
+      upL.copy(WORLD_UP).applyQuaternion(qInv);
+      refL.copy(ctx.refUp).applyQuaternion(qInv);
+      const dx = Math.atan2(upL.z, upL.y) - Math.atan2(refL.z, refL.y); // поворот вокруг X: +Y к +Z
+      const dz = -(Math.atan2(upL.x, upL.y) - Math.atan2(refL.x, refL.y)); // вокруг Z: +Y к −X
+      const cl = (v) => THREE.MathUtils.clamp(v, -COMP_MAX, COMP_MAX);
+      ctX = cl(dx * COMP_TORSO); ctz = cl(dz * COMP_TORSO);
+      chx = cl(dx * COMP_HEAD) - ctX; chz = cl(dz * COMP_HEAD) - ctz; // голове — остаток сверх торса
+    }
+    const kc = step > 0 ? Math.min(1, step * 5) : 1;
+    comp.tx += (ctX - comp.tx) * kc; comp.tz += (ctz - comp.tz) * kc;
+    comp.hx += (chx - comp.hx) * kc; comp.hz += (chz - comp.hz) * kc;
+
+    // ---- пригибание: торс вперёд, тело приседает, голова вниз ----
+    const duckT = THREE.MathUtils.clamp(ctx.duck || 0, 0, 1);
+    duckS += (duckT - duckS) * (step > 0 ? Math.min(1, step * 12) : 1);
+
+    // ---- цели рук в СК моряка; если какая-то дальше досягаемости — торс наклоняется к ней (не больше LEAN_MAX) ----
+    let worst = 0;
+    leanDir.set(0, 0);
+    for (let i = 0; i < 2; i++) {
+      const w = ctx.hands && ctx.hands[i];
+      if (!w) { targets[i] = null; continue; }
+      targets[i] = group.worldToLocal(targets_[i].copy(w));
+      const ex = targets[i].distanceTo(SHOULDER[i]) - REACH;
+      if (ex > worst) { worst = ex; leanDir.set(targets[i].x, targets[i].z).normalize(); }
+    }
+    const ang = Math.min(LEAN_MAX, Math.atan2(worst, 0.5));
+    const lx = ang * leanDir.y, lz = -ang * leanDir.x; // верх торса — к цели: вокруг X к +Z, вокруг Z к −X
+    const kLean = step > 0 ? Math.min(1, step * 6) : 1;
+    lean.x += (lx - lean.x) * kLean;
+    lean.z += (lz - lean.z) * kLean;
+
+    torso.rotation.x = lean.x + comp.tx + 0.42 * duckS;
+    torso.rotation.z = lean.z + comp.tz;
+    torso.position.y = bob.x - 0.06 * duckS;
+    body.scale.y = 1 + breath - 0.1 * duckS;
+    body.scale.x = body.scale.z = 1 - 0.4 * breath + 0.04 * duckS;
+    head.position.y = 0.47 * body.scale.y + bob.hx - bob.x * 0.5;
+
+    // ---- взгляд ----
+    let yaw, pitch;
+    if (ctx.look) { yaw = ctx.look.yaw; pitch = ctx.look.pitch; }
+    else {
+      const avail = ctx.lookAt || {};
+      if (clock >= lookUntil || (lookKey !== 'side' && !avail[lookKey])) pickLook(avail);
+      const key = ctx.focus && avail[ctx.focus] ? ctx.focus : lookKey;
+      if (key === 'side') { aim.yaw = sideYaw; aim.pitch = sidePitch; }
+      else aimAt(avail[key], aim);
+      yaw = THREE.MathUtils.clamp(aim.yaw, -YAW_MAX, YAW_MAX);
+      pitch = THREE.MathUtils.clamp(aim.pitch, PITCH_MIN, PITCH_MAX);
+    }
+    pitch -= 0.35 * duckS; // пригнувшись, смотрит под ноги / под гик
+    if (step > 0 && !ctx.look) {
+      // быстрый поворот с мягкой остановкой: пружина ω = 9
+      const W = 9;
+      lookAng.vy += (W * W * (yaw - lookAng.yaw) - 2 * W * lookAng.vy) * step;
+      lookAng.vp += (W * W * (pitch - lookAng.pitch) - 2 * W * lookAng.vp) * step;
+      lookAng.yaw += lookAng.vy * step;
+      lookAng.pitch += lookAng.vp * step;
+    } else { lookAng.yaw = yaw; lookAng.pitch = pitch; lookAng.vy = lookAng.vp = 0; }
+    // кивок дыхания и компенсация крена головой; голова поворачивается в СК торса
+    head.rotation.set(-lookAng.pitch + chxBreath(br) + comp.hx, lookAng.yaw, comp.hz, 'YXZ');
+
+    // ---- моргание: раз в 2–5 с на 0.12 с, иногда дважды подряд ----
+    let blink = ctx.blink;
+    if (blink === undefined) {
+      blink = 0;
+      if (blinkT < 0 && clock >= blinkAt) { blinkT = 0; if (!blinkTwice) blinkTwice = rand() < 0.2 ? 1 : 0; }
+      if (blinkT >= 0) {
+        blinkT += step;
+        const u = blinkT / 0.12;
+        blink = u < 1 ? Math.sin(Math.PI * u) : 0;
+        if (u >= 1) {
+          blinkT = -1;
+          if (blinkTwice === 1) { blinkTwice = 2; blinkAt = clock + 0.08; } // второе моргание после короткой паузы
+          else { blinkTwice = 0; blinkAt = clock + range([2, 5]); }
+        }
+      }
+    }
+    const b = 1 - 0.88 * blink;
+    for (const e of eyes) e.scale.y = b;
+
+    for (let i = 0; i < 2; i++) {
+      if (targets[i]) {
+        tgt.copy(targets[i]);
+        const sh = shoulderLocal(i, shTmp);
+        off.subVectors(tgt, sh);
+        if (off.length() > REACH) tgt.copy(sh).addScaledVector(off.normalize(), REACH);
+      } else tgt.copy(REST[i]).applyEuler(torso.rotation).add(torso.position);
+      const h = hands[i].position;
+      if (step <= 0) { h.copy(tgt); vel[i].set(0, 0, 0); continue; }
+      // x'' = ω²(цель − x) − 2ω·x'
+      const W = 18;
+      off.subVectors(tgt, h).multiplyScalar(W * W).addScaledVector(vel[i], -2 * W);
+      vel[i].addScaledVector(off, step);
+      h.addScaledVector(vel[i], step);
+    }
+  }
+  // дыхание: голова чуть кивает в такт (выдох — вниз)
+  const chxBreath = (br) => 0.015 * br;
+
+  return { group, torso, head, body, hands, eyes, update, eyeWorld, shoulderWorld, HAND_R };
 }

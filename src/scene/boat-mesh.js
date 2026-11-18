@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { DEG } from '../config.js';
 import { createRig } from './boat-rigging.js';
 import { createFittings } from './boat-fittings.js';
+import { createSailor } from './sailor.js';
 
 // Локальная СК модели: нос = -Z, правый борт = +X, вверх = +Y. Начало — на ватерлинии под ЦТ.
 // Физика: x (вперёд) -> -Z, y (правый борт) -> +X.
@@ -17,9 +18,6 @@ const MAT = {
   sail: new THREE.MeshStandardMaterial({ color: 0xf7f0dc, flatShading: true, roughness: 0.9, side: THREE.DoubleSide }),
   spar: flat(0xc8a06a),
   white: flat(0xf4f1e8, { side: THREE.DoubleSide }),
-  skin: flat(0xf1c7a0),
-  shirt: flat(0xe9553b),
-  hat: flat(0xf4e3b2),
   metal: flat(0xa7b0b5, { metalness: 0.6, roughness: 0.4 }),
   rope: flat(0xdccfb0, { side: THREE.DoubleSide }),
   pennant: flat(0xd8392b, { side: THREE.DoubleSide, emissive: 0x5a120c }),
@@ -331,6 +329,30 @@ function polyTube(pts, r, sides) {
 // планширь комингса/рубки — замкнутая ломаная по верху стенок
 const capPoints = () => inset(LOOP, 0.015, true).map((p) => pt(p.x, p.top, p.z));
 
+// Положения рулевого. Сидит лицом к противоположному борту, чуть впереди конца румпеля (x ≈ −1.55),
+// чтобы кормовая рука доставала до румпеля. side: +1 правый борт, −1 левый.
+// bench — на банке у внутренней кромки (ближе к ДП); hike — на комингсе над банкой, откренка за борт.
+const SEAT_X = -1.3;
+// угол to + 2πk, ближайший к from; при равенстве (разворот на 180°) — тот, чей путь идёт через лицом к носу (π)
+function turnTarget(from, to) {
+  let best = to, bd = Infinity;
+  for (let k = -2; k <= 2; k++) {
+    const c = to + 2 * Math.PI * k;
+    const d = Math.abs(c - from) + 1e-3 * Math.cos((c + from) / 2); // cos(середины) < 0 — середина у π
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best;
+}
+const SEAT_LEAN = 0.35; // откренка: наклон корпуса за борт, рад (~20°)
+function seatPose(side, hike) {
+  const w = outlineW(SEAT_X), e = edge(SEAT_X, side);
+  const pos = hike
+    ? pt(SEAT_X, e.top - 0.03, side * w)                                // на комингсе, чуть «просев» в него: пузо над банкой, спина над проходом
+    : pt(SEAT_X, CK.floorY + CK.seatH, side * (w - CK.seatW + 0.12));    // на банке ближе к ДП: спина не уходит в комингс, пузо свисает за кромку
+  // лицом (+Z моряка) к противоположному борту: в СК модели это −side по X
+  return { pos, rotY: -side * Math.PI / 2, lean: hike ? -SEAT_LEAN : 0 };
+}
+
 export function createBoatMesh() {
   const group = new THREE.Group();
   const add = (m, parent = group) => { m.castShadow = true; m.receiveShadow = true; parent.add(m); return m; };
@@ -401,32 +423,30 @@ export function createBoatMesh() {
   const tillerCurve = new THREE.CatmullRomCurve3([[0, 0.92, 0.1], [0, 0.94, -0.2], [0, 0.88, -0.8], [0, 0.78, -1.5]].map((q) => new THREE.Vector3(...q)));
   add(new THREE.Mesh(new THREE.TubeGeometry(tillerCurve, 16, 0.028, 6, false), MAT.darkWood), rudderPivot);
   add(new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 5), MAT.darkWood), rudderPivot).position.set(0, 0.78, -1.5);
+  // удлинитель румпеля на шарнире у конца румпеля: металлическая трубка с деревянной ручкой на свободном конце.
+  // Ориентация считается в кадре (update), в СК лодки; геометрия вдоль +Y от шарнира.
+  const TILLER_END = new THREE.Vector3(0, 0.78, -1.5), EXT_L = 1.0;
+  const ext = new THREE.Group();
+  group.add(ext);
+  add(new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, EXT_L, 6).translate(0, EXT_L / 2, 0), MAT.metal), ext);
+  add(new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.14, 6).translate(0, EXT_L - 0.07, 0), MAT.darkWood), ext);
   // петли на транце (неподвижные) и штыри на пере
   for (const v of [0.08, 0.45]) {
     add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.04, 0.09), MAT.metal), rudderMount).position.set(0, v, -0.02);
     add(new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 6), MAT.metal), rudderPivot).position.set(0, v - 0.05, 0);
   }
 
-  // матрос
+  // рулевой (sailor.js): 4 положения — на бортовой банке ближе к ДП и на комингсе с откренкой, на каждый борт
   const crew = new THREE.Group();
   group.add(crew);
-  const body = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.3, 3, 6), MAT.shirt), crew);
-  body.position.y = 0.42;
-  const head = add(new THREE.Mesh(new THREE.SphereGeometry(0.14, 7, 6), MAT.skin), crew);
-  head.position.y = 0.8;
-  const hat = add(new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, 0.08, 8), MAT.hat), crew);
-  hat.position.y = 0.9;
-  add(new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.11, 0.12, 8), MAT.hat), crew).position.y = 0.98;
-  const legs = add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.14, 0.4), MAT.darkWood), crew);
-  legs.position.set(0, 0.24, -0.12);
+  const sailor = createSailor();
+  crew.add(sailor.group);
 
   const euler = new THREE.Euler(0, 0, 0, 'YXZ');
   const eye = new THREE.Vector3();
   // мировая позиция глаз рулевого — для вида с палубы
   function eyeWorld(target) {
-    eye.set(0, 0.95, 0);
-    head.localToWorld(eye);
-    return target ? target.copy(eye) : eye.clone();
+    return sailor.eyeWorld(target || eye.clone());
   }
   function setCrewVisible(v) { crew.visible = v; }
   // мировая точка у форштевня на ватерлинии — для брызг
@@ -440,17 +460,152 @@ export function createBoatMesh() {
     euler.set(boat.theta, -boat.psi, -boat.phi);
     group.rotation.copy(euler);
 
-    rig.update(boat, time);
-
     boardPivot.rotation.x = boat.board * BOARD_DOWN;
-    rudderPivot.rotation.y = boat.rudder;
+    if (visRudder === null) visRudder = boat.rudder;
+    rudderPivot.rotation.y = visRudder;
 
-    // рулевой у конца румпеля (x ≈ −1.55): в ДП сидит перед ним, на банке/комингсе — сбоку от него
-    const cy = boat.crewY, side = Math.min(1, Math.abs(cy) / boat.cfg.crewMaxY);
-    crew.position.set(cy * 0.85, 0.5 + 0.2 * side * side, 1.25 + 0.55 * side); // на комингсе — выше банки
-    crew.rotation.z = -cy / boat.cfg.crewMaxY * 0.55;
-    crew.rotation.y = -boat.rudder * 0.3;
+    // рулевой: борт и откренка — из boat.crewSeat (стенд), иначе из crewY (до этапа 2 физика знает только crewY)
+    let seat = boat.crewSeat;
+    if (!seat) {
+      const cy = boat.crewY;
+      seat = { side: Math.sign(cy) || Math.sign(boat.aw.twa || boat.aw.awa || 1), hike: Math.abs(cy) > 0.6 * boat.cfg.crewMaxY };
+    }
+    const dt = lastTime === null ? 0 : Math.min(0.1, Math.max(0, time - lastTime));
+    lastTime = time;
+
+    // пересадка: при смене сиденья поза плавно переходит из текущей в новую.
+    // Через кокпит (смена борта) — 1.4 с, лицом вперёд, пригнувшись под гиком; банка ↔ комингс — 0.5 с.
+    if (!seatTo || dt <= 0) { seatTo = { ...seat }; seatU = 1; }
+    else if (seat.side !== seatTo.side || seat.hike !== seatTo.hike) {
+      seatFrom = { pos: crew.position.clone(), rotY: crew.rotation.y, lean: crew.rotation.x, side: handSide };
+      seatCross = seat.side !== seatTo.side;
+      seatTo = { ...seat };
+      seatU = 0;
+    }
+    const sp = seatPose(seatTo.side, seatTo.hike);
+    let crossDuck = 0;
+    handSide = seatTo.side;
+    if (seatU < 1) {
+      seatU = Math.min(1, seatU + dt / (seatCross ? 1.4 : 0.5));
+      const u = THREE.MathUtils.smootherstep(seatU, 0, 1);
+      crew.position.lerpVectors(seatFrom.pos, sp.pos, u);
+      // поворот — кратчайший, а при равных — через «лицом к носу» (rotY = π): с правого борта −π/2 → −3π/2
+      const rTo = turnTarget(seatFrom.rotY, sp.rotY);
+      const rY = seatFrom.rotY + (rTo - seatFrom.rotY) * u;
+      crew.rotation.set(seatFrom.lean + (sp.lean - seatFrom.lean) * u, rY, 0, 'YXZ');
+      if (seatCross) {
+        crew.position.y -= 0.08 * Math.sin(Math.PI * u); // переходит через кокпит пониже
+        crossDuck = Math.sin(Math.PI * Math.min(1, seatU * 1.15));
+        if (seatU < 0.5) handSide = seatFrom.side;  // руки меняются на середине перехода
+      }
+      if (seatU >= 1) crew.rotation.y = sp.rotY;
+    } else {
+      crew.position.copy(sp.pos);
+      crew.rotation.set(sp.lean, sp.rotY, 0, 'YXZ');
+    }
+    group.updateMatrixWorld(true);
+
+    // манёвр: гик перешёл на другой борт. Поворот через фордевинд — пригнуться сильно и проводить гик взглядом,
+    // оверштаг — слегка пригнуться и посмотреть на парус
+    const bs = Math.abs(boat.sail.boom) > 0.1 ? Math.sign(boat.sail.boom) : boomSide;
+    if (boomSide !== 0 && bs !== boomSide && dt > 0) {
+      manT = 0;
+      manGybe = !!boat.sail.gybing || Math.abs(boat.aw.awa) > Math.PI / 2;
+    }
+    boomSide = bs;
+    let manDuck = 0, focus = null;
+    if (manT >= 0) {
+      manT += dt;
+      const dur = manGybe ? 1.0 : 0.8;
+      if (manT < dur) manDuck = (manGybe ? 0.9 : 0.35) * Math.sin(Math.PI * manT / dur);
+      if (manT < (manGybe ? 1.8 : 1.3)) focus = 'sail';
+      else manT = -1;
+    }
+
+    // руки: кормовая — на румпеле, передняя — держит хвост гика-шкота.
+    // Лицом к противоположному борту: на правом борту корма у правого бока моряка (+X), на левом — у левого.
+    const aft = handSide > 0 ? 1 : 0, fwd = 1 - aft;
+    // румпель — через удлинитель (СК лодки), шарнир на конце румпеля. Рулевой всегда держится за удлинитель:
+    // свободный конец смотрит вверх и назад, над кормовым «плечом» рулевого, рука держит его в точке gripS.
+    // При перекладке рука сначала быстро (~0.1 с) скользит к удобной точке для нового угла руля, и только
+    // потом за ней идёт видимый руль (visRudder). Физика берёт boat.rudder напрямую — управляемость не страдает.
+    // Коллизии удлинителя не учитываются. Без рулевого (вид с палубы) удлинитель лежит на румпеле.
+    if (crew.visible) {
+      const sx = aft ? 1 : -1;
+      const sTarget = extFrame(boat.rudder, sx);           // удобная точка хвата при целевом угле руля
+      if (gripS === null || dt <= 0) gripS = sTarget;
+      gripS += (sTarget - gripS) * Math.min(1, dt / GRIP_TAU);
+      const settled = 1 - Math.min(1, Math.abs(sTarget - gripS) / 0.06);
+      visRudder = dt <= 0 ? boat.rudder : visRudder + (boat.rudder - visRudder) * Math.min(1, dt * RUDDER_RATE * settled);
+      extFrame(visRudder, sx);
+      grip.copy(joint).addScaledVector(extDir, gripS);
+      tillerHand.copy(grip);
+      group.localToWorld(tillerHand);
+    } else {
+      visRudder = boat.rudder;
+      rudderPivot.rotation.y = visRudder;
+      rudderPivot.updateMatrixWorld(true);
+      joint.copy(TILLER_END);
+      rudderPivot.localToWorld(joint);
+      group.worldToLocal(joint);
+      tillerCurve.getPoint(0.55, extDir);
+      rudderPivot.localToWorld(extDir);
+      group.worldToLocal(extDir).sub(joint);
+      extDir.y += 0.02; // лежит поверх румпеля
+      extDir.normalize();
+    }
+    ext.position.copy(joint);
+    ext.quaternion.setFromUnitVectors(Y_AXIS, extDir);
+    // шкот: рука перед животом с передней стороны; когда шкот травят, рука уходит к блоку, когда выбирают — к себе
+    if (dt > 0) sheetRate += ((boat.sail.sheet - lastSheet) / dt - sheetRate) * Math.min(1, dt * 6);
+    lastSheet = boat.sail.sheet;
+    sheetHand.set(fwd ? 0.26 : -0.26, 0.24, 0.2);
+    sailor.group.localToWorld(sheetHand);
+    toBlock.copy(rig.sheetBlock);
+    group.localToWorld(toBlock).sub(sheetHand).normalize();
+    sheetHand.addScaledVector(toBlock, THREE.MathUtils.clamp(sheetRate * 0.5, -0.1, 0.12));
+    handTargets[aft] = tillerHand; handTargets[fwd] = sheetHand;
+    lookCourse.set(0, 1.2, -30);
+    lookSail.copy(rig.sailLook);
+    lookPennant.copy(rig.pennantLook);
+    group.localToWorld(lookCourse); group.localToWorld(lookSail); group.localToWorld(lookPennant);
+    refUp.set(0, 1, 0).applyQuaternion(group.quaternion);
+    sailor.update(dt, { hands: handTargets, lookAt, focus, refUp, duck: Math.max(crossDuck, manDuck) });
+
+    // хвост шкота идёт через руку (СК лодки)
+    sailor.hands[fwd].getWorldPosition(sheetLocal);
+    rig.update(boat, time, crew.visible ? group.worldToLocal(sheetLocal) : null);
   }
+  let lastTime = null, lastSheet = 0, sheetRate = 0;
+  // пересадка: откуда/куда, прогресс 0..1, через кокпит ли; handSide — борт, по которому раздаются руки
+  let seatFrom = null, seatTo = null, seatU = 1, seatCross = false, handSide = 1;
+  // манёвр: борт гика, время с начала жеста (−1 — нет), фордевинд ли
+  let boomSide = 0, manT = -1, manGybe = false;
+  const lookCourse = new THREE.Vector3(), lookSail = new THREE.Vector3(), lookPennant = new THREE.Vector3();
+  const lookAt = { course: lookCourse, sail: lookSail, pennant: lookPennant }, refUp = new THREE.Vector3();
+  // видимый угол руля и точка хвата на удлинителе (м от шарнира)
+  let visRudder = null, gripS = null;
+  const GRIP_TAU = 0.035;  // с, скольжение руки по удлинителю (95 % за ~0.1 с)
+  const RUDDER_RATE = 30;  // 1/с, видимый руль догоняет физический, когда рука на месте
+  // ставит руль на угол a и считает шарнир и направление удлинителя (СК лодки); возвращает удобную точку хвата
+  function extFrame(a, sx) {
+    rudderPivot.rotation.y = a;
+    rudderPivot.updateMatrixWorld(true);
+    joint.copy(TILLER_END);
+    rudderPivot.localToWorld(joint);
+    group.worldToLocal(joint);
+    sailor.group.localToWorld(aim.set(0.2 * sx, 0.36 + 0.45, -0.18)); // над плечом и чуть за спиной
+    group.worldToLocal(aim);
+    extDir.subVectors(aim, joint).normalize();
+    sailor.group.localToWorld(shoulder.set(0.24 * sx, 0.26, 0.12));  // удобное место руки: у бока, чуть впереди
+    group.worldToLocal(shoulder);
+    return THREE.MathUtils.clamp(tmp.subVectors(shoulder, joint).dot(extDir), 0.08, EXT_L - 0.07);
+  }
+  const shoulder = new THREE.Vector3(), tmp = new THREE.Vector3(), grip = new THREE.Vector3();
+  const joint = new THREE.Vector3(), extDir = new THREE.Vector3(), aim = new THREE.Vector3(), Y_AXIS = new THREE.Vector3(0, 1, 0);
+  const tillerHand = new THREE.Vector3(), sheetHand = new THREE.Vector3(), toBlock = new THREE.Vector3(), sheetLocal = new THREE.Vector3();
+  const handTargets = [null, null];
 
-  return { group, update, eyeWorld, bowWorld, setCrewVisible };
+  // rudderState — для стенда и отладки: видимый угол руля и точка хвата на удлинителе
+  return { group, update, eyeWorld, bowWorld, setCrewVisible, sailor, rudderState: () => ({ visRudder, gripS }) };
 }

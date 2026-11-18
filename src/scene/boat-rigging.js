@@ -231,12 +231,18 @@ export function createRig(opts) {
   add(new THREE.Mesh(blockGeo, MAT.darkWood), rig).position.copy(boomBlockL);
   const horseBlock = add(new THREE.Mesh(blockGeo, MAT.darkWood));
   const sheetParts = [rope(9, 0.01), rope(9, 0.01)];
-  const tail = rope(9, 0.01);
+  const tail = rope(16, 0.01);
   add(new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.025, 3, 7).rotateX(Math.PI / 2), MAT.rope)).position.copy(coil);
   const bB = V(), hB = V(), off = V(), down = V(0, -1, 0), windward = V();
-  const tailCurve = new THREE.CatmullRomCurve3([V(), coaming.clone(), coil.clone().add(V(0.1, 0.02, 0))]);
+  const coilEnd = coil.clone().add(V(0.1, 0.02, 0));
+  const tailCurve = new THREE.CatmullRomCurve3([V(), coaming.clone(), coilEnd.clone()]);
+  // хвост в руке рулевого: блок → (провис) → рука → бухта
+  const handCurve = new THREE.CatmullRomCurve3([V(), V(), V(), V(), coilEnd.clone()]);
 
-  function update(boat, time) {
+  // точки, на которые поглядывает рулевой (СК лодки): середина паруса (меняется с гиком) и вымпел
+  const sailLook = V(), pennantLook = V(0, staffY + staffH, mastZ);
+  // sheetHand (Vector3 в СК лодки или null) — где рулевой держит хвост гика-шкота
+  function update(boat, time, sheetHand = null) {
     const s = boat.sail;
     pennant.update(boat.aw, time);
     const reef = s.reefLevel;
@@ -250,6 +256,7 @@ export function createRig(opts) {
     gaffAngle = GAFF_UP + (GAFF_DOWN - GAFF_UP) * furl;
     rig.rotation.y = s.boom;
     rig.updateMatrix();
+    sailLook.set(0, Math.max(0.3, 0.45 * luff), 1.8).applyMatrix4(rig.matrix);
     const side = s.boom < 0 ? -1 : 1; // пузо в подветренную сторону (туда, куда вынесен гик)
     const fill = s.status === 'luff' ? 0.2 : s.status === 'gybe' ? 0.4 : 1;
     sh.side = side;
@@ -319,10 +326,20 @@ export function createRig(opts) {
       const o = i ? 1 : -1;
       span(sp, tmpA.copy(bB).addScaledVector(off, o), tmpB.copy(hB).addScaledVector(off, o), down, sag);
     });
-    tailCurve.points[0].copy(hB);
-    for (let i = 0; i < tail.n; i++) tailCurve.getPoint(i / (tail.n - 1), tail.pts[i]);
+    let curve = tailCurve;
+    if (sheetHand) {
+      // от блока к руке шкот натянут почти прямо с небольшим провисом, из руки свисает к бухте
+      const P = handCurve.points;
+      P[0].copy(hB);
+      P[1].lerpVectors(hB, sheetHand, 0.5).y -= 0.04;
+      P[2].copy(sheetHand);
+      P[3].lerpVectors(sheetHand, coilEnd, 0.4).y -= 0.12;
+      curve = handCurve;
+    } else tailCurve.points[0].copy(hB);
+    for (let i = 0; i < tail.n; i++) curve.getPoint(i / (tail.n - 1), tail.pts[i]);
     tail.set(tail.pts);
   }
 
-  return { update };
+  // sheetBlock — нижний блок гика-шкота на погоне (СК лодки), к нему тянется шкот из руки рулевого
+  return { update, sheetBlock: hB, sailLook, pennantLook };
 }
