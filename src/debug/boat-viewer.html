@@ -5,7 +5,7 @@
   <title>Boat viewer</title>
   <!-- Стенд модели лодки: 4 ракурса на одном кадре. Открывать с корня проекта: /src/debug/boat-viewer.html
        Параметры URL: boom (°, <0 — левый борт), sheet (°), reef (0..2), furl (0..1 — парус спущен), awa (°), aws (м/с), heel (°),
-       rudder (°), board (0..1), status (fill|luff|gybe), flutter (0..1), crew (0/1), water (0/1), views (ortho|detail), t (с) -->
+       rudder (°), board (0..1), status (fill|luff|gybe), flutter (0..1), crew (0/1), water (0/1), views (ortho|detail|pennant|fittings), cam (x,y,z,tx,ty,tz), t (с) -->
   <style>html, body { margin: 0; height: 100%; background: #8fb6cf; overflow: hidden; } canvas { display: block; }
     .lbl { position: absolute; font: 12px sans-serif; color: #fff; background: #0006; padding: 2px 6px; }</style>
   <script type="importmap">
@@ -78,8 +78,26 @@ const DETAIL = [
   [[7, 2.6, 2.5], [0, 2.0, 0.5], 45, 'гик сбоку'],
   [[2.4, 1.9, -4.4], [0, 1.2, -2.4], 45, 'основание мачты'],
 ];
+// views=pennant — вымпел на топе: борт, сзади, сверху, 3/4
+const PENNANT = [
+  [[5.5, 8.6, -1.8], [0, 8.4, -1.6], 40, 'вымпел: правый борт'],
+  [[0, 9.0, 3.2], [0, 8.4, -2.0], 40, 'вымпел: сзади'],
+  [[0.01, 13.0, -2.0], [0, 8.6, -2.0], 40, 'вымпел: сверху (нос справа)'],
+  [[3.4, 9.6, -6.6], [0, 8.4, -1.8], 40, 'вымпел: 3/4 спереди'],
+];
+// views=fittings — фурнитура: рубка с иллюминаторами и поручнями, бак, кокпит сверху, ходовой огонь
+const FITTINGS = [
+  [[3.0, 1.9, -0.6], [0.6, 1.0, -0.2], 45, 'рубка: иллюминаторы, поручни'],
+  [[1.4, 2.0, -4.2], [0, 0.9, -2.3], 45, 'бак: роульс, утка, бухта'],
+  [[-0.6, 1.7, 0.6], [-0.2, 0.3, 2.6], 45, 'кокпит к корме: пайолы, кранцы'],
+  [[0.35, 8.6, -3.6], [0, 8.45, -2.4], 35, 'топ: трёхцветный огонь (спереди справа)'],
+];
 const detail = q.get('views') === 'detail';
 if (detail) VIEWS.splice(0, 4, ...DETAIL);
+if (q.get('views') === 'pennant') VIEWS.splice(0, 4, ...PENNANT);
+if (q.get('views') === 'fittings') VIEWS.splice(0, 4, ...FITTINGS);
+// cam=x,y,z,tx,ty,tz — заменяет первый ракурс произвольной камерой
+if (q.has('cam')) { const c = q.get('cam').split(',').map(Number); VIEWS[0] = [c.slice(0, 3), c.slice(3, 6), 45, 'cam']; }
 // views=ortho — ортогональные проекции для сверки с чертежом: [позиция, up, центр кадра, полувысота кадра, подпись]
 const ORTHO = [
   [[0, 30, 0], [1, 0, 0], [0, 0, 0.4], 2.4, 'сверху (нос слева)'],

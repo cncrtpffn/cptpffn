@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { DEG } from '../config.js';
 import { createRig } from './boat-rigging.js';
+import { createFittings } from './boat-fittings.js';
 
 // Локальная СК модели: нос = -Z, правый борт = +X, вверх = +Y. Начало — на ватерлинии под ЦТ.
 // Физика: x (вперёд) -> -Z, y (правый борт) -> +X.
@@ -21,6 +22,13 @@ const MAT = {
   hat: flat(0xf4e3b2),
   metal: flat(0xa7b0b5, { metalness: 0.6, roughness: 0.4 }),
   rope: flat(0xdccfb0, { side: THREE.DoubleSide }),
+  pennant: flat(0xd8392b, { side: THREE.DoubleSide, emissive: 0x5a120c }),
+  brass: flat(0xc9a24a, { metalness: 0.5, roughness: 0.45 }),
+  glass: flat(0x2c4a5c, { metalness: 0.2, roughness: 0.15 }),
+  // ходовые огни: светятся сами (emissive), чтобы читались и днём, и ночью
+  navRed: flat(0xff3a2a, { emissive: 0xc81e12, roughness: 0.3 }),
+  navGreen: flat(0x3aff6a, { emissive: 0x12a83a, roughness: 0.3 }),
+  navWhite: flat(0xfff8e8, { emissive: 0xd8d0b8, roughness: 0.3 }),
 };
 
 // Кетбот 6 м: обводы сняты с CatBoat 16 (references/catboat: 12a.jpg — вид сверху, sailplan.gif — профиль)
@@ -362,6 +370,12 @@ export function createBoatMesh() {
     horse: { z: -horseX, hw: horseHW, yEnd: deckY(lerpSt(horseX), horseHW), h: 0.4 },
     coaming: new THREE.Vector3(0.25, edge(CK.x0 + 0.05, 1).top + 0.05, -(CK.x0 + 0.05)),
     coil: new THREE.Vector3(0.3, CK.floorY + 0.03, -(CK.x0 + 0.5)),
+  });
+
+  // фурнитура: иллюминаторы, поручни, утки, роульс, кранцы, бухта, пайолы (boat-fittings.js)
+  createFittings({
+    add, MAT, pt, lerpSt, deckY, edge, outlineW, CK, mastX: MAST_X,
+    stemHead: new THREE.Vector3(0, STATIONS[STATIONS.length - 1].s + 0.03, -(LOA / 2 - 0.02)),
   });
 
   // шверт: ось под рубкой, опущенный уходит назад-вниз через щель в киле

@@ -52,6 +52,56 @@ function span(rope, a, b, dir, amount) {
   rope.set(rope.pts);
 }
 
+// Вымпел на штоке над клотиком: лента из SEG сегментов (low-poly), смотрит по кажущемуся ветру.
+// Слабый ветер — провисает и лениво качается; сильный — вытягивается и бьётся чаще и мельче.
+function createPennant(group, mat, base) {
+  const SEG = 7, LEN = 2.5, HOIST = 0.3;
+  const pos = new Float32Array(SEG * 18);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.castShadow = true;
+  mesh.position.copy(base);
+  group.add(mesh);
+  const top = Array.from({ length: SEG + 1 }, () => V()), bot = Array.from({ length: SEG + 1 }, () => V());
+  const c = V(), t = V(), n = V(), w = V();
+  let yaw = 0, last = -1;
+  function update(aw, time) {
+    const dt = last < 0 ? 1 : Math.min(0.1, Math.max(0, time - last));
+    last = time;
+    // сглаженный курс вымпела: туда, куда дует кажущийся ветер (awa > 0 — с правого борта)
+    const d = Math.atan2(Math.sin(-aw.awa - yaw), Math.cos(-aw.awa - yaw));
+    yaw += d * (1 - Math.exp(-dt * (2 + aw.aws * 0.6)));
+    const slack = THREE.MathUtils.clamp(1 - aw.aws / 4, 0, 1);
+    const freq = 3 + aw.aws * 1.3, amp = 0.05 + 0.15 * slack + 0.016 * Math.min(aw.aws, 12), kw = 5 + 0.3 * Math.min(aw.aws, 12);
+    c.set(0, 0, 0);
+    for (let i = 0; i <= SEG; i++) {
+      const u = i / SEG;
+      if (i > 0) {
+        // направление сегмента: по ветру, вниз — на провисе, вбок — волна, бегущая к хвосту
+        const pitch = slack * 1.25 * Math.pow(u, 0.8) + 0.08 * (1 - slack) * u;
+        const wave = amp * u * Math.sin(time * freq - u * kw) + slack * 0.25 * Math.sin(time * 0.9);
+        const h = yaw + wave;
+        t.set(Math.sin(h) * Math.cos(pitch), -Math.sin(pitch), Math.cos(h) * Math.cos(pitch));
+        c.addScaledVector(t, LEN / SEG);
+      }
+      // ширина ленты — в вертикальной плоскости, перпендикулярно направлению; на волне — небольшое скручивание
+      n.set(Math.cos(yaw), 0, -Math.sin(yaw));
+      w.set(0, 1, 0).addScaledVector(n, 0.4 * amp * Math.cos(time * freq - u * kw) * u).normalize();
+      const half = HOIST * 0.5 * (1 - u * 0.97);
+      top[i].copy(c).addScaledVector(w, half);
+      bot[i].copy(c).addScaledVector(w, -half);
+    }
+    let k = 0;
+    const put = (p) => { pos[k++] = p.x; pos[k++] = p.y; pos[k++] = p.z; };
+    for (let i = 0; i < SEG; i++) { put(top[i]); put(bot[i]); put(bot[i + 1]); put(top[i]); put(bot[i + 1]); put(top[i + 1]); }
+    geo.attributes.position.needsUpdate = true;
+    geo.computeBoundingSphere();
+  }
+  return { update };
+}
+
 /**
  * opts: group, add(mesh, parent), MAT, mastZ, deckAtMast, stemHead (Vector3), horse { z, hw, yEnd, h },
  *       coil (Vector3 — бухта хвоста шкота на полу кокпита), coaming (Vector3 — где хвост переваливает через комингс)
@@ -65,6 +115,19 @@ export function createRig(opts) {
   const mastH = mastTop - deckAtMast + 0.05;
   add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, mastH, 6), MAT.spar)).position.set(0, deckAtMast - 0.05 + mastH / 2, mastZ);
   add(new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.055, 0.08, 6), MAT.darkWood)).position.set(0, mastTop + 0.04, mastZ);
+  // трёхцветный ходовой огонь на клотике (МППСС, правило 25(b): парусное судно < 20 м):
+  // зелёный — от носа 112.5° на правый борт, красный — так же на левый, белый — 135° за корму.
+  // Сектор θ цилиндра: θ = 0 смотрит в корму (+Z), пеленг от носа β ↔ θ = π − β.
+  const navY = mastTop + 0.08, navH = 0.08, navR = 0.045;
+  for (const [mat, from, len] of [[MAT.navGreen, 67.5, 112.5], [MAT.navWhite, -67.5, 135], [MAT.navRed, 180, 112.5]]) {
+    const seg = Math.round(len / 45);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(navR, navR, navH, seg, 1, true, from * DEG, len * DEG), mat)).position.set(0, navY + navH / 2, mastZ);
+  }
+  for (const y of [navY, navY + navH]) add(new THREE.Mesh(new THREE.CylinderGeometry(navR + 0.01, navR + 0.01, 0.015, 8), MAT.metal)).position.set(0, y, mastZ);
+  // шток вымпела над огнём
+  const staffH = 0.5, staffY = navY + navH + 0.008;
+  add(new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.012, staffH, 4), MAT.darkWood)).position.set(0, staffY + staffH / 2, mastZ);
+  const pennant = createPennant(group, MAT.pennant, V(0, staffY + staffH - 0.15, mastZ));
   // штаг: топ — форштевень, и оковка на форштевне
   const stay = rope(2, 0.008, MAT.metal);
   span(stay, V(0, mastTop - 0.12, mastZ - 0.05), stemHead);
@@ -175,6 +238,7 @@ export function createRig(opts) {
 
   function update(boat, time) {
     const s = boat.sail;
+    pennant.update(boat.aw, time);
     const reef = s.reefLevel;
     // furl: 0 — парус поднят, 1 — спущен целиком (гафель лежит на гике)
     const furl = THREE.MathUtils.clamp(s.furl || 0, 0, 1);
