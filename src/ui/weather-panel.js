@@ -23,7 +23,7 @@ const PRESET_CLOUDS = {
   'Шторм': 'Гроза',
 };
 
-export function createWeatherPanel({ wind, sea, env, water, actions, start }) {
+export function createWeatherPanel({ wind, sea, env, water, particles, actions, start }) {
   const gui = new GUI({ title: 'Погода и сцена', width: 270 });
   const state = { preset: start.weather.preset, timeOfDay: start.timeOfDay, clouds: start.weather.clouds };
 
@@ -67,6 +67,13 @@ export function createWeatherPanel({ wind, sea, env, water, actions, start }) {
   fp.add(water.surf, 'strength', 0, 2, 0.05).name('Сила');
   fp.add(water.surf, 'shallows').name('Мелководье');
 
+  const fb = gui.addFolder('Брызги');
+  fb.add(particles.settings, 'enabled').name('Брызги');
+  fb.add(particles.settings, 'strength', 0, 2, 0.05).name('Сила');
+  fb.add(particles.settings, 'bow').name('От носа');
+  fb.add(particles.settings, 'shore').name('Прибой и скалы');
+  fb.add(particles.settings, 'crest').name('Срыв гребней');
+
   const fc = gui.addFolder('Сцена');
   fc.add(state, 'timeOfDay', 0, 1, 0.01).name('Время суток').onChange((v) => env.setTimeOfDay(v));
   fc.add(state, 'clouds', env.cloudTypes).name('Облачность').onChange((v) => env.setCloudType(v));
@@ -75,7 +82,7 @@ export function createWeatherPanel({ wind, sea, env, water, actions, start }) {
 
   // на маленьких экранах панель и второстепенные папки свёрнуты
   const small = matchMedia(SMALL_SCREEN).matches;
-  if (small) { fs.close(); fr.close(); fp.close(); fc.close(); }
+  if (small) { fs.close(); fr.close(); fp.close(); fb.close(); fc.close(); }
   const saved = loadState('weather');
   if (saved ?? small) gui.close();
   gui.title(`<i class="ico">${ICONS.weather}</i><span class="gui-title-text">Погода и сцена</span>`);

@@ -8,7 +8,8 @@ import { createPlanarReflection } from './scene/planar-reflection.js';
 import { bakeShoreMap, shoreDamp } from './scene/shore-map.js';
 import { createBoatMesh } from './scene/boat-mesh.js';
 import { createWake } from './scene/wake.js';
-import { createSpray } from './scene/spray.js';
+import { createParticles } from './scene/particles.js';
+import { createBowSpray } from './scene/spray.js';
 import { createEnvironment } from './scene/environment.js';
 import { FollowCamera } from './scene/camera.js';
 import { Input } from './input.js';
@@ -65,8 +66,10 @@ scene.add(water.mesh, water.far);
 const boatMesh = createBoatMesh();
 scene.add(boatMesh.group);
 const wake = createWake();
-const spray = createSpray();
-scene.add(spray.mesh);
+// брызги: общая система частиц и эмиттеры; на таче частиц вдвое меньше
+const particles = createParticles({ scale: isTouchDevice() ? 0.5 : 1 });
+scene.add(...particles.meshes);
+const bowSpray = createBowSpray(particles);
 const followCam = new FollowCamera(camera, canvas);
 
 // --- UI ---
@@ -77,7 +80,7 @@ const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
   resetBoat: () => { placeBoat(); input.crew = 0; wake.reset(); },
 };
-createWeatherPanel({ wind, sea, env, water, actions, start: START });
+createWeatherPanel({ wind, sea, env, water, particles, actions, start: START });
 input.on('reef', (d) => boat.sail.reef(d));
 input.on('camera', () => followCam.nextMode());
 // пауза показывает справку; закрыть справку — продолжить
@@ -192,7 +195,8 @@ function frame(now) {
   }
   wake.update(simTime, boat);
   boatMesh.update(boat, simTime);
-  if (!halted) spray.update(dt, boat, waves, wind, boatMesh);
+  if (!halted) bowSpray.update(dt, boat, waves, boatMesh);
+  particles.update(halted ? 0 : dt, { waves, wind, env, camera });
   water.update(waves, boat.x, boat.z, {
     time: waves.time, sunDir: env.sunDir, sunColor: env.sunGlint, windDir: wind.vector(),
     whitecap: THREE.MathUtils.clamp((wind.speed - 5) / 10, 0, 1), wake, overcast: env.overcast,
@@ -205,17 +209,17 @@ function frame(now) {
   const R = water.reflection;
   if (R.planar) {
     planar.state.scale = R.resolution;
-    const hide = [water.mesh, water.far, env.sky.mesh, spray.mesh];
+    const hide = [water.mesh, water.far, env.sky.mesh, ...particles.meshes];
     if (!R.clouds) hide.push(env.clouds.group);
     planar.render(scene, camera, hide);
   }
   renderer.render(scene, camera);
   if (debugLog && Math.floor(simTime) !== Math.floor(simTime - dt)) {
-    console.log(`[sim] t=${simTime.toFixed(1)} boat=(${boat.x.toFixed(1)},${boat.y.toFixed(2)},${boat.z.toFixed(1)}) u=${boat.u.toFixed(2)} heel=${(boat.phi / DEG).toFixed(1)} cam=(${camera.position.x.toFixed(1)},${camera.position.y.toFixed(1)},${camera.position.z.toFixed(1)}) tws=${wind.speed.toFixed(1)} H=${waves.sigHeight.toFixed(2)}`);
+    console.log(`[sim] t=${simTime.toFixed(1)} boat=(${boat.x.toFixed(1)},${boat.y.toFixed(2)},${boat.z.toFixed(1)}) u=${boat.u.toFixed(2)} heel=${(boat.phi / DEG).toFixed(1)} cam=(${camera.position.x.toFixed(1)},${camera.position.y.toFixed(1)},${camera.position.z.toFixed(1)}) tws=${wind.speed.toFixed(1)} H=${waves.sigHeight.toFixed(2)} spray=${particles.stats.drops}/${particles.stats.mist} lod=${particles.stats.lod} ${particles.stats.ms.toFixed(2)}мс`);
   }
 }
 document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { boat, wind, waves, sea, env, followCam, scene, wake, spray, input, water, shoreMap };
+window.__sim = { boat, wind, waves, sea, env, followCam, scene, wake, particles, bowSpray, input, water, shoreMap };
