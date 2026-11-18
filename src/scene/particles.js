@@ -67,6 +67,9 @@ export function createParticles({ scale = 1, maxDrops = 1500, maxMist = 1200 } =
     fog: true,
   });
   const spriteMesh = new THREE.InstancedMesh(quad, spriteMat, maxSprites);
+  // вода тоже прозрачная; прозрачные сортируются по центру объекта, а центр спрайтов —
+  // начало координат, поэтому без renderOrder вода рисовалась поверх брызг
+  spriteMesh.renderOrder = 1;
 
   // InstancedMesh начинает с единичных матриц; дальше пишем только масштаб на диагональ и позицию
   for (const mesh of [dropMesh, spriteMesh]) {

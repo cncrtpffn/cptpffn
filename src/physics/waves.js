@@ -185,6 +185,16 @@ export class Waves {
     return { h, sx: hx / (2 * e), sz: hz / (2 * e) };
   }
 
+  // Крутизна гребня Σ a·k·sin θ — как vSteep в шейдере воды (по ней рисуются барашки).
+  // Считается в точке параметризации, без обратной итерации: для брызг точности хватает.
+  steepAt(x, z) {
+    let s = 0;
+    for (let i = 0; i < this.count; i++) {
+      s += this.k[i] * this.amp[i] * Math.sin(this.k[i] * (this.dirX[i] * x + this.dirZ[i] * z) - this.phase[i]);
+    }
+    return s * (this.damp ? this.damp(x, z) : 1);
+  }
+
   maxAmplitude() {
     let a = 0;
     for (let i = 0; i < this.count; i++) a += this.amp[i];

@@ -11,6 +11,7 @@ import { createWake } from './scene/wake.js';
 import { createParticles } from './scene/particles.js';
 import { createBowSpray } from './scene/spray.js';
 import { createShoreSpray } from './scene/shore-spray.js';
+import { createCrestSpray } from './scene/crest-spray.js';
 import { createEnvironment } from './scene/environment.js';
 import { FollowCamera } from './scene/camera.js';
 import { Input } from './input.js';
@@ -72,6 +73,7 @@ const particles = createParticles({ scale: isTouchDevice() ? 0.5 : 1 });
 scene.add(...particles.meshes);
 const bowSpray = createBowSpray(particles);
 const shoreSpray = createShoreSpray(particles, shoreMap);
+const crestSpray = createCrestSpray(particles);
 const followCam = new FollowCamera(camera, canvas);
 
 // --- UI ---
@@ -200,6 +202,7 @@ function frame(now) {
   if (!halted) {
     bowSpray.update(dt, boat, waves, boatMesh);
     shoreSpray.update(dt, waves, wind, camera);
+    crestSpray.update(dt, waves, wind, camera);
   }
   particles.update(halted ? 0 : dt, { waves, wind, env, camera });
   water.update(waves, boat.x, boat.z, {
@@ -227,4 +230,4 @@ document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { boat, wind, waves, sea, env, followCam, scene, wake, particles, bowSpray, shoreSpray, input, water, shoreMap };
+window.__sim = { boat, wind, waves, sea, env, followCam, scene, wake, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
