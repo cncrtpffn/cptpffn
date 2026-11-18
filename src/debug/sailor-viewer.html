@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Sailor viewer</title>
+  <!-- Стенд моряка: 4 ракурса как в развёртке (спереди, 3/4, сбоку, сзади). Открывать с корня проекта: /src/debug/sailor-viewer.html
+       Параметры URL: yaw, pitch (°, поворот головы), blink (0..1), views (turn|hero), t (с) -->
+  <style>html, body { margin: 0; height: 100%; background: #c9c9c9; overflow: hidden; } canvas { display: block; }
+    .lbl { position: absolute; font: 12px sans-serif; color: #fff; background: #0006; padding: 2px 6px; }</style>
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+  </script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { DEG } from '../config.js';
+import { createSailor } from '../scene/sailor.js';
+
+const q = new URLSearchParams(location.search);
+const num = (k, d) => (q.has(k) ? parseFloat(q.get(k)) : d);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.setScissorTest(true);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xcfcfcf);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x9a9a9a, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+sun.position.set(-2, 4, 3);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -1, right: 1, top: 1.5, bottom: -0.5 });
+sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.01;
+scene.add(sun);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 20).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xcfcfcf, roughness: 1 }));
+floor.receiveShadow = true;
+scene.add(floor);
+
+const sailor = createSailor();
+scene.add(sailor.group);
+const T = num('t', 0);
+sailor.update(1 / 60, { look: { yaw: num('yaw', 0) * DEG, pitch: num('pitch', 0) * DEG }, blink: num('blink', 0), t: T });
+window.__sailor = sailor;
+
+// ракурсы: угол обхода вокруг моряка (0 — спереди), высота камеры, подпись
+const TURN = [[0, 'спереди'], [35, '3/4'], [90, 'сбоку'], [180, 'сзади']];
+const HERO = [[-25, '3/4 слева'], [25, '3/4 справа'], [0, 'спереди'], [140, '3/4 сзади']];
+const VIEWS = q.get('views') === 'hero' ? HERO : TURN;
+const cams = VIEWS.map(([a]) => {
+  const c = new THREE.PerspectiveCamera(22, 1, 0.1, 50);
+  c.position.set(3.2 * Math.sin(a * DEG), 0.75, 3.2 * Math.cos(a * DEG));
+  c.lookAt(0, 0.47, 0);
+  return c;
+});
+VIEWS.forEach(([, name], i) => {
+  const d = document.createElement('div');
+  d.className = 'lbl'; d.textContent = name;
+  d.style.left = (i * 25) + '%'; d.style.top = '0';
+  document.body.appendChild(d);
+});
+
+function render() {
+  const w = innerWidth / 4, h = innerHeight;
+  cams.forEach((c, i) => {
+    c.aspect = w / h; c.updateProjectionMatrix();
+    renderer.setViewport(i * w, 0, w, h); renderer.setScissor(i * w, 0, w, h);
+    renderer.render(scene, c);
+  });
+}
+render();
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); render(); });
+</script>
+</body>
+</html>
