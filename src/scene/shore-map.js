@@ -117,7 +117,65 @@ export function bakeShoreMap(shores, { texel = 0.6, maxSize = 2048, range = 16, 
     return { dist: bilinear(dist, x, z), depth: bilinear(depth, x, z), nx: gx / gl, nz: gz / gl };
   }
 
-  return { texture, bounds: new THREE.Vector4(x0, z0, W * step, H * step), range, maxDepth, info, depthAt, width: W, height: H };
+  const sites = bakeSites();
+
+  return { texture, bounds: new THREE.Vector4(x0, z0, W * step, H * step), range, maxDepth, info, depthAt, sites, width: W, height: H };
+
+  // Точки берега для брызг прибоя: тексели воды у кромки, по одной на ячейку SITE_GAP м.
+  //   steep 0..1 — круча: суша резко поднимается вглубь или дно резко уходит к морю
+  //   (обрыв, скала — брызги стеной вверх; пляж — низкий веер);
+  //   rock — точка у прибрежной скалы.
+  // query(x, z, r, cb) — точки в радиусе r (корзины по SITE_BUCKET м).
+  function bakeSites() {
+    const SITE_GAP = 3, SITE_BUCKET = 32;
+    const taken = new Set();
+    const xs = [], zs = [], nxs = [], nzs = [], steeps = [], rocks = [];
+    const allRocks = shores.flatMap((s) => s.rocks);
+    for (let j = 1; j < H - 1; j++) {
+      for (let i = 1; i < W - 1; i++) {
+        const k = j * W + i;
+        if (land[k] || !(land[k - 1] || land[k + 1] || land[k - W] || land[k + W])) continue;
+        const x = x0 + (i + 0.5) * step, z = z0 + (j + 0.5) * step;
+        const cell = Math.floor(x / SITE_GAP) + ',' + Math.floor(z / SITE_GAP);
+        if (taken.has(cell)) continue;
+        taken.add(cell);
+        const s = info(x, z);
+        const inland = inside(x - s.nx * 2.5, z - s.nz * 2.5) ? bilinear(height, x - s.nx * 2.5, z - s.nz * 2.5) : 0;
+        // склоны под водой у всех островов ~0.4 м/м — круча только там, где дно обрывается резче
+        const drop = (depthAt(x + s.nx * 3, z + s.nz * 3) / 3 - 0.5) / 0.5;
+        let steep = Math.min(1, Math.max(0, inland / 1.5, drop));
+        const rock = allRocks.some((r) => Math.hypot(x - r.x, z - r.z) < r.r + 1);
+        if (rock) steep = Math.max(steep, 0.8);
+        xs.push(x); zs.push(z); nxs.push(s.nx); nzs.push(s.nz); steeps.push(steep); rocks.push(rock ? 1 : 0);
+      }
+    }
+    const count = xs.length;
+    const buckets = new Map();
+    const key = (bx, bz) => bx * 65536 + bz;
+    for (let n = 0; n < count; n++) {
+      const kb = key(Math.floor(xs[n] / SITE_BUCKET), Math.floor(zs[n] / SITE_BUCKET));
+      if (!buckets.has(kb)) buckets.set(kb, []);
+      buckets.get(kb).push(n);
+    }
+    const out = {
+      count,
+      x: Float32Array.from(xs), z: Float32Array.from(zs),
+      nx: Float32Array.from(nxs), nz: Float32Array.from(nzs),
+      steep: Float32Array.from(steeps), rock: Uint8Array.from(rocks),
+      query(qx, qz, r, cb) {
+        const b0x = Math.floor((qx - r) / SITE_BUCKET), b1x = Math.floor((qx + r) / SITE_BUCKET);
+        const b0z = Math.floor((qz - r) / SITE_BUCKET), b1z = Math.floor((qz + r) / SITE_BUCKET);
+        for (let bz = b0z; bz <= b1z; bz++) {
+          for (let bx = b0x; bx <= b1x; bx++) {
+            const list = buckets.get(key(bx, bz));
+            if (!list) continue;
+            for (const n of list) if (Math.hypot(out.x[n] - qx, out.z[n] - qz) < r) cb(n);
+          }
+        }
+      },
+    };
+    return out;
+  }
 }
 
 // Квадрат евклидова расстояния от каждого текселя до ближайшего с mask == target

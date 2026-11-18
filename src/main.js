@@ -10,6 +10,7 @@ import { createBoatMesh } from './scene/boat-mesh.js';
 import { createWake } from './scene/wake.js';
 import { createParticles } from './scene/particles.js';
 import { createBowSpray } from './scene/spray.js';
+import { createShoreSpray } from './scene/shore-spray.js';
 import { createEnvironment } from './scene/environment.js';
 import { FollowCamera } from './scene/camera.js';
 import { Input } from './input.js';
@@ -70,6 +71,7 @@ const wake = createWake();
 const particles = createParticles({ scale: isTouchDevice() ? 0.5 : 1 });
 scene.add(...particles.meshes);
 const bowSpray = createBowSpray(particles);
+const shoreSpray = createShoreSpray(particles, shoreMap);
 const followCam = new FollowCamera(camera, canvas);
 
 // --- UI ---
@@ -167,7 +169,7 @@ if (params.has('t')) {
   followCam.update(100, boat, boatMesh);
 }
 const debugLog = params.has('log');
-if (debugLog) console.log(`[shore] ${shoreMap.width}×${shoreMap.height} за ${bakeMs.toFixed(0)} мс`);
+if (debugLog) console.log(`[shore] ${shoreMap.width}×${shoreMap.height}, точек берега ${shoreMap.sites.count} за ${bakeMs.toFixed(0)} мс`);
 
 // --- цикл ---
 let last = performance.now();
@@ -195,7 +197,10 @@ function frame(now) {
   }
   wake.update(simTime, boat);
   boatMesh.update(boat, simTime);
-  if (!halted) bowSpray.update(dt, boat, waves, boatMesh);
+  if (!halted) {
+    bowSpray.update(dt, boat, waves, boatMesh);
+    shoreSpray.update(dt, waves, wind, camera);
+  }
   particles.update(halted ? 0 : dt, { waves, wind, env, camera });
   water.update(waves, boat.x, boat.z, {
     time: waves.time, sunDir: env.sunDir, sunColor: env.sunGlint, windDir: wind.vector(),
@@ -222,4 +227,4 @@ document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { boat, wind, waves, sea, env, followCam, scene, wake, particles, bowSpray, input, water, shoreMap };
+window.__sim = { boat, wind, waves, sea, env, followCam, scene, wake, particles, bowSpray, shoreSpray, input, water, shoreMap };
