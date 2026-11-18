@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { WAKE_POINTS } from './water-fx.js';
+import { BOAT } from '../config.js';
 
-const BOW = 2.6; // от ЦТ до форштевня, м
+const BOW = BOAT.length / 2 - 0.1; // от ЦТ до форштевня на ВЛ, м
 
 // Кильватерный след: точки у форштевня, от новой к старой; передаётся в шейдер воды.
 export function createWake({ life = 12 } = {}) {

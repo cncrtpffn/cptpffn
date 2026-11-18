@@ -47,7 +47,7 @@ const boat = new Boat(BOAT);
 function placeBoat() {
   const b = START.boat;
   boat.reset(b.x, b.z, b.headingDeg * DEG);
-  boat.sail.reefTarget = boat.sail.reefLevel = b.reefs;
+  boat.sail.setReef(b.reefs);
   boat.board = b.board;
 }
 placeBoat();
@@ -143,7 +143,7 @@ if (params.has('camaz')) followCam.azimuth = parseFloat(params.get('camaz')) * D
 if (params.has('campolar')) followCam.polar = parseFloat(params.get('campolar'));
 if (params.has('camdist')) followCam.distance = parseFloat(params.get('camdist'));
 const camPitch = parseFloat(params.get('campitch') || '0') * DEG;
-if (params.has('reefs')) { boat.sail.reefTarget = boat.sail.reefLevel = parseInt(params.get('reefs'), 10); }
+if (params.has('reefs')) boat.sail.setReef(parseInt(params.get('reefs'), 10));
 if (params.has('board')) boat.board = parseFloat(params.get('board'));
 if (params.has('tod')) env.setTimeOfDay(parseFloat(params.get('tod')));
 if (params.has('clouds')) env.setCloudType(params.get('clouds'), true);

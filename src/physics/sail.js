@@ -36,6 +36,7 @@ export class Sail {
     this.boom = 0;                   // текущий угол гика, <0 — на левый борт
     this.reefTarget = 0;
     this.reefLevel = 0;              // непрерывный 0..2
+    this.furl = 0;                   // 0..1, парус спущен (reefTarget = 3)
     this.tackSide = 1;               // 1 — ветер справа (гик слева)
     this.gybing = false;
     this.gybeImpulse = 0;            // момент крена от перелёта гика (Н·м·с), снимается лодкой
@@ -47,11 +48,18 @@ export class Sail {
 
   get areaFactor() { return lerpArr(this.cfg.reefArea, this.reefLevel); }
   get heightFactor() { return lerpArr(this.cfg.reefCeHeight, this.reefLevel); }
-  get area() { return this.cfg.sailArea * this.areaFactor; }
+  get area() { return this.cfg.sailArea * this.areaFactor * (1 - this.furl); }
   get ceHeight() { return this.cfg.ceHeight * this.heightFactor; }
 
+  // ступени: 0 — полный, 1–2 — рифы, 3 — парус спущен
   reef(delta) {
-    this.reefTarget = Math.min(2, Math.max(0, this.reefTarget + delta));
+    this.reefTarget = Math.min(3, Math.max(0, this.reefTarget + delta));
+  }
+  // сразу поставить ступень (старт, отладка)
+  setReef(n) {
+    this.reefTarget = Math.min(3, Math.max(0, n));
+    this.reefLevel = Math.min(2, this.reefTarget);
+    this.furl = this.reefTarget > 2 ? 1 : 0;
   }
 
   // Обновить гик/рифы и посчитать силы в связанной СК. heel — крен (рад).
@@ -61,11 +69,11 @@ export class Sail {
     if (sheetInput) {
       this.sheet = Math.min(c.sheetMax, Math.max(c.sheetMin, this.sheet - sheetInput * c.sheetRate * dt));
     }
-    // Рифы
-    const dr = this.reefTarget - this.reefLevel;
-    const step = dt / c.reefTime;
-    if (Math.abs(dr) <= step) this.reefLevel = this.reefTarget;
-    else this.reefLevel += Math.sign(dr) * step;
+    // Рифы и спуск: парус спускают со второго рифа, поднимают до отдачи рифов
+    const approach = (v, goal, step) => (Math.abs(goal - v) <= step ? goal : v + Math.sign(goal - v) * step);
+    const furlGoal = this.reefTarget > 2 ? 1 : 0;
+    if (this.furl !== furlGoal && (furlGoal === 0 || this.reefLevel >= 2)) this.furl = approach(this.furl, furlGoal, dt / c.furlTime);
+    else this.reefLevel = approach(this.reefLevel, Math.min(2, this.reefTarget), dt / c.reefTime);
 
     const absAwa = Math.abs(awa);
     // Смена галса: через нос — сразу; через корму (by the lee) — только когда ветер
@@ -105,7 +113,10 @@ export class Sail {
     // Угол атаки и коэффициенты
     let alpha;
     let scale = 1;
-    if (this.gybing) {
+    if (this.furl > 0.5) {
+      alpha = 0;
+      this.status = 'down';
+    } else if (this.gybing) {
       alpha = 0;
       scale = 0.25;
       this.status = 'gybe';

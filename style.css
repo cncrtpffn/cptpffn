@@ -51,14 +51,15 @@ kbd { font-family: inherit; font-size: 10px; background: #fff; border: 1px solid
 .bar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: rgba(0,0,0,0.25); transform: translateX(-1px); }
 .bar.crew { height: 14px; }
 .bar .marker { position: absolute; top: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); left: 50%; transform: translateX(-50%); transition: left 0.1s linear; }
-.chips { display: flex; gap: 6px; }
-.chip { padding: 2px 8px; border-radius: 999px; background: #eee6d5; color: var(--ink-soft); font-weight: 700; }
+.chips { display: flex; gap: 4px; }
+.chip { padding: 2px 7px; white-space: nowrap; border-radius: 999px; background: #eee6d5; color: var(--ink-soft); font-weight: 700; }
 .chip.on { background: var(--ink); color: #fff; }
 .ctl.status { margin-top: 10px; font-weight: 800; font-size: 13px; padding: 6px 10px; border-radius: 10px; background: #eee6d5; text-align: center; }
 .ctl.status.ok { background: #d9f2e3; color: #1f6b43; }
 .ctl.status.luff { background: #fbe9c8; color: #8a5a00; }
 .ctl.status.stall { background: #fbd9d1; color: #8d2b19; }
 .ctl.status.gybe { background: var(--warn); color: #fff; }
+.ctl.status.down { background: #e2e7ec; color: #4a5866; }
 
 #warnings { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; }
 #warnings .w { background: rgba(233, 85, 59, 0.92); color: #fff; font-weight: 800; padding: 6px 14px; border-radius: 999px; box-shadow: 0 4px 14px rgba(0,0,0,0.15); font-size: 14px; }

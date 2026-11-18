@@ -7,6 +7,7 @@ const STATUS = {
   stall: ['Шкот перебран — потравите', 'stall'],
   run: ['Полный курс — тяга от сопротивления', 'ok'],
   gybe: ['Поворот фордевинд — гик идёт!', 'gybe'],
+  down: ['Парус спущен', 'down'],
 };
 const CAMERA_NAMES = { orbit: 'орбита', chase: 'за кормой', top: 'сверху', deck: 'с палубы' };
 
@@ -17,7 +18,7 @@ export class Hud {
       aws: $('hud-aws'), awa: $('hud-awa'), heel: $('hud-heel'), leeway: $('hud-leeway'),
       beaufort: $('hud-beaufort'), roseTrue: $('rose-true'), roseApp: $('rose-app'), roseBoat: $('rose-boat'),
       rudder: $('bar-rudder'), sheet: $('bar-sheet'), board: $('bar-board'), crew: $('crew-marker'),
-      lblSheet: $('lbl-sheet'), lblBoard: $('lbl-board'), reefs: [$('reef-0'), $('reef-1'), $('reef-2')],
+      lblSheet: $('lbl-sheet'), lblBoard: $('lbl-board'), reefs: [$('reef-0'), $('reef-1'), $('reef-2'), $('reef-3')],
       status: $('sail-status'), statusBox: $('sail-status').parentElement, warnings: $('warnings'),
       camera: $('hud-camera'), help: $('help'), capsize: $('capsize'), capsizeText: $('capsize-text'),
     };
@@ -88,7 +89,9 @@ export class Hud {
     if (!boat.capsized && Math.abs(heel) > 45) w.push(['Крен критический — травите шкот', '']);
     else if (!boat.capsized && Math.abs(heel) > 32) w.push(['Сильный крен', 'soft']);
     if (boat.water > 0.08 && !boat.capsized) w.push([`Вода в кокпите: ${Math.round(boat.water * 100)}%`, 'info']);
-    if (sail.reefLevel !== sail.reefTarget) w.push([sail.reefTarget > sail.reefLevel ? 'Берём риф…' : 'Отдаём риф…', 'info']);
+    const furlGoal = sail.reefTarget > 2 ? 1 : 0;
+    if (sail.furl !== furlGoal) w.push([furlGoal ? 'Спускаем парус…' : 'Поднимаем парус…', 'info']);
+    else if (sail.reefLevel !== Math.min(2, sail.reefTarget)) w.push([sail.reefTarget > sail.reefLevel ? 'Берём риф…' : 'Отдаём риф…', 'info']);
     if (this._tick++ % 3 === 0) {
       e.warnings.innerHTML = w.map(([t, c]) => `<div class="w ${c}">${t}</div>`).join('');
     }

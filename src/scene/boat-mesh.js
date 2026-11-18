@@ -431,7 +431,7 @@ export function createBoatMesh() {
   function setCrewVisible(v) { crew.visible = v; }
   // мировая точка у форштевня на ватерлинии — для брызг
   function bowWorld(target) {
-    target.set(0, 0.1, -2.6);
+    target.set(0, 0.1, -(LOA / 2 - 0.1));
     return group.localToWorld(target);
   }
 
@@ -445,8 +445,9 @@ export function createBoatMesh() {
     boardPivot.rotation.x = boat.board * BOARD_DOWN;
     rudderPivot.rotation.y = boat.rudder;
 
-    const cy = boat.crewY;
-    crew.position.set(cy * 0.85, 0.5, 1.0);
+    // рулевой у конца румпеля (x ≈ −1.55): в ДП сидит перед ним, на банке/комингсе — сбоку от него
+    const cy = boat.crewY, side = Math.min(1, Math.abs(cy) / boat.cfg.crewMaxY);
+    crew.position.set(cy * 0.85, 0.5 + 0.2 * side * side, 1.25 + 0.55 * side); // на комингсе — выше банки
     crew.rotation.z = -cy / boat.cfg.crewMaxY * 0.55;
     crew.rotation.y = -boat.rudder * 0.3;
   }

@@ -18,7 +18,7 @@ export function runCase(opts) {
   const psi0 = ((-twa * DEG) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
   boat.reset(0, 0, psi0);
   boat.board = board;
-  boat.sail.reefTarget = reefs; boat.sail.reefLevel = reefs;
+  boat.sail.setReef(reefs);
   const steps = Math.round(duration / dt);
   let maxHeel = 0, capsizedAt = -1;
   const avgWindow = Math.round(15 / dt);
