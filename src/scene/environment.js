@@ -32,6 +32,29 @@ function mulberry32(a) {
   };
 }
 
+// Коробка тени ±range вокруг (cx, cz): солнце на расстоянии depth по sunDir. Центр квантуется по текселю
+// в плоскости света (базис камеры тени: x = up × sunDir, y = sunDir × x) — при движении тень не дрожит.
+const _u = new THREE.Vector3(), _v = new THREE.Vector3(), _c = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+export function fitShadow(sun, sunDir, cx, cz, range, depth = 400) {
+  const sc = sun.shadow.camera;
+  if (sc.right !== range || sc.far !== 2 * depth) {
+    sc.left = -range; sc.right = range; sc.top = range; sc.bottom = -range; sc.near = 1; sc.far = 2 * depth;
+    sc.updateProjectionMatrix();
+  }
+  const texel = 2 * range / sun.shadow.mapSize.x;
+  _u.crossVectors(_up, sunDir);
+  if (_u.lengthSq() < 1e-8) _u.set(1, 0, 0);
+  _u.normalize();
+  _v.crossVectors(sunDir, _u);
+  _c.set(cx, 0, cz);
+  const a = Math.round(_c.dot(_u) / texel) * texel, b = Math.round(_c.dot(_v) / texel) * texel, w = _c.dot(sunDir);
+  _c.copy(_u).multiplyScalar(a).addScaledVector(_v, b).addScaledVector(sunDir, w);
+  sun.target.position.copy(_c);
+  sun.position.copy(_c).addScaledVector(sunDir, depth);
+  return texel;
+}
+
+// cfg.shadowRange — тень вокруг камеры ±shadowRange м (большая карта); без него — прежняя ±28 м вокруг лодки
 export function createEnvironment(scene, cfg) {
   const rng = mulberry32(7);
 
@@ -87,10 +110,21 @@ export function createEnvironment(scene, cfg) {
   }
 
   const tmp = new THREE.Vector3();
-  function update(dt, waves, wind, boat) {
-    // солнце и тени следуют за лодкой
-    sun.target.position.set(boat.x, 0, boat.z);
-    sun.position.copy(tmp.copy(sunDir).multiplyScalar(120).add(sun.target.position));
+  function update(dt, waves, wind, boat, camera) {
+    if (cfg.shadowRange) {
+      // тень вокруг камеры: центр сдвинут от лодки туда, куда смотрит камера, на полокна — лодка всегда в тени
+      let cx = boat.x, cz = boat.z;
+      if (camera) {
+        camera.getWorldDirection(tmp);
+        const l = Math.hypot(tmp.x, tmp.z);
+        if (l > 1e-3) { cx += tmp.x / l * cfg.shadowRange * 0.5; cz += tmp.z / l * cfg.shadowRange * 0.5; }
+      }
+      sun.shadow.normalBias = fitShadow(sun, sunDir, cx, cz, cfg.shadowRange);
+    } else {
+      // солнце и тени следуют за лодкой
+      sun.target.position.set(boat.x, 0, boat.z);
+      sun.position.copy(tmp.copy(sunDir).multiplyScalar(120).add(sun.target.position));
+    }
     sky.update(boat.x, boat.z, waves.time);
     for (const { g, d } of buoys) {
       const s = waves.sample(d.x, d.z);

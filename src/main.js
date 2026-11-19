@@ -13,6 +13,8 @@ import { createBowSpray } from './scene/spray.js';
 import { createShoreSpray } from './scene/shore-spray.js';
 import { createCrestSpray } from './scene/crest-spray.js';
 import { createEnvironment } from './scene/environment.js';
+import { buildWorld } from './scene/terrain/world.js';
+import { MAPS } from './maps/index.js';
 import { FollowCamera } from './scene/camera.js';
 import { Input } from './input.js';
 import { Hud } from './ui/hud.js';
@@ -27,6 +29,15 @@ import './debug/polar.js';
 const STEP = 1 / 120;
 // стартовый сетап: время суток, погода, положение лодки
 const START = await (await fetch('start.json')).json();
+// ?map=<id> — карта по полю высот (src/maps/index.js) вместо демо; ?pos=x,z[,курс°] — старт лодки
+// (без него — старт карты map.start, у демо — start.json); туда же возвращает «Вернуть лодку»
+const params = new URLSearchParams(location.search);
+const MAP = MAPS[params.get('map')] ?? null;
+const startBoat = { ...START.boat, ...MAP?.start };
+if (params.has('pos')) {
+  const [x, z, h] = params.get('pos').split(',').map(Number);
+  Object.assign(startBoat, { x, z }, Number.isFinite(h) && { headingDeg: h });
+}
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -46,7 +57,7 @@ const wind = new Wind(START.weather.wind);
 const waves = new Waves();
 const boat = new Boat(BOAT);
 function placeBoat() {
-  const b = START.boat;
+  const b = startBoat;
   boat.reset(b.x, b.z, b.headingDeg * DEG);
   boat.sail.setReef(b.reefs);
   boat.board = b.board;
@@ -55,10 +66,15 @@ placeBoat();
 const sea = { ...SEA, ...START.weather.sea };
 
 // --- сцена ---
-const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 2048 });
+// большая карта: острова и буи демо не нужны, тень — окном вокруг камеры (на таче меньше и грубее)
+const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : MAP ? 4096 : 2048,
+  ...(MAP && { islands: [], buoys: [], shadowRange: isTouchDevice() ? 70 : 120 }) });
+const world = MAP ? buildWorld(MAP, { density: params.has('veg') ? parseFloat(params.get('veg')) : 1 }) : null;
+if (world) { scene.add(world.group); console.log(world.summary()); }
 const planar = createPlanarReflection(renderer);
 const bakeT0 = performance.now();
-const shoreMap = bakeShoreMap(env.islands.map((g) => g.userData.shore));
+// карта берега большой карты — на весь мир 3 км: текстура больше, чтобы тексель был ≈0.75 м
+const shoreMap = world ? bakeShoreMap([world.shore], { maxSize: isTouchDevice() ? 2048 : 4096 }) : bakeShoreMap(env.islands.map((g) => g.userData.shore));
 const bakeMs = performance.now() - bakeT0;
 // физика гасит волны у берега так же, как вершинный шейдер воды
 waves.damp = (x, z) => shoreDamp(shoreMap.depthAt(x, z));
@@ -80,6 +96,12 @@ const followCam = new FollowCamera(camera, canvas);
 scene.traverse((o) => { if (o.isLight) markReflected(o); });
 for (const g of env.islands) markReflected(g);
 for (const g of env.buoys) markReflected(g);
+if (world) {
+  // большая карта: рельеф и постройки целиком, из растительности — деревья и крупные камни
+  markReflected(world.terrain);
+  markReflected(world.settle.group);
+  markReflected(world.veg.group, { minRadius: 2 });
+}
 markReflected(env.clouds.group);
 markReflected(boatMesh.group, { minRadius: 0.25 });
 markReflected(boatMesh.sailor.group, { minRadius: 0.1 }); // моряк мельче, но заметен: тело, голова, шапка
@@ -88,11 +110,10 @@ const cloudsHidden = [env.clouds.group], noHide = [];
 // --- замеры и разрешение ---
 // вода — самое дорогое на GPU, и цена растёт с числом пикселей: на таче потолок DPR 1.5,
 // дальше разрешение подстраивается под бюджет GPU (?dpr=1.5 — зафиксировать вручную)
-const urlParams = new URLSearchParams(location.search);
 const perf = createPerf(renderer);
 const resolution = createAdaptiveResolution(renderer, perf, { max: Math.min(window.devicePixelRatio, isTouchDevice() ? 1.5 : 2) });
-if (urlParams.has('dpr')) { resolution.state.auto = false; resolution.state.ratio = parseFloat(urlParams.get('dpr')); }
-const perfOverlay = createPerfOverlay(perf, resolution, renderer, { visible: urlParams.has('perf') });
+if (params.has('dpr')) { resolution.state.auto = false; resolution.state.ratio = parseFloat(params.get('dpr')); }
+const perfOverlay = createPerfOverlay(perf, resolution, renderer, { visible: params.has('perf') });
 
 // --- UI ---
 const input = new Input();
@@ -146,15 +167,8 @@ window.addEventListener('resize', () => {
 });
 
 // --- отладка через URL: ?t=30&twa=60&wind=8&cam=chase&auto=1 ---
-const params = new URLSearchParams(location.search);
 let simTime = 0;
 const debugAuto = params.has('auto') || params.has('t');
-// pos — первым: reset() сбрасывает шверт и рифы, заданные ниже
-if (params.has('pos')) {
-  // pos=x,z[,курс°] — поставить лодку в точку
-  const [x, z, h = 0] = params.get('pos').split(',').map(Number);
-  boat.reset(x, z, h * DEG);
-}
 if (params.has('wind')) wind.baseSpeed = parseFloat(params.get('wind'));
 if (params.has('winddir')) wind.baseDirDeg = parseFloat(params.get('winddir'));
 if (params.has('cam')) followCam.mode = params.get('cam');
@@ -198,7 +212,8 @@ let acc = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   perf.begin(now);
-  let dt = Math.min(0.1, (now - last) / 1000);
+  // метка rAF бывает раньше last (долгая загрузка, компиляция шейдеров) — отрицательный dt разгоняет сглаживание камеры
+  let dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
   last = now;
   const halted = paused || (touch && phoneLandscape.matches);
   if (!halted) {
@@ -230,8 +245,9 @@ function frame(now) {
     whitecap: THREE.MathUtils.clamp((wind.speed - 5) / 10, 0, 1), wake, overcast: env.overcast,
     ripple: THREE.MathUtils.clamp((wind.speed - 1) / 9, 0.05, 1),
   });
-  env.update(halted ? 0 : dt, waves, wind, boat);
+  env.update(halted ? 0 : dt, waves, wind, boat, camera);
   followCam.update(dt || 0.016, boat, boatMesh);
+  world?.update(camera.position);
   if (camPitch) camera.rotateX(camPitch);
   hud.update({ boat, wind, cameraMode: followCam.mode });
   const R = water.reflection;
@@ -251,4 +267,4 @@ document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
+window.__sim = { world, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
