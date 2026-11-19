@@ -4,10 +4,8 @@ import { Wind } from './physics/wind.js';
 import { Waves } from './physics/waves.js';
 import { Boat, crewMove } from './physics/boat.js';
 import { createWater } from './scene/water.js';
-import { createPlanarReflection, markReflected } from './scene/planar-reflection.js';
 import { bakeShoreMap, shoreDamp } from './scene/shore-map.js';
 import { createBoatMesh } from './scene/boat-mesh.js';
-import { createWake } from './scene/wake.js';
 import { createParticles } from './scene/particles.js';
 import { createBowSpray } from './scene/spray.js';
 import { createShoreSpray } from './scene/shore-spray.js';
@@ -56,19 +54,15 @@ const sea = { ...SEA, ...START.weather.sea };
 
 // --- сцена ---
 const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 2048 });
-const planar = createPlanarReflection(renderer);
 const bakeT0 = performance.now();
 const shoreMap = bakeShoreMap(env.islands.map((g) => g.userData.shore));
 const bakeMs = performance.now() - bakeT0;
 // физика гасит волны у берега так же, как вершинный шейдер воды
 waves.damp = (x, z) => shoreDamp(shoreMap.depthAt(x, z));
-const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterSegments, sky: env.sky, planar, shoreMap });
-// второй рендер дорог: на телефонах и планшетах отражение объектов по умолчанию выключено
-water.reflection.planar = !isTouchDevice();
+const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterSegments, shoreMap });
 scene.add(water.mesh, water.far);
 const boatMesh = createBoatMesh();
 scene.add(boatMesh.group);
-const wake = createWake();
 // брызги: общая система частиц и эмиттеры; на таче частиц вдвое меньше
 const particles = createParticles({ scale: isTouchDevice() ? 0.5 : 1 });
 scene.add(...particles.meshes);
@@ -76,14 +70,6 @@ const bowSpray = createBowSpray(particles);
 const shoreSpray = createShoreSpray(particles, shoreMap);
 const crestSpray = createCrestSpray(particles);
 const followCam = new FollowCamera(camera, canvas);
-// в отражение — крупное: острова (без травы), буи, облака, лодка без мелочи; свет — весь
-scene.traverse((o) => { if (o.isLight) markReflected(o); });
-for (const g of env.islands) markReflected(g);
-for (const g of env.buoys) markReflected(g);
-markReflected(env.clouds.group);
-markReflected(boatMesh.group, { minRadius: 0.25 });
-markReflected(boatMesh.sailor.group, { minRadius: 0.1 }); // моряк мельче, но заметен: тело, голова, шапка
-const cloudsHidden = [env.clouds.group], noHide = [];
 
 // --- замеры и разрешение ---
 // вода — самое дорогое на GPU, и цена растёт с числом пикселей: на таче потолок DPR 1.5,
@@ -100,7 +86,7 @@ const hud = new Hud();
 let paused = false;
 const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
-  resetBoat: () => { placeBoat(); wake.reset(); },
+  resetBoat: () => placeBoat(),
 };
 createWeatherPanel({ wind, sea, env, water, particles, actions, start: START, resolution, perfOverlay });
 input.on('reef', (d) => boat.sail.reef(d));
@@ -183,7 +169,6 @@ if (params.has('t')) {
     waves.update(STEP);
     boat.step(STEP, autopilotControls(), wind, waves, shoreMap);
     simTime += STEP;
-    wake.update(simTime, boat);
   }
   waves.settle();
   boatMesh.update(boat, 0);
@@ -217,7 +202,6 @@ function frame(now) {
     }
     if (n === 12) acc = 0;
   }
-  wake.update(simTime, boat);
   boatMesh.update(boat, simTime);
   if (!halted) {
     bowSpray.update(dt, boat, waves, boatMesh);
@@ -225,20 +209,11 @@ function frame(now) {
     crestSpray.update(dt, waves, wind, camera);
   }
   particles.update(halted ? 0 : dt, { waves, wind, env, camera });
-  water.update(waves, boat.x, boat.z, {
-    time: waves.time, sunDir: env.sunDir, sunColor: env.sunGlint, windDir: wind.vector(),
-    whitecap: THREE.MathUtils.clamp((wind.speed - 5) / 10, 0, 1), wake, overcast: env.overcast,
-    ripple: THREE.MathUtils.clamp((wind.speed - 1) / 9, 0.05, 1),
-  });
+  water.update(waves, boat.x, boat.z);
   env.update(halted ? 0 : dt, waves, wind, boat);
   followCam.update(dt || 0.016, boat, boatMesh);
   if (camPitch) camera.rotateX(camPitch);
   hud.update({ boat, wind, cameraMode: followCam.mode });
-  const R = water.reflection;
-  if (R.planar) {
-    planar.state.scale = R.resolution;
-    planar.render(scene, camera, R.clouds ? noHide : cloudsHidden);
-  }
   renderer.render(scene, camera);
   perf.end();
   resolution.update(dt);
@@ -251,4 +226,4 @@ document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
+window.__sim = { perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };

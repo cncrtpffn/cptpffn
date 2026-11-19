@@ -57,7 +57,6 @@ export function createEnvironment(scene, cfg) {
   const buoys = cfg.buoys.map((d) => { const g = makeBuoy(d); scene.add(g); return { g, d }; });
 
   const sunDir = new THREE.Vector3(0.4, 0.8, 0.3);
-  const sunGlint = new THREE.Color();
 
   let dayPhase;
   function setTimeOfDay(t) {
@@ -78,7 +77,6 @@ export function createEnvironment(scene, cfg) {
     hemi.groundColor.copy(L.ground);
     hemi.intensity = L.hemiI;
     scene.fog.color.copy(L.fog);
-    sunGlint.copy(L.glint);
     sun.shadow.intensity = L.shadow;
     // в пасмурную погоду дымка гуще
     scene.fog.near = 140 - 60 * ov;
@@ -103,5 +101,5 @@ export function createEnvironment(scene, cfg) {
 
   setTimeOfDay(cfg.timeOfDay ?? 0.5);
   const setCloudType = (name, instant) => { clouds.setType(name, instant); if (instant) applyLighting(); };
-  return { update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, hemi, sunDir, sunGlint, islands, buoys: buoys.map((b) => b.g), sky, clouds };
+  return { update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, hemi, sunDir, islands, buoys: buoys.map((b) => b.g), sky, clouds };
 }

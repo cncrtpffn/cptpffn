@@ -64,7 +64,6 @@ function createPennant(group, mat, base) {
   mesh.frustumCulled = false;
   mesh.castShadow = true;
   mesh.userData.dynamic = true;
-  mesh.userData.reflect = true; // вершины появятся в первом кадре — габарит пока нулевой
   mesh.position.copy(base);
   group.add(mesh);
   const top = Array.from({ length: SEG + 1 }, () => V()), bot = Array.from({ length: SEG + 1 }, () => V());

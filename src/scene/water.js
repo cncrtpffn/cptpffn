@@ -1,16 +1,13 @@
 import * as THREE from 'three';
 import { MAX_COMP } from '../physics/waves.js';
-import { WAKE_POINTS, FX_UNIFORMS_GLSL, NOISE_GLSL, WAKE_GLSL, GLINT_GLSL, SKY_REFLECT_GLSL, RIPPLE_GLSL, SURF_GLSL, SHORE_DAMP_GLSL } from './water-fx.js';
-import { SKY_UNIFORMS_GLSL, SKY_COLOR_GLSL } from './sky.js';
+import { SHORE_DAMP_GLSL } from './water-fx.js';
 
-// Вода: MeshStandardMaterial + вершинный шейдер Герстнера (те же параметры, что в физике).
-// Гладкое затенение по аналитическим нормалям Герстнера; цвет по высоте с пятнами оттенка,
-// рваная пена на гребнях и полосы по ветру, кильватерный след, прибой и мелководье у берегов,
-// отражение неба, блики солнца.
-// sky — из createSky: его униформы палитры подключаются по ссылке.
-// planar — из createPlanarReflection: текстура и матрица отражения объектов.
-// shoreMap — из bakeShoreMap: расстояние до берега и глубина.
-export function createWater(waves, { size = 440, segments = 176, sky, planar, shoreMap } = {}) {
+// Вода: один цвет, только рассеянный свет (Lambert, без бликов), без текстур, пены и отражений
+// (эксперимент, панель «Вода»).
+// Вершинный шейдер Герстнера с теми же параметрами, что в физике: лодка качается на тех же волнах,
+// свет ложится по аналитическим нормалям, так что волны видны по затенению.
+// shoreMap — из bakeShoreMap: по глубине волны гаснут у берега.
+export function createWater(waves, { size = 440, segments = 176, shoreMap } = {}) {
   const geo = new THREE.PlaneGeometry(size, size, segments, segments);
   geo.rotateX(-Math.PI / 2);
   const cell = size / segments;
@@ -23,59 +20,19 @@ export function createWater(waves, { size = 440, segments = 176, sky, planar, sh
     uWaveQ: { value: new Float32Array(MAX_COMP) },
     uCenter: { value: new THREE.Vector2() },
     uRadius: { value: size * 0.5 },
-    uAmp: { value: 0.3 },
-    uDeep: { value: new THREE.Color(0x1f6f9f) },
-    uShallow: { value: new THREE.Color(0x4fb3d9) },
-    uFoam: { value: new THREE.Color(0xf4fbff) },
-    uTime: { value: 0 },
-    uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.3) },
-    uSunColor: { value: new THREE.Color(0xffffff) },
-    uWindDir: { value: new THREE.Vector2(0, 1) },
-    uWhitecap: { value: 0 },
-    uTrail: { value: Array.from({ length: WAKE_POINTS }, () => new THREE.Vector4()) },
-    uTrailCount: { value: 0 },
-    uWakeBox: { value: new THREE.Vector4() },
-    uOvercast: { value: 0 },
-    uRipple: { value: 0.5 },
-    uReflect: { value: 0.3 },
-    uFresnelPow: { value: 19 },
-    uReflTex: { value: planar.texture },
-    uReflMatrix: { value: planar.matrix },
-    uPlanar: { value: 0 },
-    uReflDistort: { value: 0.03 },
     uShoreTex: { value: shoreMap.texture },
     uShoreBounds: { value: shoreMap.bounds },
-    uShoreRange: { value: shoreMap.range },
     uShoreDepth: { value: shoreMap.maxDepth },
-    uSurf: { value: 1 },
-    uSurfAmp: { value: 0.3 },
-    uShallows: { value: 1 },
-    uLagoon: { value: new THREE.Color(0x3fc4c0) },
   };
-  // настройки отражения неба (меняются из панели «Погода и сцена»)
-  // planar… — отражение лодки, островов и облаков вторым рендером (planar-reflection.js)
-  const reflection = {
-    enabled: true, strength: 0.3, fresnel: 19,
-    planar: true, planarStrength: 1, distort: 0.03, resolution: 0.5,
-    // облака по умолчанию не отражаем: с френелем объектов они светятся у лодки, где неба в воде почти нет
-    clouds: false,
-  };
-  // прибой у берегов и бирюза мелководья (панель «Прибой»)
-  const surf = { enabled: true, strength: 1, shallows: true };
-  const skyUniforms = {};
-  for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo']) skyUniforms[k] = sky.uniforms[k];
+  const settings = { color: '#2f86b5' };
 
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0xffffff, roughness: 0.38, metalness: 0.02,
-    transparent: true, opacity: 0.94,
-  });
+  const mat = new THREE.MeshLambertMaterial({ color: settings.color });
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms, skyUniforms);
+    Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         uniform vec2 uWaveDir[${MAX_COMP}]; uniform float uWaveA[${MAX_COMP}]; uniform float uWaveK[${MAX_COMP}];
         uniform float uWavePhase[${MAX_COMP}]; uniform float uWaveQ[${MAX_COMP}]; uniform vec2 uCenter; uniform float uRadius;
-        varying float vWaveH; varying float vSteep; varying vec3 vWorldPos; varying vec3 vWaveN;
         ${SHORE_DAMP_GLSL}`)
       // beginnormal_vertex идёт раньше begin_vertex: здесь и смещение, и аналитическая нормаль
       .replace('#include <beginnormal_vertex>', `
@@ -83,68 +40,20 @@ export function createWater(waves, { size = 440, segments = 176, sky, planar, sh
         float edge = 1.0 - smoothstep(uRadius * 0.72, uRadius * 0.98, length(wp.xz - uCenter));
         // у берега волны затухают по глубине (как waves.damp на CPU): не выходят пластами на пляж
         edge *= shoreDampAt(wp.xz);
-        vec3 disp = vec3(0.0); float steep = 0.0; vec3 nd = vec3(0.0);
+        vec3 disp = vec3(0.0); vec3 nd = vec3(0.0);
         for (int i = 0; i < ${MAX_COMP}; i++) {
           float th = uWaveK[i] * dot(uWaveDir[i], wp.xz) - uWavePhase[i];
           float c = cos(th), s = sin(th);
           float wa = uWaveK[i] * uWaveA[i];
           disp.xz += uWaveQ[i] * uWaveA[i] * uWaveDir[i] * c;
           disp.y += uWaveA[i] * s;
-          steep += wa * s;
           nd.xz += uWaveDir[i] * wa * c;
           nd.y += uWaveQ[i] * wa * s;
         }
         // сетка только сдвигается, так что нормаль в объекте = мировая
-        vec3 objectNormal = normalize(vec3(-nd.x * edge, 1.0 - nd.y * edge, -nd.z * edge));
-        vWaveN = objectNormal;`)
+        vec3 objectNormal = normalize(vec3(-nd.x * edge, 1.0 - nd.y * edge, -nd.z * edge));`)
       .replace('#include <begin_vertex>', `
-        vec3 transformed = vec3(position);
-        transformed += disp * edge;
-        vWaveH = disp.y * edge; vSteep = steep * edge;
-        vWorldPos = wp + disp * edge;`);
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>
-        uniform vec3 uDeep; uniform vec3 uShallow; uniform vec3 uFoam; uniform float uAmp; uniform float uOvercast;
-        uniform vec2 uCenter; uniform float uRadius;
-        varying float vWaveH; varying float vSteep;
-        ${FX_UNIFORMS_GLSL}${SKY_UNIFORMS_GLSL}${NOISE_GLSL}${RIPPLE_GLSL}${WAKE_GLSL}${SURF_GLSL}${SKY_COLOR_GLSL}${SKY_REFLECT_GLSL}`)
-      .replace('#include <color_fragment>', `#include <color_fragment>
-        float hh = smoothstep(-uAmp, uAmp, vWaveH);
-        diffuseColor.rgb *= mix(uDeep, uShallow, hh);
-        vec2 wxz = vWorldPos.xz;
-        // крупные пятна оттенка, медленно дрейфуют
-        float tint = vnoise(wxz * 0.025 + uTime * 0.012) * 0.65 + vnoise(wxz * 0.11 - uTime * 0.03) * 0.35;
-        diffuseColor.rgb *= mix(vec3(0.88, 0.98, 1.05), vec3(1.07, 1.03, 0.92), tint);
-        // мелководье у берегов
-        vec4 sh = shoreInfo(wxz);
-        diffuseColor.rgb = mix(diffuseColor.rgb, uLagoon, shallowMix(sh));
-        // под облаками море серее и темнее
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722))), uOvercast * 0.55) * (1.0 - 0.2 * uOvercast);
-        // барашки: порог ниже при сильном ветре, рваные шумом
-        vec2 drift = uWindDir * uTime * 0.6;
-        float lo = mix(0.36, 0.2, uWhitecap);
-        float crest = smoothstep(lo, lo + 0.18, vSteep);
-        // шум считаем только на гребнях: на большей части воды crest = 0
-        if (crest > 0.0) crest *= smoothstep(0.45, 0.65, vnoise(wxz * 0.7 - drift) * 0.7 + vnoise(wxz * 2.3 + drift) * 0.3 + crest * 0.2);
-        // полосы пены вдоль ветра (в слабый ветер uWhitecap = 0 — не считаем)
-        float streak = 0.0;
-        if (uWhitecap > 0.0) {
-          vec2 wperp = vec2(-uWindDir.y, uWindDir.x);
-          float sn = vnoise(vec2(dot(wxz, uWindDir) * 0.07, dot(wxz, wperp) * 0.9) - vec2(uTime * 0.05, 0.0));
-          streak = smoothstep(0.8, 0.9, sn) * uWhitecap * 0.35 * smoothstep(-0.3, 0.4, hh);
-        }
-        // буруны гаснут к краю ближней воды: за ним дальняя вода рисует только кромку
-        float surfLines = 1.0 - smoothstep(uRadius * 0.6, uRadius * 0.9, length(wxz - uCenter));
-        float waterFoam = clamp(max(max(max(crest * 0.85, streak), wakeFoam(wxz)), surfFoam(wxz, sh, surfLines)), 0.0, 1.0);
-        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, waterFoam);`)
-      // рябь возмущает нормаль: освещение, отражение неба и блики — по ней
-      .replace('#include <normal_fragment_maps>', `
-        vec2 rs = rippleSlope(vWorldPos.xz) * (1.0 - waterFoam);
-        vec3 waterN = normalize(normalize(vWaveN) - vec3(rs.x, 0.0, rs.y));
-        normal = normalize((viewMatrix * vec4(waterN, 0.0)).xyz);`)
-      .replace('#include <opaque_fragment>', `outgoingLight = skyReflect(outgoingLight, waterN, vWorldPos, 1.0 - waterFoam);
-        ${GLINT_GLSL}
-        #include <opaque_fragment>`);
+        vec3 transformed = vec3(position) + disp * edge;`);
   };
   // чтобы кэш шейдера различал материал с инъекцией
   mat.customProgramCacheKey = () => 'cozy-water';
@@ -154,38 +63,9 @@ export function createWater(waves, { size = 440, segments = 176, sky, planar, sh
   mesh.frustumCulled = false;
 
   // Дальняя вода без волн — до горизонта, растворяется в тумане. Кольцо с дырой под ближней водой:
-  // сплошная плоскость торчала бы из ложбин волн плоским полигоном.
-  const farMat = new THREE.MeshStandardMaterial({ color: 0x3a98c4, roughness: 0.5, metalness: 0.02 });
-  // то же отражение неба, иначе на стыке с ближней водой видна граница яркости
-  farMat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, skyUniforms, {
-      uSunDir: uniforms.uSunDir, uSunColor: uniforms.uSunColor,
-      uReflect: uniforms.uReflect, uFresnelPow: uniforms.uFresnelPow,
-      uReflTex: uniforms.uReflTex, uReflMatrix: uniforms.uReflMatrix,
-      uPlanar: uniforms.uPlanar, uReflDistort: uniforms.uReflDistort,
-      uTime: uniforms.uTime, uWindDir: uniforms.uWindDir, uFoam: uniforms.uFoam,
-      uShoreTex: uniforms.uShoreTex, uShoreBounds: uniforms.uShoreBounds,
-      uShoreRange: uniforms.uShoreRange, uShoreDepth: uniforms.uShoreDepth,
-      uSurf: uniforms.uSurf, uSurfAmp: uniforms.uSurfAmp, uShallows: uniforms.uShallows, uLagoon: uniforms.uLagoon,
-    });
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\n varying vec3 vFarPos;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n vFarPos = (modelMatrix * vec4(position, 1.0)).xyz;');
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>
-        uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uTime; uniform vec2 uWindDir; varying vec3 vFarPos;
-        uniform vec3 uFoam;
-        ${SKY_UNIFORMS_GLSL}${NOISE_GLSL}${SURF_GLSL}${SKY_COLOR_GLSL}${SKY_REFLECT_GLSL}`)
-      // мелководье и пена у кромки — как у ближней воды, без бурунов
-      .replace('#include <color_fragment>', `#include <color_fragment>
-        vec4 sh = shoreInfo(vFarPos.xz);
-        diffuseColor.rgb = mix(diffuseColor.rgb, uLagoon, shallowMix(sh));
-        float farFoam = surfFoam(vFarPos.xz, sh, 0.0);
-        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, farFoam);`)
-      .replace('#include <opaque_fragment>', `outgoingLight = skyReflect(outgoingLight, vec3(0.0, 1.0, 0.0), vFarPos, 1.0 - farFoam);
-        #include <opaque_fragment>`);
-  };
-  farMat.customProgramCacheKey = () => 'cozy-water-far';
+  // сплошная плоскость торчала бы из ложбин волн плоским полигоном. К краю ближней воды волны
+  // гаснут (edge → 0), нормали там уже смотрят вверх — шва по освещению нет.
+  const farMat = new THREE.MeshLambertMaterial({ color: settings.color });
   const far = new THREE.Mesh(
     new THREE.RingGeometry(size * 0.5 * 0.97, 3000, 64, 1).rotateX(-Math.PI / 2),
     farMat,
@@ -193,7 +73,7 @@ export function createWater(waves, { size = 440, segments = 176, sky, planar, sh
   far.position.y = -0.08;
   far.receiveShadow = false;
 
-  function update(w, cx, cz, fx) {
+  function update(w, cx, cz) {
     const sx = Math.round(cx / cell) * cell, sz = Math.round(cz / cell) * cell;
     mesh.position.set(sx, 0, sz);
     far.position.set(sx, -0.08, sz);
@@ -205,27 +85,8 @@ export function createWater(waves, { size = 440, segments = 176, sky, planar, sh
       uniforms.uWavePhase.value[i] = w.phase[i];
       uniforms.uWaveQ.value[i] = w.q[i];
     }
-    uniforms.uAmp.value = Math.max(0.15, w.maxAmplitude());
-    uniforms.uReflect.value = reflection.enabled ? reflection.strength : 0;
-    uniforms.uFresnelPow.value = reflection.fresnel;
-    uniforms.uPlanar.value = reflection.planar ? reflection.planarStrength : 0;
-    uniforms.uReflDistort.value = reflection.distort;
-    uniforms.uSurf.value = surf.enabled ? surf.strength : 0;
-    uniforms.uShallows.value = surf.shallows ? 1 : 0;
-    uniforms.uSurfAmp.value = w.maxAmplitude();
-    if (fx) {
-      uniforms.uTime.value = fx.time;
-      uniforms.uSunDir.value.copy(fx.sunDir);
-      uniforms.uSunColor.value.copy(fx.sunColor);
-      if (Math.hypot(fx.windDir.x, fx.windDir.z) > 0.01) uniforms.uWindDir.value.set(fx.windDir.x, fx.windDir.z).normalize();
-      uniforms.uWhitecap.value = fx.whitecap;
-      uniforms.uTrail.value = fx.wake.trail;
-      uniforms.uTrailCount.value = fx.wake.count;
-      uniforms.uWakeBox.value.copy(fx.wake.box);
-      uniforms.uOvercast.value = fx.overcast || 0;
-      uniforms.uRipple.value = fx.ripple ?? 0.5;
-    }
+    mat.color.set(settings.color); farMat.color.copy(mat.color);
   }
 
-  return { mesh, far, update, uniforms, reflection, surf };
+  return { mesh, far, update, uniforms, settings };
 }

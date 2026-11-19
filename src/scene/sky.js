@@ -139,7 +139,7 @@ export function createSky({ radius = 2500 } = {}) {
   const light = {
     sunColor: new THREE.Color(), sunI: 0,
     hemi: new THREE.Color(), ground: new THREE.Color(), hemiI: 0,
-    fog: new THREE.Color(), glint: new THREE.Color(), shadow: 1,
+    fog: new THREE.Color(), shadow: 1,
   };
   const grey = new THREE.Color();
   // затянутость: цвет к серому той же яркости, чуть темнее
@@ -185,7 +185,6 @@ export function createSky({ radius = 2500 } = {}) {
     light.shadow = 1 - 0.85 * overcast;
     // туман — горизонт под 90° к солнцу, между светлой и тёмной стороной
     light.fog.copy(uniforms.uAntiHorizon.value).lerp(uniforms.uHorizon.value, 0.5);
-    light.glint.copy(light.sunColor).multiplyScalar(vis * (1 - overcast));
     return light;
   }
 

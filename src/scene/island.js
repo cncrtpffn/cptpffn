@@ -227,7 +227,6 @@ export function makeIsland(defIn, rng) {
   propMesh.castShadow = true; propMesh.receiveShadow = true;
   const grassMesh = grass.toMesh(propMaterial());
   grassMesh.receiveShadow = true;
-  grassMesh.userData.noReflect = true; // в отражении на половинном разрешении травы не видно
   g.add(propMesh, grassMesh);
   return g;
 }

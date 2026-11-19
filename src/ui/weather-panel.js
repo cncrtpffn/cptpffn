@@ -50,22 +50,8 @@ export function createWeatherPanel({ wind, sea, env, water, particles, actions, 
   fs.add(sea, 'auto').name('Волнение от ветра');
   fs.add(sea, 'state', 0, 1, 0.02).name('Волнение вручную');
 
-  const fr = gui.addFolder('Отражения');
-  fr.add(water.reflection, 'enabled').name('Отражение неба');
-  fr.add(water.reflection, 'strength', 0, 1, 0.05).name('Сила');
-  // больше — синяя вода у лодки тянется дальше к горизонту
-  fr.add(water.reflection, 'fresnel', 3, 25, 1).name('Дальность');
-  // отражение объектов — второй рендер сцены, заметно нагружает видеокарту
-  fr.add(water.reflection, 'planar').name('Лодка и острова');
-  fr.add(water.reflection, 'planarStrength', 0, 2, 0.05).name('Сила объектов');
-  fr.add(water.reflection, 'distort', 0, 0.1, 0.005).name('Искажение волнами');
-  fr.add(water.reflection, 'resolution', { '¼': 0.25, '½': 0.5, 'полное': 1 }).name('Разрешение');
-  fr.add(water.reflection, 'clouds').name('Облака в отражении');
-
-  const fp = gui.addFolder('Прибой');
-  fp.add(water.surf, 'enabled').name('Прибой');
-  fp.add(water.surf, 'strength', 0, 2, 0.05).name('Сила');
-  fp.add(water.surf, 'shallows').name('Мелководье');
+  const fwater = gui.addFolder('Вода');
+  fwater.addColor(water.settings, 'color').name('Цвет');
 
   const fb = gui.addFolder('Брызги');
   fb.add(particles.settings, 'enabled').name('Брызги');
