@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Props viewer</title>
+  <!-- Стенд библиотеки объектов (src/scene/structures). Открывать с корня проекта: /src/debug/props-viewer.html
+       Библиотека: все объекты сеткой по категориям; клик по объекту — открыть его отдельно.
+         Параметры URL: cat (id категории или all), style (south|north|atlantic|all)
+       Объект: ?obj=<id> — объект с моряком и двухметровой линейкой для масштаба, мышью — орбита.
+         Параметры URL: style, seed, variant, параметры объекта (из params реестра), views=turn (4 ракурса),
+         cam (x,y,z,tx,ty,tz) -->
+  <style>html, body { margin: 0; height: 100%; background: #9cc3dc; overflow: hidden; font: 12px sans-serif; } canvas { display: block; }
+    #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+    .lbl { position: absolute; transform: translate(-50%, -100%); color: #fff; background: #0008; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+    .lbl.cat { font-size: 15px; font-weight: bold; background: #0006; padding: 3px 8px; }
+    .lbl.view { transform: none; }
+    #panel { position: absolute; top: 8px; left: 8px; color: #fff; background: #000b; padding: 8px 10px; border-radius: 4px; min-width: 200px; }
+    #panel label { display: flex; justify-content: space-between; gap: 8px; align-items: center; line-height: 24px; }
+    #panel select, #panel input { font: inherit; }
+    #panel input[type=number] { width: 70px; }
+    #panel .stats { margin-top: 6px; font-family: ui-monospace, monospace; white-space: pre; color: #fffc; }
+    #panel a { color: #9fe8ff; }</style>
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+  </script>
+</head>
+<body>
+<div id="labels"></div>
+<div id="panel"></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STRUCTURES, CATEGORIES, STYLES, STYLE_NAMES, createStructure } from '../scene/structures/index.js';
+import { seeded } from '../scene/structures/kit.js';
+import { createSailor } from '../scene/sailor.js';
+
+const q = new URLSearchParams(location.search);
+const num = (k, d) => (q.has(k) ? parseFloat(q.get(k)) : d);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.setScissorTest(true);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9cc3dc);
+scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x6a7f5a, 0.9));
+const sun = new THREE.DirectionalLight(0xfff2d8, 2.4);
+sun.castShadow = true;
+sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 0.03;
+scene.add(sun, sun.target);
+const GROUND = 0x8fb069, SAND = 0xe3d4a8, WATER = 0x3f7f9c;
+const flat = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 1, ...extra });
+
+const labelsEl = document.getElementById('labels');
+const marks = [];
+function mark(cls, text, p) {
+  const el = document.createElement('div');
+  el.className = cls; el.textContent = text;
+  labelsEl.appendChild(el);
+  marks.push({ el, p });
+}
+const panel = document.getElementById('panel');
+function row(label, input) {
+  const l = document.createElement('label');
+  l.append(label, input);
+  panel.appendChild(l);
+  return input;
+}
+function select(options, value) {
+  const s = document.createElement('select');
+  for (const [v, t] of options) s.add(new Option(t, v, false, v === value));
+  return s;
+}
+// перезагрузка с новыми параметрами URL (стенд дешёвый, так проще держать URL и сцену в согласии)
+function go(changes) {
+  for (const [k, v] of Object.entries(changes)) (v === null || v === undefined) ? q.delete(k) : q.set(k, v);
+  location.search = q.toString();
+}
+// пол под сценой и тень на заданную область
+function stage(cx, cz, w, d, water) {
+  const land = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), flat(GROUND));
+  land.position.set(cx, 0, cz);
+  land.receiveShadow = true;
+  scene.add(land);
+  if (water) {
+    // вода в сторону +Z от z = 0: пляж, дно на −3 м, полупрозрачная поверхность
+    land.scale.z = 0.5; land.position.z = cz - d / 4;
+    const sand = new THREE.Mesh(new THREE.PlaneGeometry(w, 2).rotateX(-Math.PI / 2), flat(SAND));
+    sand.position.set(cx, 0.01, -1); sand.receiveShadow = true;
+    const bed = new THREE.Mesh(new THREE.PlaneGeometry(w, d / 2).rotateX(-Math.PI / 2), flat(SAND));
+    bed.position.set(cx, -3, cz + d / 4); bed.receiveShadow = true;
+    const sea = new THREE.Mesh(new THREE.PlaneGeometry(w, d / 2).rotateX(-Math.PI / 2), flat(WATER, { transparent: true, opacity: 0.55, depthWrite: false }));
+    sea.position.set(cx, 0, cz + d / 4);
+    const slope = new THREE.Mesh(new THREE.PlaneGeometry(w, 3.6).rotateX(-Math.PI / 2 + Math.atan2(3, 2)), flat(SAND));
+    slope.position.set(cx, -1.5, 1); slope.receiveShadow = true;
+    scene.add(sand, bed, sea, slope);
+  }
+  const r = Math.max(w, d) / 2;
+  const sc = sun.shadow.camera;
+  sc.left = -r; sc.right = r; sc.top = r; sc.bottom = -r; sc.near = 1; sc.far = 4 * r + 200;
+  sc.updateProjectionMatrix();
+  sun.shadow.mapSize.set(4096, 4096);
+  sun.target.position.set(cx, 0, cz);
+  sun.position.set(cx - 0.5 * r - 30, 1.2 * r + 60, cz + 0.6 * r + 40);
+}
+const stats = (obj) => {
+  let tris = 0, verts = 0;
+  obj.traverse((m) => { if (m.isMesh) { const g = m.geometry; tris += (g.index ? g.index.count : g.attributes.position.count) / 3; verts += g.attributes.position.count; } });
+  const bb = new THREE.Box3().setFromObject(obj), s = bb.getSize(new THREE.Vector3());
+  return { tris, verts, bb, size: s };
+};
+
+const tmp = new THREE.Vector3();
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 3000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.addEventListener('change', () => render());
+let views = null; // [{ cam, label }] для views=turn
+const ids = Object.keys(STRUCTURES);
+const objId = q.get('obj');
+
+if (objId && STRUCTURES[objId]) {
+  // ---- один объект ----
+  const def = STRUCTURES[objId];
+  const style = def.styles ? (q.get('style') ?? 'atlantic') : undefined;
+  const seed = num('seed', 1);
+  const opts = { style, variant: num('variant', 0) };
+  for (const [k, p] of Object.entries(def.params ?? {})) opts[k] = num(k, p.value);
+  const obj = createStructure(objId, opts, seeded(seed));
+  scene.add(obj);
+  const st = stats(obj);
+  const R = Math.max(st.size.x, st.size.z, st.size.y, 3);
+  stage(0, 0, Math.max(40, R * 5), Math.max(40, R * 5), def.water);
+
+  // масштаб: моряк (сидит, ≈1.05 м) и линейка 2 м с полосами по 0.5 м
+  const sailor = createSailor();
+  sailor.update(1 / 60, { look: { yaw: 0, pitch: 0 }, blink: 0, t: 0 });
+  const sx = st.bb.max.x + 1.2, sz = def.water ? -1.5 : Math.min(st.bb.max.z, 1);
+  sailor.group.position.set(sx, 0, sz);
+  sailor.group.rotation.y = -0.4;
+  scene.add(sailor.group);
+  for (let i = 0; i < 4; i++) {
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.08), flat(i % 2 ? 0xffffff : 0xd23b2e));
+    seg.position.set(sx + 0.9, 0.25 + i * 0.5, sz);
+    seg.castShadow = true;
+    scene.add(seg);
+  }
+
+  // панель
+  row('объект', select(ids.map((id) => [id, `${STRUCTURES[id].name} (${id})`]), objId)).addEventListener('change', (e) => go({ obj: e.target.value, variant: null }));
+  if (def.styles) row('стиль', select(STYLES.map((s) => [s, STYLE_NAMES[s]]), style)).addEventListener('change', (e) => go({ style: e.target.value }));
+  const seedIn = row('seed', Object.assign(document.createElement('input'), { type: 'number', value: seed, min: 1 }));
+  seedIn.addEventListener('change', () => go({ seed: seedIn.value }));
+  if (def.variants > 1) row('вариант', select(Array.from({ length: def.variants }, (_, i) => [String(i), String(i)]), String(opts.variant))).addEventListener('change', (e) => go({ variant: e.target.value }));
+  for (const [k, p] of Object.entries(def.params ?? {})) {
+    const inp = row(p.label ?? k, Object.assign(document.createElement('input'), { type: 'number', min: p.min, max: p.max, step: p.step ?? 1, value: opts[k] }));
+    inp.addEventListener('change', () => go({ [k]: inp.value }));
+  }
+  const info = document.createElement('div');
+  info.className = 'stats';
+  info.textContent = `${st.size.x.toFixed(1)} × ${st.size.z.toFixed(1)} × ${st.size.y.toFixed(1)} м\n` +
+    `треугольников ${st.tris}, вершин ${st.verts}\nфутпринт ${def.footprint.w}×${def.footprint.d}${def.water ? ', у воды' : ''}`;
+  panel.appendChild(info);
+  const back = document.createElement('a');
+  back.href = '?' + new URLSearchParams({ cat: def.category, ...(style ? { style } : {}) });
+  back.textContent = '← библиотека';
+  panel.appendChild(back);
+
+  // камера
+  // кадр — по центру bbox (у причалов начало на кромке, а сам объект уходит в воду)
+  const cx = (st.bb.min.x + st.bb.max.x) / 2, cz = (st.bb.min.z + st.bb.max.z) / 2;
+  const cy = Math.max(0.3, st.bb.min.y + st.size.y * 0.45, st.bb.max.y * 0.45), D = R * 1.9;
+  if (q.has('cam')) {
+    const [x, y, z, tx, ty, tz] = q.get('cam').split(',').map(Number);
+    camera.position.set(x, y, z); controls.target.set(tx, ty, tz);
+  } else {
+    camera.position.set(cx + D * 0.75, cy + D * 0.45, cz + D);
+    controls.target.set(cx, cy, cz);
+  }
+  controls.update();
+  if (q.get('views') === 'turn') {
+    controls.enabled = false;
+    views = [[0, 'спереди'], [45, '3/4'], [90, 'сбоку'], [200, 'сзади']].map(([a, label]) => {
+      const c = new THREE.PerspectiveCamera(40, 1, 0.1, 3000);
+      const ar = a * Math.PI / 180;
+      c.position.set(cx + Math.sin(ar) * D, cy + D * 0.3, cz + Math.cos(ar) * D);
+      c.lookAt(cx, cy, cz);
+      return { cam: c, label };
+    });
+  }
+  window.__props = { obj, def, opts, stats: st, scene, camera, controls, render: () => render() };
+} else {
+  // ---- библиотека ----
+  const cat = q.get('cat') ?? 'all', style = q.get('style') ?? 'all';
+  const styles = style === 'all' ? STYLES : [style];
+  const GAP = 3;
+  let z = 0, xMax = 0;
+  const pickables = [];
+  for (const [c, cname] of Object.entries(CATEGORIES)) {
+    if (cat !== 'all' && cat !== c) continue;
+    const list = ids.filter((id) => STRUCTURES[id].category === c);
+    if (!list.length) continue;
+    // полоса категории: объекты вдоль X, стилевые варианты одного объекта рядом
+    let x = 0, depth = 0;
+    const items = [];
+    for (const id of list) {
+      const def = STRUCTURES[id];
+      for (const s of def.styles ? styles : [undefined]) {
+        const g = createStructure(id, { style: s }, seeded(1));
+        const st = stats(g);
+        const w = Math.max(def.footprint.w, st.size.x, 2);
+        g.position.set(x + w / 2 - (st.bb.min.x + st.bb.max.x) / 2, 0, z - (st.bb.min.z + st.bb.max.z) / 2);
+        g.userData.style = s;
+        g.traverse((m) => { if (m.isMesh) m.userData.pick = g; });
+        scene.add(g);
+        pickables.push(g);
+        items.push([g, st, def, s]);
+        x += w + GAP;
+        depth = Math.max(depth, st.size.z);
+      }
+    }
+    // имя — над первым вариантом, над остальными только стиль: подписи не налезают друг на друга
+    items.forEach(([g, st, def, s], k) => {
+      const first = k === 0 || items[k - 1][2] !== def;
+      mark('lbl', first ? def.name + (s ? ` · ${STYLE_NAMES[s]}` : '') : STYLE_NAMES[s], new THREE.Vector3(g.position.x + (st.bb.min.x + st.bb.max.x) / 2, st.size.y + 0.6, g.position.z + (st.bb.min.z + st.bb.max.z) / 2));
+    });
+    mark('lbl cat', cname, new THREE.Vector3(-8, 0, z));
+    xMax = Math.max(xMax, x);
+    z += Math.max(depth, 4) + GAP * 5; // полосы врозь, чтобы подписи не налезали
+  }
+  const W = xMax + 20, D = z + 20;
+  stage(xMax / 2, z / 2 - 6, W, D, false);
+
+  row('категория', select([['all', 'все'], ...Object.entries(CATEGORIES)], cat)).addEventListener('change', (e) => go({ cat: e.target.value }));
+  row('стиль', select([['all', 'все'], ...STYLES.map((s) => [s, STYLE_NAMES[s]])], style)).addEventListener('change', (e) => go({ style: e.target.value }));
+  const info = document.createElement('div');
+  info.className = 'stats';
+  info.textContent = `объектов в реестре: ${ids.length}\nклик по объекту — открыть`;
+  panel.appendChild(info);
+
+  const span = Math.max(xMax, z, 10);
+  camera.position.set(xMax / 2, span * 0.4, z + span * 0.5);
+  controls.target.set(xMax / 2, 0, z / 2 - 3);
+  controls.update();
+
+  // клик без перетаскивания — открыть объект
+  const ray = new THREE.Raycaster();
+  let down = null;
+  renderer.domElement.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener('pointerup', (e) => {
+    if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
+    ray.setFromCamera({ x: (e.clientX / innerWidth) * 2 - 1, y: -(e.clientY / innerHeight) * 2 + 1 }, camera);
+    const hit = ray.intersectObjects(pickables, true)[0];
+    const g = hit?.object.userData.pick;
+    if (g) go({ obj: g.userData.id, style: g.userData.style ?? q.get('style'), cat: null });
+  });
+  window.__props = { scene, camera, controls, pickables, render: () => render() };
+}
+
+function render() {
+  const W = innerWidth, H = innerHeight;
+  if (views) {
+    const w = W / 2, h = H / 2;
+    views.forEach(({ cam, label }, i) => {
+      const x = (i % 2) * w, y = (1 - Math.floor(i / 2)) * h;
+      cam.aspect = w / h; cam.updateProjectionMatrix();
+      renderer.setViewport(x, y, w, h); renderer.setScissor(x, y, w, h);
+      renderer.render(scene, cam);
+    });
+    if (!labelsEl.childElementCount) views.forEach(({ label }, i) => {
+      const el = document.createElement('div');
+      el.className = 'lbl view'; el.textContent = label;
+      el.style.left = `${(i % 2) * 50 + 0.5}%`; el.style.top = `${Math.floor(i / 2) * 50 + 0.5}%`;
+      if (i === 0) el.style.left = '240px';
+      labelsEl.appendChild(el);
+    });
+    return;
+  }
+  camera.aspect = W / H; camera.updateProjectionMatrix();
+  renderer.setViewport(0, 0, W, H); renderer.setScissor(0, 0, W, H);
+  renderer.render(scene, camera);
+  for (const m of marks) {
+    tmp.copy(m.p).project(camera);
+    const vis = tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1;
+    m.el.style.visibility = vis ? '' : 'hidden';
+    if (vis) { m.el.style.left = `${(tmp.x + 1) / 2 * W}px`; m.el.style.top = `${(1 - tmp.y) / 2 * H}px`; }
+  }
+}
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); render(); });
+render();
+</script>
+</body>
+</html>

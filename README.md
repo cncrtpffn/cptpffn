@@ -98,4 +98,6 @@ src/perf.js                — замеры кадра, счётчик ?perf=1, 
 src/ui/*                   — HUD и панель погоды
 src/debug/polar.js         — автопилот и прогон поляры
 src/debug/map-viewer.html  — стенд карты мира: острова, глубины, берег (docs/changes/world-map)
+src/debug/props-viewer.html — стенд библиотеки объектов: флора и постройки (docs/changes/structures-library)
+src/scene/structures/*     — библиотека построек: реестр, кит деталей и палитры стилей, модели
 ```

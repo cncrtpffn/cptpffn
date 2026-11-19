@@ -3,6 +3,7 @@ import {
   PropBatch, propMaterial, mat, addTree, addBush, addGrass, addRock,
   LEAF_COLORS, ROCK_COLORS, GRASS_COLORS,
 } from './flora.js';
+import { createStructure } from './structures/index.js';
 
 // Остров: процедурный рельеф (неровный берег, пляж, холм со смещённой вершиной, бугры),
 // раскраска граней по высоте и уклону, растительность и скалы из flora.js.
@@ -14,7 +15,7 @@ import {
 //   treeScale   — [min, max] масштаба деревьев
 //   bushes, grass, rocks — количество; bushColor, grassColor, flowers (доля кустов с цветами)
 //   rockColor   — цвета скал (hex или имена ROCK_COLORS), rockScale — [min, max]
-//   groundColor, sandColor, cliffColor — цвета рельефа;  lighthouse — маяк на вершине
+//   groundColor, sandColor, cliffColor — цвета рельефа;  lighthouse — маяк на вершине (true или стиль south | north | atlantic, см. structures/houses.js)
 
 const DEFAULTS = {
   treeKinds: { pine: 2, oak: 1 },
@@ -124,21 +125,6 @@ function buildTerrainMesh(terrain, def, rng, colors) {
   return mesh;
 }
 
-function makeLighthouse() {
-  const flat = (color) => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.9 });
-  const lh = new THREE.Group();
-  const tower = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.9, 9, 10), flat(0xf4f1e8));
-  tower.position.y = 4.5;
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(1.62, 1.72, 2, 10), flat(0xe9553b));
-  band.position.y = 4.5;
-  const lamp = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 1.6, 8), new THREE.MeshStandardMaterial({ color: 0xfff3b0, emissive: 0xffd36b, emissiveIntensity: 0.9 }));
-  lamp.position.y = 9.8;
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(1.5, 1.6, 8), flat(0xb8463a));
-  roof.position.y = 11.4;
-  [tower, band, lamp, roof].forEach((m) => { m.castShadow = true; lh.add(m); });
-  return lh;
-}
-
 export function makeIsland(defIn, rng) {
   const def = { ...DEFAULTS, ...defIn };
   const g = new THREE.Group();
@@ -151,7 +137,7 @@ export function makeIsland(defIn, rng) {
 
   const keepOut = [];
   if (def.lighthouse) {
-    const lh = makeLighthouse();
+    const lh = createStructure('lighthouse', { style: def.lighthouse === true ? 'atlantic' : def.lighthouse });
     lh.position.set(terrain.peak.x, terrain.height(terrain.peak.x, terrain.peak.y) - 0.5, terrain.peak.y);
     g.add(lh);
     keepOut.push({ x: terrain.peak.x, z: terrain.peak.y, r: 4 });
