@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { jitterColor, mat } from '../flora.js';
 import {
-  palette, pick, at, box, cyl, beam, gable, hip, spire, triGeo, faceFrame, windowAt, windowRow, doorAt, glow,
+  palette, pick, at, box, cyl, beam, gable, hip, spire, arcade, faceFrame, windowAt, windowRow, doorAt, glow,
 } from './kit.js';
 
 // Жильё и общественные здания (категории A–B каталога docs/changes/structures-library/catalog.md).
@@ -516,30 +516,6 @@ function belfry(b, base, x, z, y, w, h, color) {
   for (const i of [-1, 1]) for (const k of [-1, 1]) box(b, base, color, x + i * (w / 2 - 0.08), y, z + k * (w / 2 - 0.08), 0.16, h, 0.16);
   box(b, base, color, x, y + h, z, w + 0.2, 0.12, w + 0.2);
   bell(b, base, x, y + h - 0.75, z, 0.28);
-}
-
-// Аркада на грани f: от x0 до x1, n пролётов, столбы шириной pw от y0 до yT, пяты арок на yS.
-// Стенка толщиной t, лицевая плоскость на z. Пазухи над арками — треугольники (triGeo): веер от верхних углов пролёта.
-function arcade(b, f, color, { x0, x1, n, yS, yT, z, t = 0.5, pw = 0.6, y0 = 0, seg = 6 }) {
-  const bw = (x1 - x0 - (n + 1) * pw) / n, r = bw / 2, zb = z - t, h = seg / 2, tris = [];
-  for (let i = 0; i <= n; i++) box(b, f, color, x0 + pw / 2 + i * (bw + pw), y0, z - t / 2, pw, yT - y0, t);
-  for (let i = 0; i < n; i++) {
-    const cx = x0 + pw + r + i * (bw + pw);
-    for (const k of [-1, 1]) { // левая и правая четверти дуги: от пяты к замку
-      const arc = Array.from({ length: h + 1 }, (_, j) => { const a = (Math.PI / 2) * j / h; return [cx + k * r * Math.cos(a), yS + r * Math.sin(a)]; });
-      const c = [cx + k * r, yT];
-      const tri = (p0, p1, p2) => (k < 0
-        ? tris.push([[...p0, z], [...p1, z], [...p2, z]], [[...p0, zb], [...p2, zb], [...p1, zb]])
-        : tris.push([[...p0, z], [...p2, z], [...p1, z]], [[...p0, zb], [...p1, zb], [...p2, zb]]));
-      for (let j = 0; j < h; j++) {
-        tri(c, arc[j], arc[j + 1]);
-        const A = [...arc[j], z], B = [...arc[j + 1], z], C = [...arc[j + 1], zb], D = [...arc[j], zb]; // свод проёма
-        if (k < 0) tris.push([A, C, B], [A, D, C]); else tris.push([A, B, C], [A, C, D]);
-      }
-      tri(c, arc[h], [cx, yT]);
-    }
-  }
-  b.add(triGeo(tris), color, f);
 }
 
 // Столик с двумя табуретами: центр (x, z), низ на y

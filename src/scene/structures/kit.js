@@ -62,6 +62,30 @@ export function triGeo(tris) {
   return g;
 }
 
+// Аркада на грани f: от x0 до x1, n пролётов, столбы шириной pw от y0 до yT, пяты арок на yS.
+// Стенка толщиной t, лицевая плоскость на z. Пазухи над арками — треугольники (triGeo): веер от верхних углов пролёта.
+export function arcade(b, f, color, { x0, x1, n, yS, yT, z, t = 0.5, pw = 0.6, y0 = 0, seg = 6 }) {
+  const bw = (x1 - x0 - (n + 1) * pw) / n, r = bw / 2, zb = z - t, h = seg / 2, tris = [];
+  for (let i = 0; i <= n; i++) box(b, f, color, x0 + pw / 2 + i * (bw + pw), y0, z - t / 2, pw, yT - y0, t);
+  for (let i = 0; i < n; i++) {
+    const cx = x0 + pw + r + i * (bw + pw);
+    for (const k of [-1, 1]) { // левая и правая четверти дуги: от пяты к замку
+      const arc = Array.from({ length: h + 1 }, (_, j) => { const a = (Math.PI / 2) * j / h; return [cx + k * r * Math.cos(a), yS + r * Math.sin(a)]; });
+      const c = [cx + k * r, yT];
+      const tri = (p0, p1, p2) => (k < 0
+        ? tris.push([[...p0, z], [...p1, z], [...p2, z]], [[...p0, zb], [...p2, zb], [...p1, zb]])
+        : tris.push([[...p0, z], [...p2, z], [...p1, z]], [[...p0, zb], [...p1, zb], [...p2, zb]]));
+      for (let j = 0; j < h; j++) {
+        tri(c, arc[j], arc[j + 1]);
+        const A = [...arc[j], z], B = [...arc[j + 1], z], C = [...arc[j + 1], zb], D = [...arc[j], zb]; // свод проёма
+        if (k < 0) tris.push([A, C, B], [A, D, C]); else tris.push([A, B, C], [A, C, D]);
+      }
+      tri(c, arc[h], [cx, yT]);
+    }
+  }
+  b.add(triGeo(tris), color, f);
+}
+
 // Двускатная крыша: конёк вдоль X над прямоугольником w×d (стены до высоты y), подъём h.
 // Скаты — доски толщиной t со свесом over; фронтоны (треугольники стен) цветом wall.
 export function gable(b, base, { x = 0, z = 0, w, d, y, h, over = 0.35, t = 0.12, roof, wall, ry = 0 }) {
