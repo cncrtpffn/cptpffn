@@ -65,6 +65,51 @@ function lighthouse(b, base, o = {}) {
   return { extras: [lamp(base, 1.1, 1.5, H + 0.4)] };
 }
 
+// Маяк-скала по мотивам Фастнета: гранитная башня на одинокой скале. Ступенчатый цоколь-«юбка» с уступами,
+// сужающийся ствол из гранитных поясов (тон чуть гуляет по рядам), карниз на консолях, галерея, фонарь и купол.
+// Дверь на высоте над прибоем, к ней скоба-трап. Стиль не нужен — гранит один.
+function lighthouseFastnet(b, base, o = {}, rng = Math.random) {
+  const GRANITE = 0xa8a49a, DARK = 0x7f7c74, WHITE = 0xf1eee6, METAL = 0x2b2b2b, seg = 14;
+  // цоколь: уступы вниз шире, как кладка Фастнета по скале
+  const steps = [[4.6, 0.7], [4.2, 0.7], [3.85, 0.7], [3.55, 0.8]];
+  let y = -0.6;
+  for (const [r, h] of steps) { cyl(b, base, jitterColor(DARK, rng, 0.4), 0, y, 0, r, r + 0.1, h, seg); y += h; }
+  // ствол: пояса, радиус по вогнутой кривой (у подножия шире)
+  const H = 17, rows = 9, R = (t) => 3.3 - 1.25 * Math.pow(t, 0.75);
+  for (let i = 0; i < rows; i++) {
+    const t0 = i / rows, t1 = (i + 1) / rows;
+    cyl(b, base, jitterColor(GRANITE, rng, 0.5), 0, y + t0 * H, 0, R(t1), R(t0), H / rows, seg);
+  }
+  const top = y + H;
+  // окна-бойницы по одной стороне, дверь со скобами-трапом
+  for (let i = 0; i < 4; i++) {
+    const yy = y + 4 + i * 3.4, r = R((yy - y) / H) * Math.cos(Math.PI / seg);
+    windowAt(b, faceFrame(at(base, 0, 0, 0, 1, 1, 1, 0, i * 0.9, 0), '+z', r), 0, yy, { ww: 0.4, wh: 0.8, frame: DARK, glass: 0x2e3d48, sill: false, mullion: false });
+  }
+  const yd = y + 1.6, rd = R(1.6 / H) * Math.cos(Math.PI / seg);
+  doorAt(b, faceFrame(base, '+z', rd), 0, { w: 0.9, h: 1.9, color: 0x4a3b2e, frame: DARK, y0: yd });
+  for (let k = 0; k < 6; k++) box(b, base, METAL, 0, yd - 0.3 - k * 0.42, rd + 0.12 + k * 0.05, 0.7, 0.05, 0.08);
+  // карниз на консолях
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    box(b, base, GRANITE, Math.cos(a) * 2.15, top - 0.5, Math.sin(a) * 2.15, 0.3, 0.5, 0.3, -a);
+  }
+  cyl(b, base, GRANITE, 0, top, 0, 2.6, 2.3, 0.35, seg);
+  // галерея и перила
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2;
+    cyl(b, base, METAL, Math.cos(a) * 2.45, top + 0.35, Math.sin(a) * 2.45, 0.03, 0.03, 0.9, 4);
+  }
+  cyl(b, base, METAL, 0, top + 1.2, 0, 2.5, 2.5, 0.06, 16);
+  // фонарь: основание, стекло (glow), купол с флюгером
+  cyl(b, base, WHITE, 0, top + 0.35, 0, 1.45, 1.5, 0.7, 12);
+  cyl(b, base, METAL, 0, top + 2.95, 0, 1.55, 1.5, 0.15, 12);
+  b.add(new THREE.SphereGeometry(1.45, 10, 4, 0, Math.PI * 2, 0, Math.PI / 2), WHITE, at(base, 0, top + 3.1, 0, 1, 0.75, 1));
+  cyl(b, base, METAL, 0, top + 4.1, 0, 0.12, 0.2, 0.25, 6);
+  cyl(b, base, METAL, 0, top + 4.35, 0, 0.03, 0.04, 0.8, 4);
+  return { extras: [lamp(base, 1.3, 1.9, top + 1.05)] };
+}
+
 // --- A. Жильё: общие детали ------------------------------------------------
 
 const SOD = 0x6f7f3e, BRICK = 0x9c4a36, BARREL = 0x7a5a3a, IRON = 0x2b2b2b, VINE = 0x5f8a3a;
@@ -846,6 +891,7 @@ export const HOUSES = {
   // вариант 1 уходит на −X на ≈7 м: крытый переход и маяк
   'keeper-house': { name: 'Дом смотрителя', category: 'housing', styles: true, variants: 2, footprint: { w: 8, d: 8 }, build: keeperHouse },
   lighthouse: { name: 'Маяк', category: 'housing', styles: true, footprint: { w: 4, d: 4 }, build: lighthouse },
+  'lighthouse-fastnet': { name: 'Маяк-скала (Фастнет)', category: 'housing', footprint: { w: 9, d: 9 }, build: lighthouseFastnet },
   // B. Общественные
   chapel: { name: 'Часовня', category: 'public', styles: true, footprint: { w: 6, d: 11.5 }, build: chapel },
   church: { name: 'Церковь', category: 'public', styles: true, variants: 2, footprint: { w: 16, d: 22.5 }, build: church },

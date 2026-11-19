@@ -5,7 +5,7 @@
 // Координаты: x — восток, z — юг (север — −z). Высоты в метрах, вода на y = 0.
 //   islands — { name?, kind: 'mountain' | 'plain', h, lobes: [[x, z, a, b, rot°], …], shelf (м), shelfDepth (м),
 //               rough (рваность берега), cliff 0..1 (доля клифов), cliffMin (клиф по всему берегу не ниже этой доли),
-//               cliffH, lowland (ширина прибрежной низины), core,
+//               cliffH, lowland (ширина прибрежной низины), core, sandy (вся суша — песок: пляж и дюны), bare (без деревьев и кустов),
 //               biome (south | north | atlantic — для шага биомов), label ([x, z] подписи на стенде, иначе центр 1-го лепестка) }
 //   ridges  — { pts, h, w, taper }       хребет: добавка к суше вдоль ломаной
 //   bays    — { name, mouth, head, w, depth, bank }  бухта-капсула: глубина depth у входа, к вершине мельче
@@ -37,7 +37,7 @@ export const ARCHIPELAGO = {
     { kind: 'plain', biome: 'south', h: 9, shelf: 60, lobes: [[300, 760, 300, 210, -10]] },
 
     // одинокая скала с маяком в северо-западном углу карты (прототип — Фастнет: гранитный «зуб» посреди моря)
-    { name: 'Слеза', kind: 'mountain', biome: 'atlantic', h: 22, cliff: 1, cliffMin: 1, cliffH: 16, lowland: 4, rough: 0.3,
+    { name: 'Слеза', kind: 'mountain', biome: 'atlantic', bare: true, h: 22, cliff: 1, cliffMin: 1, cliffH: 16, lowland: 4, rough: 0.3,
       shelf: 22, shelfDepth: 12, lobes: [[-1390, -1390, 46, 22, 35]] },
     // мелкие: север
     { name: 'Скала', kind: 'mountain', biome: 'north', h: 60, cliff: 1, cliffH: 14, lowland: 25, shelf: 40, lobes: [[-1180, -1160, 120, 90, 20]] },
@@ -48,7 +48,7 @@ export const ARCHIPELAGO = {
     { name: 'Высокий', label: [1250, -330], kind: 'mountain', biome: 'atlantic', h: 80, cliff: 0.9, lowland: 35, shelf: 50, lobes: [[1210, -330, 150, 120, -10], [1120, -230, 70, 60]] },
     { name: 'Плоский', kind: 'plain', biome: 'atlantic', h: 5, shelf: 65, lobes: [[1060, 60, 125, 70, 60]] },
     // центральный пролив
-    { name: 'Средний', kind: 'plain', biome: 'south', h: 4, shelf: 60, lobes: [[-100, -100, 105, 70, -30]] },
+    { name: 'Средний', kind: 'plain', biome: 'south', sandy: true, h: 4, shelf: 60, lobes: [[-100, -100, 105, 70, -30]] },
     { name: 'Башня', kind: 'mountain', biome: 'south', h: 50, cliff: 0.6, lowland: 30, shelf: 45, lobes: [[260, 150, 90, 72, 10]] },
     // юго-запад
     { name: 'Зелёный', label: [-700, 470], kind: 'plain', biome: 'south', h: 11, shelf: 65, lobes: [[-820, 500, 185, 120, -15], [-680, 580, 90, 70]] },

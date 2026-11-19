@@ -155,6 +155,7 @@ export function classifyBiomes(hf, map, regions = map.biomeRegions ?? []) {
       const n = 0.4 * fbm(x / 20, z / 20, 2);
       let zn;
       if (h < 1.5 + n || (mat === MAT.sand && h < 3)) zn = Z.beach;
+      else if (mat === MAT.sand) zn = Z.dune; // песчаный остров (sandy) — дюны целиком
       else if (s > B.rockSlope + 0.1 * n) zn = Z.rock;
       else if (h > B.peakH + 10 * n) zn = Z.peak;
       else if (cd < 14 + 10 * n && h < 5) zn = Z.dune;

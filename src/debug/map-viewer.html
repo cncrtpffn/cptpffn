@@ -10,6 +10,8 @@
        layers (через запятую: terrain,height,biome,zones,depth,dist,normal,sites,grid,labels; по умолчанию terrain,grid,labels;
        height, biome, zones, regions — только для map), autoregions=1 (новая карта: пересчитать области биомов по правилам
        map.biomeRules, показать их и код для вставки в map.biomeRegions; ручные области сохраняются),
+       veg (множитель плотности растительности, по умолчанию 1), bench (секунды: сразу запустить бенч),
+       слои veg, build, lod (только для map, по умолчанию включены),
        tstep (шаг меша рельефа новой карты, м, кратен 2; по умолчанию 4), cam (x,z,h,pitch,yaw — точка камеры, высота м, угол к горизонту °, курс ° от севера по часовой) -->
   <style>html, body { margin: 0; height: 100%; background: #2d5f80; overflow: hidden; font: 12px sans-serif; } canvas { display: block; }
     #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
@@ -52,6 +54,8 @@ import { buildHeightfield } from '../scene/terrain/heightfield.js';
 import { buildTerrain } from '../scene/terrain/terrain-mesh.js';
 import { classifyBiomes, ZONES, ZONE_NAMES, BIOME_IDS, BIOME_NAMES } from '../scene/terrain/biomes.js';
 import { regionsFromRules, regionsToCode } from '../scene/terrain/biome-rules.js';
+import { buildSettlements } from '../scene/terrain/settlements.js';
+import { buildVegetation } from '../scene/terrain/vegetation.js';
 import { ARCHIPELAGO } from '../maps/archipelago.js';
 
 const q = new URLSearchParams(location.search);
@@ -76,7 +80,8 @@ env.sky.mesh.visible = false;
 env.clouds.group.visible = false;
 scene.fog = null;
 // новая карта: поле высот и чанки рельефа; для карты берега — один «берег» на весь мир
-let hf = null, bio = null, terrain = null, shores, autoRegions = null;
+const frameInfo = { calls: 0, tris: 0 }; // за последний кадр, с проходом теней
+let hf = null, bio = null, terrain = null, shores, autoRegions = null, settle = null, veg = null;
 if (MAP) {
   hf = buildHeightfield(MAP);
   // инструмент: области по правилам вместо сохранённых auto, ручные — как есть
@@ -92,6 +97,17 @@ if (MAP) {
   terrain = buildTerrain(hf, bio.paint, q.has('tstep') ? { step: +q.get('tstep') } : {});
   terrain.userData.ms = performance.now() - t0;
   scene.add(terrain);
+  // объекты: сначала поселения (их маска занятости), потом растительность в обход построек и дорог
+  settle = buildSettlements(hf, bio, MAP);
+  scene.add(settle.group);
+  veg = buildVegetation(hf, bio, settle.occ, { density: q.has('veg') ? +q.get('veg') : 1,
+    bare: new Set(MAP.islands.flatMap((isl, i) => (isl.bare ? [i] : []))) });
+  scene.add(veg.group);
+  const sst = settle.stats, vst = veg.stats;
+  console.log(`объекты: поселения ${sst.ms.toFixed(0)} мс — ${sst.buildings} построек, дороги ${sst.roadKm.toFixed(1)} км, ${(sst.tris / 1e6).toFixed(2)} млн треуг., ${settle.group.children.length} батчей;`
+    + ` растительность ${vst.ms.toFixed(0)} мс — ${vst.instances} экз. в ${vst.cells} ячейках, ${vst.meshes} инстанс-мешей, без LOD ${(vst.fullTris / 1e6).toFixed(2)} млн треуг.`);
+  console.log('постройки:', JSON.stringify(settle.counts));
+  console.log('растительность:', JSON.stringify(veg.counts), 'треуг. full/low:', JSON.stringify(veg.protoTris));
   shores = [{ x: 0, z: 0, R: MAP.size / 2 / 1.3, height: hf.sample, rocks: [] }];
 } else shores = env.islands.map((g) => g.userData.shore);
 const t1 = performance.now();
@@ -428,7 +444,8 @@ if (autoRegions) {
 const LAYERS = {
   terrain: (on) => { if (terrain) syncTerrain(); env.islands.forEach((g) => { g.visible = on; }); env.buoys.forEach((g) => { g.visible = on; }); },
   ...(MAP && { height: syncTerrain, biome: syncTerrain, zones: syncTerrain,
-    regions: (on) => { regionsGroup.visible = on; regionMarks.forEach((el) => { el.hidden = !on; }); } }),
+    regions: (on) => { regionsGroup.visible = on; regionMarks.forEach((el) => { el.hidden = !on; }); },
+    veg: (on) => { veg.group.visible = on; }, build: (on) => { settle.group.visible = on; }, lod: () => {} }),
   depth: (on) => { sea.material.uniforms.uDepth.value = +on; },
   dist: (on) => { sea.material.uniforms.uDist.value = +on; },
   normal: (on) => { sea.material.uniforms.uNormal.value = +on; },
@@ -436,8 +453,8 @@ const LAYERS = {
   grid: (on) => { grid.visible = on; coordEls.forEach((el) => { el.style.display = on ? '' : 'none'; }); },
   labels: (on) => { labels.visible = on; marks.forEach((m) => { if (!m.region) m.el.hidden = !on; }); },
 };
-const NAMES = { terrain: 'рельеф', height: 'высоты и изобаты 5 м', biome: 'биомы (выбор для растительности)', zones: 'зоны', regions: 'области биомов', depth: 'глубина', dist: 'до берега', normal: 'нормаль берега', sites: 'точки прибоя', grid: `сетка ${GRID} м`, labels: 'подписи' };
-const layerOn = new Set((q.get('layers') ?? 'terrain,grid,labels').split(',').map((s) => s.trim()));
+const NAMES = { terrain: 'рельеф', height: 'высоты и изобаты 5 м', biome: 'биомы (выбор для растительности)', zones: 'зоны', regions: 'области биомов', veg: 'растительность', build: 'постройки и дороги', lod: 'LOD растительности', depth: 'глубина', dist: 'до берега', normal: 'нормаль берега', sites: 'точки прибоя', grid: `сетка ${GRID} м`, labels: 'подписи' };
+const layerOn = new Set((q.get('layers') ?? (MAP ? 'terrain,grid,labels,veg,build,lod' : 'terrain,grid,labels')).split(',').map((s) => s.trim()));
 const panel = document.getElementById('panel');
 for (const name of Object.keys(LAYERS)) {
   const lab = document.createElement('label');
@@ -456,6 +473,33 @@ if (MAP) {
   btn.textContent = on ? 'области из карты' : 'области по правилам';
   btn.onclick = () => { const u = new URL(location); on ? u.searchParams.delete('autoregions') : u.searchParams.set('autoregions', '1'); location = u; };
   panel.appendChild(btn);
+  // бенч: прогрев (компиляция шейдеров), затем непрерывный рендер; fps упирается в vsync,
+  // поэтому ещё время кадра render() + gl.finish() (CPU и GPU) — среднее и худшее
+  const bb = document.createElement('button');
+  bb.textContent = 'бенч 5 с';
+  bb.style.display = 'block';
+  bb.onclick = () => runBench(5000);
+  panel.appendChild(bb);
+}
+let bench = null;
+function runBench(ms) {
+  render(); render();
+  let t0 = 0, n = 0, prev = 0, worst = 0, cpu = 0, cpuWorst = 0;
+  const step = (now) => {
+    if (!t0) { t0 = prev = now; } else { worst = Math.max(worst, now - prev); prev = now; n++; }
+    const c0 = performance.now();
+    render();
+    renderer.getContext().finish(); // ждём GPU: в замер попадает и отрисовка, не только отправка команд
+    const c = performance.now() - c0;
+    if (n) { cpu += c; cpuWorst = Math.max(cpuWorst, c); }
+    if (now - t0 < ms || !n) requestAnimationFrame(step);
+    else {
+      bench = { fps: n / ((now - t0) / 1000), worst, cpu: cpu / n, cpuWorst };
+      updateStatus();
+      console.log(`бенч: ${bench.fps.toFixed(1)} fps, худший кадр ${worst.toFixed(1)} мс, кадр с finish ${bench.cpu.toFixed(2)} мс (худший ${cpuWorst.toFixed(1)}), ${frameInfo.calls} draw calls, ${(frameInfo.tris / 1e6).toFixed(2)} млн треуг.`);
+    }
+  };
+  requestAnimationFrame(step);
 }
 
 // строка состояния: курсор и параметры камеры для URL
@@ -470,7 +514,7 @@ function terrainHeight(x, z) {
 function updateStatus() {
   const f = (v, n = 1) => v.toFixed(n);
   let txt = `cam=${f(view.x, 0)},${f(view.z, 0)},${f(view.h, 0)},${f(view.pitch, 0)},${f(view.yaw, 0)}`;
-  if (MAP) txt += `  ·  ${(terrain.userData.tris / 1e6).toFixed(2)} млн треуг., поле высот ${f(hf.ms, 0)} мс`;
+  if (MAP) txt += `  ·  кадр ${(frameInfo.tris / 1e6).toFixed(2)} млн треуг., ${frameInfo.calls} draw calls` + (bench ? `  ·  бенч ${f(bench.fps)} fps, худший ${f(bench.worst)} мс, кадр ${f(bench.cpu, 2)} мс` : '');
   if (cursor) {
     const { x, z } = cursor, i = shoreMap.info(x, z), h = terrainHeight(x, z);
     txt += `\nx ${f(x)}  z ${f(z)}`;
@@ -524,7 +568,9 @@ function updateCoords() {
 function render() {
   applyView();
   startArrow?.scale.setScalar(Math.max(1, view.h / 400)); // стрелка старта не теряется на высоте
+  veg?.update(camera.position, layerOn.has('lod'));
   renderer.render(scene, camera);
+  frameInfo.calls = renderer.info.render.calls; frameInfo.tris = renderer.info.render.triangles;
   for (const m of marks) if (layerOn.has(m.region ? 'regions' : 'labels')) place(m.el, m.p);
   updateCoords();
   updateStatus();
@@ -593,7 +639,8 @@ addEventListener('resize', () => {
 });
 
 render();
-window.__map = { env, shoreMap, camera, view, render, scene, hf, bio, terrain };
+window.__map = { env, shoreMap, camera, view, render, scene, hf, bio, terrain, settle, veg, frameInfo, runBench, get bench() { return bench; } };
+if (q.get('bench')) runBench(+q.get('bench') * 1000 || 5000);
 </script>
 </body>
 </html>

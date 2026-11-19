@@ -74,7 +74,7 @@ export function buildHeightfield(map) {
         const shape = 0.3 + 0.6 * ridged((x + ox) / 320, (z + oz) / 320, 4) + 0.3 * fbm((x + ox) / 140, (z + oz) / 140, 3);
         h = coast + H * Math.pow(t, 1.3) * shape + 1.2 * fbm(x / 40, z / 40, 3) * smooth(0, 10, D);
       }
-      if (h > heights[k]) { heights[k] = h; if (h > -sea + 6) owner[k] = idx; }
+      if (h > heights[k]) { heights[k] = h; if (h > -sea + 6) owner[k] = idx; material[k] = isl.sandy && h > -4 ? MAT.sand : MAT.auto; }
     });
   });
 
