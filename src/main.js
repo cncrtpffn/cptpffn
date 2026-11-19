@@ -59,7 +59,10 @@ const shoreMap = bakeShoreMap(env.islands.map((g) => g.userData.shore));
 const bakeMs = performance.now() - bakeT0;
 // физика гасит волны у берега так же, как вершинный шейдер воды
 waves.damp = (x, z) => shoreDamp(shoreMap.depthAt(x, z));
-const water = createWater(waves, { size: SCENE.waterSize, segments: SCENE.waterSegments, shoreMap });
+const water = createWater(waves, {
+  size: SCENE.waterSize, segments: SCENE.waterSegments, shoreMap,
+  shadowCamera: env.sun.shadow.camera, shadowTaps: isTouchDevice() ? 8 : 12,
+});
 scene.add(water.mesh, water.far);
 const boatMesh = createBoatMesh();
 scene.add(boatMesh.group);
