@@ -16,6 +16,7 @@ function makeRope(n, r, mat) {
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;
+  mesh.userData.dynamic = true; // вершины пересчитываются каждый кадр — не сливать (merge-static.js)
   const rings = Array.from({ length: n }, () => Array.from({ length: SIDES }, () => V()));
   const t = V(), a = V(), b = V();
   let k = 0;
@@ -62,6 +63,8 @@ function createPennant(group, mat, base) {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;
   mesh.castShadow = true;
+  mesh.userData.dynamic = true;
+  mesh.userData.reflect = true; // вершины появятся в первом кадре — габарит пока нулевой
   mesh.position.copy(base);
   group.add(mesh);
   const top = Array.from({ length: SEG + 1 }, () => V()), bot = Array.from({ length: SEG + 1 }, () => V());
@@ -108,6 +111,8 @@ function createPennant(group, mat, base) {
  */
 export function createRig(opts) {
   const { group, add, MAT, mastZ, deckAtMast, stemHead, horse, coil, coaming } = opts;
+  // то, что двигается или прячется в update, — не сливать с неподвижными деталями (merge-static.js)
+  const dyn = (m) => { m.userData.dynamic = true; return m; };
   const rope = (n, r, mat = MAT.rope, parent = group) => { const R = makeRope(n, r, mat); parent.add(R.mesh); return R; };
 
   // мачта: шестигранник с сужением к топу
@@ -156,7 +161,7 @@ export function createRig(opts) {
   // парус — сетка NU×NV, натянута между галсом, шкотовым углом, горлом и пиком
   const NU = 9, NV = 11;
   const sailGeo = new THREE.PlaneGeometry(1, 1, NU - 1, NV - 1);
-  const sail = add(new THREE.Mesh(sailGeo, MAT.sail), rig);
+  const sail = dyn(add(new THREE.Mesh(sailGeo, MAT.sail), rig));
   const sailPos = sailGeo.attributes.position;
   const tack = V(0, 0.05, 0.12), clew = V(), throat = V(), peak = V();
   const tmpA = V(), tmpB = V(), p = V();
@@ -194,20 +199,26 @@ export function createRig(opts) {
   // REEF_H — высота полки над пяткой полного паруса (доля передней шкаторины); совпадает с тем, насколько рифы укорачивают шкаторину
   const LUFF = 4.6, REEF_H = [0.24, 0.44];
   const REEF_PTS = 6;
-  const bands = REEF_H.map(() => ({
-    rope: rope(NU, 0.012, MAT.rope, rig),
-    points: Array.from({ length: REEF_PTS * 2 }, () => add(new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.16, 0.012), MAT.rope), rig)),
-  }));
+  const bands = REEF_H.map(() => ({ rope: rope(NU, 0.012, MAT.rope, rig) }));
+  // риф-сезни обеих полок — один InstancedMesh (REEF_PTS пар на полку); у убранной полки масштаб 0
+  const instanced = (geo, mat, n) => {
+    const m = dyn(add(new THREE.InstancedMesh(geo, mat, n), rig));
+    m.frustumCulled = false; // инстансы двигаются, а габарит three считает один раз
+    return m;
+  };
+  const reefPoints = instanced(new THREE.BoxGeometry(0.012, 0.16, 0.012), MAT.rope, REEF_H.length * REEF_PTS * 2);
+  const m4 = new THREE.Matrix4();
 
   // сегарсы — кольца паруса на мачте, распределяются по длине передней шкаторины
   const HOOPS = 8;
   const hoopGeo = new THREE.TorusGeometry(0.1, 0.016, 3, 6).rotateX(Math.PI / 2);
-  const hoops = Array.from({ length: HOOPS }, () => add(new THREE.Mesh(hoopGeo, MAT.wood), rig));
+  const hoops = instanced(hoopGeo, MAT.wood, HOOPS);
 
   // убранная часть паруса вдоль гика (рифы или парус спущен целиком) и сезни вокруг неё
-  const bundle = add(new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 5).rotateX(Math.PI / 2), MAT.sail), rig);
+  const bundle = dyn(add(new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 5).rotateX(Math.PI / 2), MAT.sail), rig));
   const tieGeo = new THREE.TorusGeometry(1, 0.08, 3, 5);
-  const ties = Array.from({ length: 6 }, () => add(new THREE.Mesh(tieGeo, MAT.rope), rig));
+  const TIES = 6;
+  const ties = instanced(tieGeo, MAT.rope, TIES);
 
   // фалы горла и пика (через уздечку на гафеле), топенант; блоки на топе
   const mastTopL = mastTop - boomY;
@@ -215,7 +226,7 @@ export function createRig(opts) {
   const mBlock = V(0, mastTopL - 0.15, 0.07), tBlock = V(0, mastTopL - 0.32, 0.07);
   add(new THREE.Mesh(blockGeo, MAT.darkWood), rig).position.copy(mBlock);
   add(new THREE.Mesh(blockGeo, MAT.darkWood), rig).position.copy(tBlock);
-  const bridleBlock = add(new THREE.Mesh(blockGeo, MAT.darkWood), rig);
+  const bridleBlock = dyn(add(new THREE.Mesh(blockGeo, MAT.darkWood), rig));
   const throatHal = rope(9, 0.01, MAT.rope, rig);
   const peakHal = rope(9, 0.01, MAT.rope, rig);
   const bridle = rope(3, 0.009, MAT.rope, rig);
@@ -229,7 +240,7 @@ export function createRig(opts) {
   add(new THREE.Mesh(new THREE.BoxGeometry(2 * horse.hw + BAR, BAR, BAR), MAT.metal)).position.set(0, barY, horse.z);
   const boomBlockL = V(0, -0.08, boomLen - 0.3);
   add(new THREE.Mesh(blockGeo, MAT.darkWood), rig).position.copy(boomBlockL);
-  const horseBlock = add(new THREE.Mesh(blockGeo, MAT.darkWood));
+  const horseBlock = dyn(add(new THREE.Mesh(blockGeo, MAT.darkWood)));
   const sheetParts = [rope(9, 0.01), rope(9, 0.01)];
   const tail = rope(16, 0.01);
   add(new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.025, 3, 7).rotateX(Math.PI / 2), MAT.rope)).position.copy(coil);
@@ -272,32 +283,37 @@ export function createRig(opts) {
       const v = (REEF_H[k] * LUFF - removed) / reefLuff;
       const vis = v > 0.02 && furl < 0.01;
       b.rope.mesh.visible = vis;
-      b.points.forEach((m) => { m.visible = vis; });
+      for (let i = 0; i < REEF_PTS * 2; i++) {
+        if (vis) {
+          sailPoint(0.12 + 0.76 * (i >> 1) / (REEF_PTS - 1), v, p);
+          m4.makeTranslation(p.x + (i & 1 ? 0.025 : -0.025), p.y - 0.08, p.z);
+        } else m4.makeScale(0, 0, 0);
+        reefPoints.setMatrixAt(k * REEF_PTS * 2 + i, m4);
+      }
       if (!vis) return;
       for (let i = 0; i < NU; i++) sailPoint(i / (NU - 1), v, b.rope.pts[i]);
       b.rope.set(b.rope.pts);
-      b.points.forEach((m, i) => {
-        sailPoint(0.12 + 0.76 * (i >> 1) / (REEF_PTS - 1), v, p);
-        m.position.set(p.x + (i & 1 ? 0.025 : -0.025), p.y - 0.08, p.z);
-      });
     });
+    reefPoints.instanceMatrix.needsUpdate = true;
 
     // сегарсы съезжают вниз вместе с горлом; у спущенного паруса лежат стопкой
     const hoopTop = Math.max(luff - 0.08, 0.12 + HOOPS * 0.035);
-    hoops.forEach((h, i) => h.position.set(0, 0.12 + (hoopTop - 0.12) * i / (HOOPS - 1), 0));
+    for (let i = 0; i < HOOPS; i++) hoops.setMatrixAt(i, m4.makeTranslation(0, 0.12 + (hoopTop - 0.12) * i / (HOOPS - 1), 0));
+    hoops.instanceMatrix.needsUpdate = true;
 
     // валик на гике: толще с каждым рифом, а у спущенного паруса — весь парус
     const r = Math.max(0.05 * Math.min(reef, 2), rFurl * furl);
     bundle.visible = r > 0.004;
-    ties.forEach((t) => { t.visible = bundle.visible; });
+    ties.visible = bundle.visible;
     if (bundle.visible) {
       const len = clewZ - 0.4;
       bundle.scale.set(r * 1.3, r, len);
       bundle.position.set(0, 0.045 + r, 0.3 + len / 2);
-      ties.forEach((t, i) => {
-        t.scale.setScalar(r + 0.05 + 0.03 * furl); // у спущенного паруса сезни охватывают и гафель
-        t.position.set(0, r * 0.9 + 0.03 * furl, 0.5 + (len - 0.4) * i / (ties.length - 1));
-      });
+      const ts = r + 0.05 + 0.03 * furl; // у спущенного паруса сезни охватывают и гафель
+      for (let i = 0; i < TIES; i++) {
+        ties.setMatrixAt(i, m4.makeScale(ts, ts, ts).setPosition(0, r * 0.9 + 0.03 * furl, 0.5 + (len - 0.4) * i / (TIES - 1)));
+      }
+      ties.instanceMatrix.needsUpdate = true;
     }
 
     // фал горла — прямо; фал пика — к блоку уздечки, сдвинутому от гафеля к топу. Спущенный парус: фалы слабые
@@ -341,5 +357,5 @@ export function createRig(opts) {
   }
 
   // sheetBlock — нижний блок гика-шкота на погоне (СК лодки), к нему тянется шкот из руки рулевого
-  return { update, sheetBlock: hB, sailLook, pennantLook };
+  return { update, sheetBlock: hB, sailLook, pennantLook, rig, gaffPivot };
 }

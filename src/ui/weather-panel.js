@@ -23,7 +23,7 @@ const PRESET_CLOUDS = {
   'Шторм': 'Гроза',
 };
 
-export function createWeatherPanel({ wind, sea, env, water, particles, actions, start }) {
+export function createWeatherPanel({ wind, sea, env, water, particles, actions, start, resolution, perfOverlay }) {
   const gui = new GUI({ title: 'Погода и сцена', width: 270 });
   const state = { preset: start.weather.preset, timeOfDay: start.timeOfDay, clouds: start.weather.clouds };
 
@@ -79,6 +79,15 @@ export function createWeatherPanel({ wind, sea, env, water, particles, actions, 
   fc.add(state, 'clouds', env.cloudTypes).name('Облачность').onChange((v) => env.setCloudType(v));
   fc.add({ f: actions.righten }, 'f').name('Поставить лодку');
   fc.add({ f: actions.resetBoat }, 'f').name('Вернуть в начало');
+
+  // разрешение рендера: авто держит GPU-время кадра в бюджете (perf.js)
+  const fq = gui.addFolder('Производительность');
+  const rs = resolution.state;
+  fq.add(rs, 'auto').name('Авто-разрешение');
+  fq.add(rs, 'ratio', 0.75, Math.max(1, rs.max), 0.25).name('Плотность пикселей').listen()
+    .onChange(() => { rs.auto = false; gui.controllersRecursive().forEach((c) => c.updateDisplay()); });
+  fq.add(perfOverlay.state, 'visible').name('Счётчик кадра');
+  fq.close();
 
   // на маленьких экранах панель и второстепенные папки свёрнуты
   const small = matchMedia(SMALL_SCREEN).matches;

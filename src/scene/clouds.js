@@ -354,6 +354,9 @@ export function createClouds(sky) {
         arr[j + 15] = 1;
       }
     }
+    // на видеокарту — только живые инстансы, а не все MAX_PUFFS
+    puffs.instanceMatrix.clearUpdateRanges();
+    if (puffs.count) puffs.instanceMatrix.addUpdateRange(0, puffs.count * 16);
     puffs.instanceMatrix.needsUpdate = true;
 
     deckU.uOffset.value.x += mx; deckU.uOffset.value.y += mz;

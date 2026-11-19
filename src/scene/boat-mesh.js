@@ -3,6 +3,7 @@ import { DEG } from '../config.js';
 import { createRig } from './boat-rigging.js';
 import { createFittings } from './boat-fittings.js';
 import { createSailor } from './sailor.js';
+import { mergeStatic } from './merge-static.js';
 
 // Локальная СК модели: нос = -Z, правый борт = +X, вверх = +Y. Начало — на ватерлинии под ЦТ.
 // Физика: x (вперёд) -> -Z, y (правый борт) -> +X.
@@ -435,6 +436,9 @@ export function createBoatMesh() {
     add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.04, 0.09), MAT.metal), rudderMount).position.set(0, v, -0.02);
     add(new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.09, 6), MAT.metal), rudderPivot).position.set(0, v - 0.05, 0);
   }
+
+  // неподвижное относительно своих групп — по одному мешу на материал: лодка рисуется в трёх проходах
+  for (const part of [group, rig.rig, rig.gaffPivot, boardPivot, rudderMount, rudderPivot, ext]) mergeStatic(part);
 
   // рулевой (sailor.js): 4 положения — на бортовой банке ближе к ДП и на комингсе с откренкой, на каждый борт
   const crew = new THREE.Group();

@@ -11,6 +11,8 @@ export class FollowCamera {
     this.distance = 16;
     this.pos = new THREE.Vector3(0, 8, 14);
     this.look = new THREE.Vector3();
+    // скретч для update — без новых векторов каждый кадр
+    this._target = new THREE.Vector3(); this._desired = new THREE.Vector3(); this._lookAt = new THREE.Vector3();
     // активные указатели: один — вращение, два — щипок (зум)
     this._ptrs = new Map();
     this._span = 0;
@@ -52,13 +54,13 @@ export class FollowCamera {
   }
 
   update(dt, boat, boatMesh) {
-    const target = new THREE.Vector3(boat.x, boat.y + 1.2, boat.z);
-    const desired = new THREE.Vector3();
-    let lookAt = target.clone();
+    const target = this._target.set(boat.x, boat.y + 1.2, boat.z);
+    const desired = this._desired;
+    const lookAt = this._lookAt.copy(target);
     let k = 1 - Math.exp(-dt * 5);
     if (this.mode === 'top') {
       desired.set(boat.x, 30 + this.distance * 1.5, boat.z + 0.01);
-      lookAt = new THREE.Vector3(boat.x, 0, boat.z);
+      lookAt.set(boat.x, 0, boat.z);
       k = 1 - Math.exp(-dt * 3);
     } else if (this.mode === 'deck') {
       // камера у румпеля, в связанной СК лодки
@@ -67,7 +69,7 @@ export class FollowCamera {
       // глазами рулевого: позиция головы матроса, сам матрос скрыт
       if (boatMesh) boatMesh.eyeWorld(desired); else desired.set(boat.x - fwdX * 1.0, boat.y + 1.5, boat.z - fwdZ * 1.0);
       const a = boat.psi + (this.deckYaw || 0); // взгляд относительно носа
-      lookAt = new THREE.Vector3(desired.x + Math.sin(a) * 10, desired.y - 0.3 + (1.15 - this.polar) * 10, desired.z - Math.cos(a) * 10);
+      lookAt.set(desired.x + Math.sin(a) * 10, desired.y - 0.3 + (1.15 - this.polar) * 10, desired.z - Math.cos(a) * 10);
       k = 1 - Math.exp(-dt * 14);
     } else {
       if (this.mode === 'chase') {

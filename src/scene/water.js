@@ -34,7 +34,7 @@ export function createWater(waves, { size = 440, segments = 176, sky, planar, sh
     uWhitecap: { value: 0 },
     uTrail: { value: Array.from({ length: WAKE_POINTS }, () => new THREE.Vector4()) },
     uTrailCount: { value: 0 },
-    uWakeCenter: { value: new THREE.Vector2() },
+    uWakeBox: { value: new THREE.Vector4() },
     uOvercast: { value: 0 },
     uRipple: { value: 0.5 },
     uReflect: { value: 0.3 },
@@ -124,11 +124,15 @@ export function createWater(waves, { size = 440, segments = 176, sky, planar, sh
         vec2 drift = uWindDir * uTime * 0.6;
         float lo = mix(0.36, 0.2, uWhitecap);
         float crest = smoothstep(lo, lo + 0.18, vSteep);
-        crest *= smoothstep(0.45, 0.65, vnoise(wxz * 0.7 - drift) * 0.7 + vnoise(wxz * 2.3 + drift) * 0.3 + crest * 0.2);
-        // полосы пены вдоль ветра
-        vec2 wperp = vec2(-uWindDir.y, uWindDir.x);
-        float sn = vnoise(vec2(dot(wxz, uWindDir) * 0.07, dot(wxz, wperp) * 0.9) - vec2(uTime * 0.05, 0.0));
-        float streak = smoothstep(0.8, 0.9, sn) * uWhitecap * 0.35 * smoothstep(-0.3, 0.4, hh);
+        // шум считаем только на гребнях: на большей части воды crest = 0
+        if (crest > 0.0) crest *= smoothstep(0.45, 0.65, vnoise(wxz * 0.7 - drift) * 0.7 + vnoise(wxz * 2.3 + drift) * 0.3 + crest * 0.2);
+        // полосы пены вдоль ветра (в слабый ветер uWhitecap = 0 — не считаем)
+        float streak = 0.0;
+        if (uWhitecap > 0.0) {
+          vec2 wperp = vec2(-uWindDir.y, uWindDir.x);
+          float sn = vnoise(vec2(dot(wxz, uWindDir) * 0.07, dot(wxz, wperp) * 0.9) - vec2(uTime * 0.05, 0.0));
+          streak = smoothstep(0.8, 0.9, sn) * uWhitecap * 0.35 * smoothstep(-0.3, 0.4, hh);
+        }
         // буруны гаснут к краю ближней воды: за ним дальняя вода рисует только кромку
         float surfLines = 1.0 - smoothstep(uRadius * 0.6, uRadius * 0.9, length(wxz - uCenter));
         float waterFoam = clamp(max(max(max(crest * 0.85, streak), wakeFoam(wxz)), surfFoam(wxz, sh, surfLines)), 0.0, 1.0);
@@ -217,7 +221,7 @@ export function createWater(waves, { size = 440, segments = 176, sky, planar, sh
       uniforms.uWhitecap.value = fx.whitecap;
       uniforms.uTrail.value = fx.wake.trail;
       uniforms.uTrailCount.value = fx.wake.count;
-      uniforms.uWakeCenter.value.copy(fx.wake.center);
+      uniforms.uWakeBox.value.copy(fx.wake.box);
       uniforms.uOvercast.value = fx.overcast || 0;
       uniforms.uRipple.value = fx.ripple ?? 0.5;
     }

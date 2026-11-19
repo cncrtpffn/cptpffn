@@ -19,9 +19,10 @@ function foilCl(beta, ar, stall) {
 
 // Силы на крыле (шверт/руль) в связанной СК. u, v — локальная скорость воды относительно
 // крыла (скорость лодки в точке крыла), delta — поворот хорды (руль), cd0 — профильное сопротивление.
-function foilForces(u, v, area, ar, stall, delta, cd0, cc) {
+// out — куда записать { fx, fy, cl } (шаг физики 120 Гц — без новых объектов).
+function foilForces(u, v, area, ar, stall, delta, cd0, cc, out) {
   const V = Math.hypot(u, v);
-  if (V < 0.03) return { fx: 0, fy: 0, cl: 0 };
+  if (V < 0.03) { out.fx = 0; out.fy = 0; out.cl = 0; return out; }
   const beta = wrapPi(Math.atan2(v, u) + delta);
   const q = 0.5 * RHO_WATER * V * V * area;
   const cl = foilCl(beta, ar, stall);
@@ -32,7 +33,8 @@ function foilForces(u, v, area, ar, stall, delta, cd0, cc) {
   // подъёмная ⟂ потоку, сопротивление вдоль потока, поперечная сила ⟂ хорде
   const fx = L * (v / V) - D * (u / V) - N * Math.sin(delta);
   const fy = L * (-u / V) - D * (v / V) - N * Math.cos(delta);
-  return { fx, fy, cl };
+  out.fx = fx; out.fy = fy; out.cl = cl;
+  return out;
 }
 
 // положения рулевого слева направо: откренка L, банка L, банка R, откренка R
@@ -48,6 +50,7 @@ export class Boat {
   constructor(cfg = BOAT) {
     this.cfg = cfg;
     this.sail = new Sail(cfg);
+    this._bf = { fx: 0, fy: 0, cl: 0 }; this._rf = { fx: 0, fy: 0, cl: 0 }; // скретч для foilForces
     this.reset(0, 0, 90 * DEG);
   }
 
@@ -122,8 +125,7 @@ export class Boat {
       if (controls.board) this.board = Math.max(0, Math.min(1, this.board + controls.board * c.boardRate * dt));
     }
     // --- ветер и парус ---
-    const aw = wind.apparent(this.psi, this.u, this.v);
-    this.aw = aw;
+    const aw = wind.apparent(this.psi, this.u, this.v, this.aw);
 
     // рулевой: 4 положения (CREW_POSITIONS), знак — борт (+ правый), |2| — откренка. 0 — ещё не выбрано: наветренная банка
     if (controls.crewPos) this.crewPos = controls.crewPos;
@@ -161,7 +163,7 @@ export class Boat {
     const ext = this.board;
     const bArea = c.boardArea * ext;
     const bAR = c.boardAR * Math.max(0.25, ext);
-    const bf = foilForces(u, v, bArea, bAR, c.boardStall, 0, c.boardCd0, 1.0);
+    const bf = foilForces(u, v, bArea, bAR, c.boardStall, 0, c.boardCd0, 1.0, this._bf);
     const bFx = bf.fx, bFy = bf.fy;
     const bX = c.boardXUp + (c.boardX - c.boardXUp) * ext;
 
@@ -177,7 +179,7 @@ export class Boat {
     // руль: местная скорость с учётом вращения, эффективность падает при крене
     const vr = v + r * c.rudderX;
     const rEff = Math.max(0.1, Math.cos(this.phi));
-    const rf = foilForces(u, vr, c.rudderArea * rEff, c.rudderAR, c.rudderStall, this.rudder, 0.03, 1.0);
+    const rf = foilForces(u, vr, c.rudderArea * rEff, c.rudderAR, c.rudderStall, this.rudder, 0.03, 1.0, this._rf);
     const rFx = rf.fx, rFy = rf.fy;
 
     // --- волны под корпусом ---

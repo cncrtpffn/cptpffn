@@ -18,6 +18,7 @@ export class Wind {
     this.speed = p.speed;
     this.dir = p.dirDeg * DEG;
     this.gustFactor = 0;
+    this._v = { x: 0, z: 0 };
   }
 
   update(dt) {
@@ -36,14 +37,16 @@ export class Wind {
   }
 
   // Вектор скорости воздуха в мировых координатах (x — восток, z — юг).
+  // Возвращает общий объект (вызывается много раз за кадр) — читать сразу, не хранить.
   vector() {
     const d = this.dir;
-    return { x: -this.speed * Math.sin(d), z: this.speed * Math.cos(d) };
+    this._v.x = -this.speed * Math.sin(d); this._v.z = this.speed * Math.cos(d);
+    return this._v;
   }
 
   // Вымпельный ветер в связанной системе лодки.
-  // Возвращает awa (рад, откуда относительно носа, >0 — с правого борта), aws, twa.
-  apparent(psi, u, v) {
+  // Возвращает awa (рад, откуда относительно носа, >0 — с правого борта), aws, twa; out — куда записать.
+  apparent(psi, u, v, out = {}) {
     const w = this.vector();
     const fwdX = Math.sin(psi), fwdZ = -Math.cos(psi);
     const stbX = Math.cos(psi), stbZ = Math.sin(psi);
@@ -55,6 +58,7 @@ export class Wind {
     const aws = Math.hypot(ax, ay);
     const awa = aws > 1e-4 ? Math.atan2(-ay, -ax) : 0;
     const twa = wrapPi(this.dir - psi);
-    return { awa, aws, twa, tws: this.speed };
+    out.awa = awa; out.aws = aws; out.twa = twa; out.tws = this.speed;
+    return out;
   }
 }

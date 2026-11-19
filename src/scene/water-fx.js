@@ -7,7 +7,7 @@ export const WAKE_POINTS = 40;
 export const FX_UNIFORMS_GLSL = `
   uniform float uTime; uniform vec3 uSunDir; uniform vec3 uSunColor;
   uniform vec2 uWindDir; uniform float uWhitecap;
-  uniform vec4 uTrail[${WAKE_POINTS}]; uniform int uTrailCount; uniform vec2 uWakeCenter;
+  uniform vec4 uTrail[${WAKE_POINTS}]; uniform int uTrailCount; uniform vec4 uWakeBox;
   uniform float uRipple;
   varying vec3 vWorldPos; varying vec3 vWaveN;
 `;
@@ -66,7 +66,8 @@ export const RIPPLE_GLSL = `
 // Усы Кельвина расходятся под ~19.5°, за кормой — турбулентная полоса.
 export const WAKE_GLSL = `
   float wakeFoam(vec2 p) {
-    if (uTrailCount < 2 || distance(p, uWakeCenter) > 80.0) return 0.0;
+    // uWakeBox — габарит следа с шириной усов (wake.js): за ним цикл по сегментам не нужен
+    if (uTrailCount < 2 || any(lessThan(p, uWakeBox.xy)) || any(greaterThan(p, uWakeBox.zw))) return 0.0;
     float n = vnoise(p * 1.4 + uTime * 0.15);
     float f = 0.0;
     for (int i = 0; i < ${WAKE_POINTS - 1}; i++) {
@@ -81,9 +82,11 @@ export const WAKE_GLSL = `
       float d = abs(ab.x * (p.y - A.y) - ab.y * (p.x - A.x)) / sqrt(l2);
       t = clamp(t, 0.0, 1.0);
       float a = mix(A.z, B.z, t), s = mix(A.w, B.w, t);
-      float sk = clamp(s / 3.0, 0.0, 1.0);
       // усы
       float w = 0.5 + s * a * 0.354;
+      // дальше уса и полосы за кормой — вклада нет, шум и smoothstep не считаем
+      if (abs(d - w) > 0.22 + 0.09 * a && d > 0.55 + 0.14 * a) continue;
+      float sk = clamp(s / 3.0, 0.0, 1.0);
       float arm = 1.0 - smoothstep(0.0, 0.22 + 0.09 * a, abs(d - w));
       arm *= (1.0 - smoothstep(4.0, 12.0, a)) * smoothstep(0.05 * a, 0.05 * a + 0.35, n);
       // турбулентная полоса за кормой
@@ -132,17 +135,23 @@ export const GLINT_GLSL = `
     vec3 nf = waterN;
     vec3 vd = normalize(cameraPosition - vWorldPos);
     float rl = max(dot(reflect(-vd, nf), normalize(uSunDir)), 0.0);
-    // отблеск волн — пятнами, а не по всей поверхности сразу
-    float sheen = pow(rl, 300.0) * 0.45 * smoothstep(0.45, 0.75, vnoise(vWorldPos.xz * 0.08 + uTime * 0.05));
-    // искра — маленькая точка в случайном месте ячейки
-    vec2 g = vWorldPos.xz * 1.6;
-    vec2 cell = floor(g);
-    float h = hash12(cell);
-    vec2 c = vec2(hash12(cell + 17.0), hash12(cell + 31.0)) * 0.6 + 0.2;
-    float dot_ = 1.0 - smoothstep(0.04, 0.1, length(fract(g) - c));
-    float tw = max(0.0, sin(uTime * (3.0 + h * 6.0) + h * 40.0));
-    float sparkle = step(0.75, h) * dot_ * tw * pow(rl, 16.0) * 3.0;
-    outgoingLight += uSunColor * (sheen + sparkle) * (1.0 - waterFoam);
+    // вне солнечной дорожки и искры, и отблеск ничтожны (rl^16 < 3e-4, rl^300 ≈ 0) — шум не считаем
+    if (rl > 0.6) {
+      // отблеск волн — пятнами, а не по всей поверхности сразу
+      float sheen = rl > 0.95 ? pow(rl, 300.0) * 0.45 * smoothstep(0.45, 0.75, vnoise(vWorldPos.xz * 0.08 + uTime * 0.05)) : 0.0;
+      // искра — маленькая точка в случайном месте ячейки; горит только у четверти ячеек
+      vec2 g = vWorldPos.xz * 1.6;
+      vec2 cell = floor(g);
+      float h = hash12(cell);
+      float sparkle = 0.0;
+      if (h >= 0.75) {
+        vec2 c = vec2(hash12(cell + 17.0), hash12(cell + 31.0)) * 0.6 + 0.2;
+        float dot_ = 1.0 - smoothstep(0.04, 0.1, length(fract(g) - c));
+        float tw = max(0.0, sin(uTime * (3.0 + h * 6.0) + h * 40.0));
+        sparkle = dot_ * tw * pow(rl, 16.0) * 3.0;
+      }
+      outgoingLight += uSunColor * (sheen + sparkle) * (1.0 - waterFoam);
+    }
   }
 `;
 

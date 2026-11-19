@@ -4,7 +4,7 @@ import { Wind } from './physics/wind.js';
 import { Waves } from './physics/waves.js';
 import { Boat, crewMove } from './physics/boat.js';
 import { createWater } from './scene/water.js';
-import { createPlanarReflection } from './scene/planar-reflection.js';
+import { createPlanarReflection, markReflected } from './scene/planar-reflection.js';
 import { bakeShoreMap, shoreDamp } from './scene/shore-map.js';
 import { createBoatMesh } from './scene/boat-mesh.js';
 import { createWake } from './scene/wake.js';
@@ -21,6 +21,7 @@ import { createTouchControls, isTouchDevice } from './ui/touch.js';
 import { makeCollapsible } from './ui/collapse.js';
 import { setupFullscreen } from './ui/fullscreen.js';
 import { applyIcons } from './ui/icons.js';
+import { createPerf, createAdaptiveResolution, createPerfOverlay } from './perf.js';
 import './debug/polar.js';
 
 const STEP = 1 / 120;
@@ -29,10 +30,10 @@ const START = await (await fetch('start.json')).json();
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// на таче — карта теней 1024 и простой PCF (createEnvironment): мягкий PCF — 4× выборок на пиксель
+renderer.shadowMap.type = isTouchDevice() ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.localClippingEnabled = true;
@@ -54,7 +55,7 @@ placeBoat();
 const sea = { ...SEA, ...START.weather.sea };
 
 // --- сцена ---
-const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay });
+const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 2048 });
 const planar = createPlanarReflection(renderer);
 const bakeT0 = performance.now();
 const shoreMap = bakeShoreMap(env.islands.map((g) => g.userData.shore));
@@ -75,6 +76,23 @@ const bowSpray = createBowSpray(particles);
 const shoreSpray = createShoreSpray(particles, shoreMap);
 const crestSpray = createCrestSpray(particles);
 const followCam = new FollowCamera(camera, canvas);
+// в отражение — крупное: острова (без травы), буи, облака, лодка без мелочи; свет — весь
+scene.traverse((o) => { if (o.isLight) markReflected(o); });
+for (const g of env.islands) markReflected(g);
+for (const g of env.buoys) markReflected(g);
+markReflected(env.clouds.group);
+markReflected(boatMesh.group, { minRadius: 0.25 });
+markReflected(boatMesh.sailor.group, { minRadius: 0.1 }); // моряк мельче, но заметен: тело, голова, шапка
+const cloudsHidden = [env.clouds.group], noHide = [];
+
+// --- замеры и разрешение ---
+// вода — самое дорогое на GPU, и цена растёт с числом пикселей: на таче потолок DPR 1.5,
+// дальше разрешение подстраивается под бюджет GPU (?dpr=1.5 — зафиксировать вручную)
+const urlParams = new URLSearchParams(location.search);
+const perf = createPerf(renderer);
+const resolution = createAdaptiveResolution(renderer, perf, { max: Math.min(window.devicePixelRatio, isTouchDevice() ? 1.5 : 2) });
+if (urlParams.has('dpr')) { resolution.state.auto = false; resolution.state.ratio = parseFloat(urlParams.get('dpr')); }
+const perfOverlay = createPerfOverlay(perf, resolution, renderer, { visible: urlParams.has('perf') });
 
 // --- UI ---
 const input = new Input();
@@ -84,7 +102,7 @@ const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
   resetBoat: () => { placeBoat(); wake.reset(); },
 };
-createWeatherPanel({ wind, sea, env, water, particles, actions, start: START });
+createWeatherPanel({ wind, sea, env, water, particles, actions, start: START, resolution, perfOverlay });
 input.on('reef', (d) => boat.sail.reef(d));
 input.on('crew', (a) => { if (boat.crewPos) boat.crewPos = crewMove(boat.crewPos, a); });
 input.on('camera', () => followCam.nextMode());
@@ -179,6 +197,7 @@ let last = performance.now();
 let acc = 0;
 function frame(now) {
   requestAnimationFrame(frame);
+  perf.begin(now);
   let dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   const halted = paused || (touch && phoneLandscape.matches);
@@ -218,11 +237,12 @@ function frame(now) {
   const R = water.reflection;
   if (R.planar) {
     planar.state.scale = R.resolution;
-    const hide = [water.mesh, water.far, env.sky.mesh, ...particles.meshes];
-    if (!R.clouds) hide.push(env.clouds.group);
-    planar.render(scene, camera, hide);
+    planar.render(scene, camera, R.clouds ? noHide : cloudsHidden);
   }
   renderer.render(scene, camera);
+  perf.end();
+  resolution.update(dt);
+  perfOverlay.update(dt);
   if (debugLog && Math.floor(simTime) !== Math.floor(simTime - dt)) {
     console.log(`[sim] t=${simTime.toFixed(1)} boat=(${boat.x.toFixed(1)},${boat.y.toFixed(2)},${boat.z.toFixed(1)}) u=${boat.u.toFixed(2)} heel=${(boat.phi / DEG).toFixed(1)} cam=(${camera.position.x.toFixed(1)},${camera.position.y.toFixed(1)},${camera.position.z.toFixed(1)}) tws=${wind.speed.toFixed(1)} H=${waves.sigHeight.toFixed(2)} spray=${particles.stats.drops}/${particles.stats.mist} lod=${particles.stats.lod} ${particles.stats.ms.toFixed(2)}мс`);
   }
@@ -231,4 +251,4 @@ document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { boat, wind, waves, sea, env, followCam, scene, wake, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
+window.__sim = { perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };

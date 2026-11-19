@@ -2,14 +2,16 @@ import * as THREE from 'three';
 import { makeIsland } from './island.js';
 import { createSky } from './sky.js';
 import { createClouds, CLOUD_TYPES } from './clouds.js';
+import { mergeStatic } from './merge-static.js';
 
 const flat = (color) => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.9 });
 
 function makeBuoy(def) {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.55, 1.0, 8), flat(def.color));
+  const paint = flat(def.color);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.55, 1.0, 8), paint);
   body.position.y = 0.3;
-  const top = new THREE.Mesh(new THREE.ConeGeometry(0.45, 0.8, 8), flat(def.color));
+  const top = new THREE.Mesh(new THREE.ConeGeometry(0.45, 0.8, 8), paint);
   top.position.y = 1.2;
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.6, 5), flat(0x6e4a2b));
   pole.position.y = 2.2;
@@ -17,6 +19,7 @@ function makeBuoy(def) {
   flag.position.set(0, 2.8, 0.3);
   [body, top, pole, flag].forEach((m) => { m.castShadow = true; g.add(m); });
   g.position.set(def.x, 0, def.z);
+  mergeStatic(g); // корпус и конус одним мешем
   return g;
 }
 
@@ -41,7 +44,7 @@ export function createEnvironment(scene, cfg) {
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff2d8, 2.4);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(cfg.shadowSize ?? 2048, cfg.shadowSize ?? 2048);
   const sc = sun.shadow.camera;
   sc.left = -28; sc.right = 28; sc.top = 28; sc.bottom = -28; sc.near = 10; sc.far = 260;
   sun.shadow.bias = -0.0005;
@@ -100,5 +103,5 @@ export function createEnvironment(scene, cfg) {
 
   setTimeOfDay(cfg.timeOfDay ?? 0.5);
   const setCloudType = (name, instant) => { clouds.setType(name, instant); if (instant) applyLighting(); };
-  return { update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, hemi, sunDir, sunGlint, islands, sky, clouds };
+  return { update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, hemi, sunDir, sunGlint, islands, buoys: buoys.map((b) => b.g), sky, clouds };
 }

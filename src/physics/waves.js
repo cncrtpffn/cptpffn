@@ -40,6 +40,7 @@ export class Waves {
     this.phase = new Float32Array(MAX_COMP);
     this.q = new Float32Array(MAX_COMP);
     this.omega = new Float32Array(MAX_COMP);
+    this._o = { dx: 0, dz: 0, y: 0 }; // скретч для heightAt: тысячи вызовов за кадр без мусора для GC
   }
 
   // Задать целевое волнение: значимая высота (м), направление ветра «откуда» (рад), скорость ветра.
@@ -166,7 +167,7 @@ export class Waves {
 
   // Высота поверхности в мировой точке (x, z) с обратной итерацией смещения.
   heightAt(x, z) {
-    const o = { dx: 0, dz: 0, y: 0 };
+    const o = this._o;
     let px = x, pz = z;
     for (let it = 0; it < 2; it++) {
       this._disp(px, pz, o);

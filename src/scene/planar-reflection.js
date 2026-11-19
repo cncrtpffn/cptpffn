@@ -5,10 +5,27 @@ import * as THREE from 'three';
 // не попадает в кадр. В рендер-таргет three не применяет тонмаппинг, так что значения
 // линейные — как outgoingLight в шейдере воды. Фон прозрачный: в текстуре только объекты,
 // небо в воде даёт skyColor().
+// Слой отражения: зеркальная камера видит только его. Крупное (острова без травы, буи, корпус, парус)
+// включают через markReflected; вода, небо и брызги в слой не попадают и в отражение не рисуются.
+// Свет тоже фильтруется по слою — источники света включаются в слой вместе с объектами.
+export const REFLECT_LAYER = 1;
+
+// root — что пометить; minRadius — меши мельче (по радиусу габарита геометрии) пропускаются;
+// userData.noReflect — не отражать, userData.reflect — отражать всегда (геометрия до первого кадра пустая)
+export function markReflected(root, { minRadius = 0 } = {}) {
+  root.traverse((o) => {
+    if (o.isLight) { o.layers.enable(REFLECT_LAYER); return; }
+    if (!o.isMesh || o.userData.noReflect) return;
+    if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+    if (o.userData.reflect || o.geometry.boundingSphere.radius >= minRadius) o.layers.enable(REFLECT_LAYER);
+  });
+}
+
 export function createPlanarReflection(renderer, { scale = 0.5 } = {}) {
   const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
   const matrix = new THREE.Matrix4();
   const cam = new THREE.PerspectiveCamera();
+  cam.layers.set(REFLECT_LAYER);
   const state = { scale };
 
   const normal = new THREE.Vector3(0, 1, 0);
@@ -22,9 +39,11 @@ export function createPlanarReflection(renderer, { scale = 0.5 } = {}) {
   const rot = new THREE.Matrix4();
   const buf = new THREE.Vector2();
   const clearColor = new THREE.Color();
+  const vis = [];
 
+  // hide — объекты слоя, которые в этом кадре отражать не надо (облака по настройке).
   // false — камера под водой, отражение не обновлено
-  function render(scene, camera, hide) {
+  function render(scene, camera, hide = []) {
     renderer.getDrawingBufferSize(buf);
     const w = Math.max(1, Math.round(buf.x * state.scale)), h = Math.max(1, Math.round(buf.y * state.scale));
     if (target.width !== w || target.height !== h) target.setSize(w, h);
@@ -55,8 +74,8 @@ export function createPlanarReflection(renderer, { scale = 0.5 } = {}) {
     p[2] = clip.x; p[6] = clip.y; p[10] = clip.z + 1; p[14] = clip.w;
     cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
 
-    const vis = hide.map((o) => o.visible);
-    hide.forEach((o) => { o.visible = false; });
+    vis.length = 0;
+    for (const o of hide) { vis.push(o.visible); o.visible = false; }
     const oldTarget = renderer.getRenderTarget();
     renderer.getClearColor(clearColor);
     const oldAlpha = renderer.getClearAlpha();

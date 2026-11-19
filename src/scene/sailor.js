@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { TessellateModifier } from 'three/addons/modifiers/TessellateModifier.js';
+import { mergeStatic } from './merge-static.js';
 
 // Моряк-рулевой (references/chars/saillor_reference): 4 части — голова (лицо, шапка), тело-бушлат, две руки-сферы.
 // Гладкий рендер без контура. Локальная СК: лицом к +Z, вверх +Y, начало — на сиденье под центром тела.
@@ -175,6 +176,7 @@ export function createSailor({ seed = 1 } = {}) {
     const e = add(new THREE.Mesh(new THREE.SphereGeometry(0.016, 12, 8).scale(1, 1.15, 0.45), MAT.eye), head);
     e.position.copy(HC).add(onSphere(d, HEAD_R + 0.001));
     e.lookAt(e.position.clone().add(d));
+    e.userData.dynamic = true; // моргает (scale.y) — не сливать
     return e;
   });
   // шапка: купол и толстый отворот в рубчик. Шарнир — точно в центре шара, поэтому при наклоне назад
@@ -214,10 +216,13 @@ export function createSailor({ seed = 1 } = {}) {
   const hands = REST.map((p) => {
     const h = add(new THREE.Mesh(new THREE.SphereGeometry(HAND_R, 24, 16), MAT.skin), group);
     h.position.copy(p);
+    h.userData.dynamic = true;
     return h;
   });
   // «плечо» — точка на боку под линией плеч, от неё считается досягаемость руки
   const SHOULDER = [-1, 1].map((sx) => V(0.2 * sx, 0.36, 0));
+  // неподвижные детали тела, головы и шапки — по одному мешу на материал (merge-static.js)
+  for (const part of [body, head, hat]) mergeStatic(part);
   const vel = hands.map(() => V());
   const tgt = V(), off = V(), shTmp = V(), leanDir = new THREE.Vector2();
   const targets = [null, null], targets_ = [V(), V()];
