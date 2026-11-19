@@ -97,4 +97,5 @@ src/scene/merge-static.js  — слияние неподвижных детал�
 src/perf.js                — замеры кадра, счётчик ?perf=1, авто-разрешение
 src/ui/*                   — HUD и панель погоды
 src/debug/polar.js         — автопилот и прогон поляры
+src/debug/map-viewer.html  — стенд карты мира: острова, глубины, берег (docs/changes/world-map)
 ```
