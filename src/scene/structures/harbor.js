@@ -336,7 +336,7 @@ export function hullGeometry(L = 4.6, B = 1.5, D = 0.62, n = 10) {
 
 const HULL_COLORS = [0xf4f1e8, 0x3f6f8f, 0x2f5f3f, 0x8a3a2a];
 // Лодка в батч: m — матрица, paint — цвет бортов
-function boat(b, m, rng, { L = 4.6, B = 1.5, D = 0.62, paint, oars = false } = {}) {
+export function boat(b, m, rng, { L = 4.6, B = 1.5, D = 0.62, paint, oars = false } = {}) {
   const h = hullGeometry(L, B, D);
   b.add(h.outer, paint ?? pick(HULL_COLORS, rng), m);
   b.add(h.inner, 0xb08a5a, m);

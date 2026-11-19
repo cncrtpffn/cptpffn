@@ -29,9 +29,11 @@ export const STYLE_PALETTES = {
 export const palette = (style) => STYLE_PALETTES[style] ?? STYLE_PALETTES.atlantic;
 export const pick = (v, rng) => (Array.isArray(v) ? v[Math.floor(rng() * v.length)] : v);
 
-// воспроизводимый rng по seed (тот же mulberry32, что в environment.js)
+// воспроизводимый rng по seed (тот же mulberry32, что в environment.js).
+// seed сначала перемешивается: у голого mulberry32 первое число для seed 1..6 всегда > 0.5.
 export function seeded(seed) {
-  let a = seed >>> 0;
+  let a = Math.imul((seed >>> 0) ^ 0x9e3779b9, 0x85ebca6b);
+  a ^= a >>> 13;
   return function () {
     a |= 0; a = (a + 0x6D2B79F5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
@@ -104,10 +106,11 @@ export function faceFrame(base, face, half, cx = 0, cz = 0) {
 }
 
 // Окно на грани: рама чуть выступает, стекло — ещё чуть, ставни по бокам (если shutter задан).
-export function windowAt(b, f, x, y, { ww = 0.8, wh = 1.1, frame = 0xffffff, glass = 0x2e3d48, shutter, sill = true } = {}) {
+// mullion: false — без импоста (дешёвые окна тыла и боков).
+export function windowAt(b, f, x, y, { ww = 0.8, wh = 1.1, frame = 0xffffff, glass = 0x2e3d48, shutter, sill = true, mullion = true } = {}) {
   b.add(BOX, frame, f.clone().multiply(mat(x, y, 0.03, ww + 0.16, wh + 0.16, 0.06)));
   b.add(BOX, glass, f.clone().multiply(mat(x, y, 0.05, ww, wh, 0.04)));
-  b.add(BOX, frame, f.clone().multiply(mat(x, y, 0.07, 0.05, wh, 0.02))); // импост
+  if (mullion) b.add(BOX, frame, f.clone().multiply(mat(x, y, 0.07, 0.05, wh, 0.02))); // импост
   if (sill) b.add(BOX, frame, f.clone().multiply(mat(x, y - wh / 2 - 0.1, 0.07, ww + 0.3, 0.06, 0.14)));
   if (shutter !== undefined) {
     for (const k of [-1, 1]) b.add(BOX, shutter, f.clone().multiply(mat(x + k * (ww / 2 + 0.08 + ww / 4), y, 0.05, ww / 2, wh + 0.1, 0.04)));

@@ -3,6 +3,8 @@ import { PropBatch, propMaterial, addTree, addBush, addGrass, addRock, TREE_KIND
 import { STYLES } from './kit.js';
 import { HOUSES } from './houses.js';
 import { HARBOR } from './harbor.js';
+import { FARM } from './farm.js';
+import { STREET } from './street.js';
 
 // Реестр библиотеки объектов: флора из flora.js и постройки из structures/*.
 // Каталог и статус моделей: docs/changes/structures-library/catalog.md.
@@ -35,7 +37,7 @@ const FLORA = {
   rock: nature('Камень', { w: 3, d: 3 }, (b, base, o, rng) => addRock(b, base, { scale: 1.4, ...o }, rng)),
 };
 
-export const STRUCTURES = { ...FLORA, ...HOUSES, ...HARBOR };
+export const STRUCTURES = { ...FLORA, ...HOUSES, ...FARM, ...HARBOR, ...STREET };
 
 // Параметры по умолчанию из params, поверх — opts
 function withDefaults(def, opts) {
