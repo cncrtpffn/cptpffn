@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { buildHeightfield } from './heightfield.js';
 import { classifyBiomes, markSettle } from './biomes.js';
 import { planSettlements } from './settlement-plan.js';
+import { planSettlements as planSettlementsV1 } from './settlement-plan-v1.js';
 import { STRUCTURES } from '../structures/index.js';
 import { buildTerrain } from './terrain-mesh.js';
 import { buildSettlements } from './settlements.js';
@@ -19,7 +20,8 @@ export function buildWorld(map, { regions, tstep, density = 1 } = {}) {
   const lap = (k) => { const n = performance.now(); ms[k] = n - t; t = n; };
   const hf = buildHeightfield(map); lap('heights');
   const bio = classifyBiomes(hf, map, regions ?? map.biomeRegions ?? []); lap('biomes');
-  const plan = planSettlements(hf, bio, map, { footprint: (id) => STRUCTURES[id].footprint }); lap('plan');
+  // новая сеть улиц — пока только у карт с plan: 'v2' (демо); остальные — замороженный план шага 3а
+  const plan = (map.plan === 'v2' ? planSettlements : planSettlementsV1)(hf, bio, map, { footprint: (id) => STRUCTURES[id].footprint }); lap('plan');
   markSettle(bio, hf, plan);
   const terrain = buildTerrain(hf, bio.paint, tstep ? { step: tstep } : {}); lap('terrain');
   const settle = buildSettlements(hf, bio, map); lap('settlements');

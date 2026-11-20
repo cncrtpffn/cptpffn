@@ -445,8 +445,9 @@ if (autoRegions) {
 const planGroup = new THREE.Group(), planMarks = [];
 const PLAN_COLORS = {
   zone: { core: 0xff6f61, residential: 0xffc857, waterfront: 0x4fc3f7, outskirts: 0x9ccc65, fields: 0xe6ee9c },
-  street: { quay: 0x29b6f6, main: 0xffffff, street: 0xffe082, lane: 0xffa726, stairs: 0xef5350 },
-  road: { 'road-dirt': 0xbcaaa4, path: 0xefebe9 },
+  street: { quay: 0x29b6f6, main: 0xffffff, street: 0xffe082, lane: 0xffa726, ramp: 0xb388ff, ring: 0x26c6da, track: 0xd7b98e, path: 0xefebe9, stairs: 0xef5350 },
+  junction: { T: 0x66bb6a, X: 0xffee58, right: 0xff1744 },
+  road: { 'road-dirt': 0xbcaaa4, track: 0xd7b98e, path: 0xefebe9 },
   mark: { 'lateral-red': '#d23b2e', 'lateral-green': '#2f9e5b', isolated: '#22262b', cardinal: '#f2c230' },
 };
 {
@@ -500,7 +501,13 @@ const PLAN_COLORS = {
   planGroup.add(pts);
   for (const p of plan.sites) {
     for (const o of p.outline ?? []) line3(dense(o), 0xffffff, true, 0.8);
-    for (const l of p.streets) line3(dense(l.pts), PLAN_COLORS.street[l.cls] ?? 0xffffff, l.cls === 'stairs', l.cls === 'lane' || l.cls === 'stairs' ? 2.5 : 4);
+    const WIDE = new Set(['quay', 'main', 'street']), DASH = new Set(['stairs', 'track', 'path']);
+    for (const l of p.streets) line3(dense(l.pts), PLAN_COLORS.street[l.cls] ?? 0xffffff, DASH.has(l.cls), WIDE.has(l.cls) ? 4 : l.cls === 'track' || l.cls === 'path' ? 1.5 : 2.5);
+    // перекрёстки: T, косой X, прямой угол (от 80°)
+    for (const j of p.junctions ?? []) {
+      const r = 2.2, c = j.angle >= 80 ? PLAN_COLORS.junction.right : PLAN_COLORS.junction[j.type];
+      line3(dense(Array.from({ length: 13 }, (_, i) => [j.x + r * Math.cos(i / 6 * Math.PI), j.z + r * Math.sin(i / 6 * Math.PI)]), 1), c, false, 1.6);
+    }
     if (p.plaza) rect(p.plaza, 0xff5252);
     for (const r of p.reserves) {
       rect(r, 0xce93d8);
@@ -510,7 +517,12 @@ const PLAN_COLORS = {
     }
     for (const b of p.berths) line3(dense([[b.x, b.z], [b.x + b.nx * 14, b.z + b.nz * 14]]), 0x00e5ff, false, 2);
   }
-  for (const r of plan.roads) line3(dense(r.pts), PLAN_COLORS.road[r.kind] ?? 0xffffff, r.kind === 'path', r.kind === 'path' ? 1.5 : 3);
+  // дороги вне посёлков: грунтовая — сплошной, полевая и тропа — пунктиром; участки троп и полевых — по классу (лестницы)
+  const RW = { 'road-dirt': 3, track: 2, path: 1.5, stairs: 2.5 };
+  for (const r of plan.roads) for (const q of r.segs ?? [{ cls: r.kind, pts: r.pts }]) {
+    const cls = q.cls === 'road-dirt' ? 'road-dirt' : q.cls;
+    line3(dense(q.pts), PLAN_COLORS.road[cls] ?? PLAN_COLORS.street[cls] ?? 0xffffff, cls !== 'road-dirt', RW[cls] ?? 2);
+  }
   for (const m of plan.marks) {
     const el = mark('buoy', '', new THREE.Vector3(m.x, 1, m.z));
     el.style.background = PLAN_COLORS.mark[m.kind.startsWith('cardinal') ? 'cardinal' : m.kind];
@@ -531,17 +543,24 @@ const planLegendEl = document.getElementById('planLegend');
     ...Object.entries({ core: 'центр', residential: 'жилая', waterfront: 'у воды', outskirts: 'окраина, хутора', fields: 'поля, луга' })
       .map(([k, n]) => row('', `background:${hex(C.zone[k])}`, n)),
     '<h4>улицы</h4>',
-    ...Object.entries({ quay: 'набережная', main: 'главная', street: 'продольная', lane: 'переулок' })
+    ...Object.entries({ quay: 'набережная', main: 'главная', street: 'продольная', lane: 'переулок', ring: 'периметр зоны', ramp: 'серпантин (не круче 15 %)' })
       .map(([k, n]) => row('ln', `background:${hex(C.street[k])}`, n)),
-    row('ln', dash(C.street.stairs), 'лестница (круче 0.25)'),
+    row('ln', dash(C.street.track), 'полевая дорога (край окраин и полей)'),
+    row('ln', dash(C.street.path), 'тропа (до 25 %)'),
+    row('ln', dash(C.street.stairs), 'лестница (круче 15 % у улиц, 25 % у троп)'),
     row('ln', dash(0xffffff), 'граница посёлка'),
+    '<h4>перекрёстки</h4>',
+    row('dot', `background:${hex(C.junction.T)}`, 'T-образный'),
+    row('dot', `background:${hex(C.junction.X)}`, 'косой X'),
+    row('dot', `background:${hex(C.junction.right)}`, 'прямой угол (от 80°)'),
     '<h4>места</h4>',
     row('rc', 'border-color:#ff5252', 'площадь'),
     row('rc', 'border-color:#ce93d8', 'резерв общественного здания'),
     row('ln', 'background:#00e5ff', 'причал (к воде)'),
     '<h4>дороги</h4>',
     row('ln', `background:${hex(C.road['road-dirt'])}`, 'грунтовая между посёлками'),
-    row('ln', dash(C.road.path), 'тропа (к маяку, причалу)'),
+    row('ln', dash(C.road.track), 'полевая — запасная связь, к местам'),
+    row('ln', dash(C.road.path), 'тропа — к маяку, пляжам, местам'),
     '<h4>навигационные знаки (МАМС-A)</h4>',
     row('dot', `background:${C.mark['lateral-red']}`, 'левый край фарватера'),
     row('dot', `background:${C.mark['lateral-green']}`, 'правый край фарватера'),

@@ -35,25 +35,34 @@ export const chaikin = (pts) => {
   return out;
 };
 
-// A* по сетке G м: вода (ниже minH) непроходима, цена растёт с уклоном
-export function makeRouter(hf, G = 8, minH = 0.8) {
+// A* по сетке G м: вода (ниже minH) непроходима, цена растёт с уклоном.
+// opts (по умолчанию — прежнее поведение):
+//   maxSlope — ребро круче непроходимо (steep > 0 — проходимо, но цена ×steep: запасной проход);
+//   dirs16 — ещё ходы конём: углы подъёма мельче, на склоне выходит серпантин;
+//   ok(x, z) — дополнительная проходимость узла (маска посёлка); extra(x, z) — добавка к цене входа в узел (×(1 + extra)):
+//   другой коридор в обход уже проложенного пути. route(…, over) — те же опции на один вызов.
+// Высоты берутся из hf.sample на лету — подрезка рельефа между вызовами учитывается.
+const DIRS8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+const DIRS16 = [...DIRS8, [2, 1], [2, -1], [-2, 1], [-2, -1], [1, 2], [1, -2], [-1, 2], [-1, -2]];
+export function makeRouter(hf, G = 8, minH = 0.8, opts = {}) {
   const half = hf.bounds[2] / 2, W = Math.floor(hf.bounds[2] / G) + 1, N = W * W;
-  const H = new Float32Array(N);
-  for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) H[j * W + i] = hf.sample(-half + i * G, -half + j * G);
   const g = new Float32Array(N), from = new Int32Array(N), closed = new Uint8Array(N);
-  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-  const node = (x, z) => {
-    // ближайший проходимый узел (по спирали до 5 клеток)
-    const i0 = Math.round((x + half) / G), j0 = Math.round((z + half) / G);
-    for (let r = 0; r <= 5; r++) {
-      for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) {
-        const i = i0 + di, j = j0 + dj;
-        if (i >= 0 && j >= 0 && i < W && j < W && H[j * W + i] > minH) return j * W + i;
+  const hAt = (k) => hf.sample(-half + (k % W) * G, -half + ((k / W) | 0) * G);
+  return function route(ax, az, bx, bz, over = {}) {
+    const { maxSlope = Infinity, steep = 0, dirs16 = false, ok = null, extra = null, maxIter = 4e5 } = { ...opts, ...over };
+    const DIRS = dirs16 ? DIRS16 : DIRS8;
+    const pass = (k) => hAt(k) > minH && (!ok || ok(-half + (k % W) * G, -half + ((k / W) | 0) * G));
+    const node = (x, z) => {
+      // ближайший проходимый узел (по спирали до 5 клеток)
+      const i0 = Math.round((x + half) / G), j0 = Math.round((z + half) / G);
+      for (let r = 0; r <= 5; r++) {
+        for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) {
+          const i = i0 + di, j = j0 + dj;
+          if (i >= 0 && j >= 0 && i < W && j < W && pass(j * W + i)) return j * W + i;
+        }
       }
-    }
-    return -1;
-  };
-  return function route(ax, az, bx, bz) {
+      return -1;
+    };
     const s = node(ax, az), t = node(bx, bz);
     if (s < 0 || t < 0) return null;
     g.fill(Infinity); closed.fill(0);
@@ -70,19 +79,22 @@ export function makeRouter(hf, G = 8, minH = 0.8) {
       }
       return top;
     };
-    while (heap.length) {
+    let iter = 0;
+    while (heap.length && iter++ < maxIter) {
       const [, k] = pop();
       if (closed[k]) continue;
       if (k === t) break;
       closed[k] = 1;
-      const i = k % W, j = (k / W) | 0;
+      const i = k % W, j = (k / W) | 0, hk = hAt(k);
       for (const [di, dj] of DIRS) {
         const ni = i + di, nj = j + dj;
         if (ni < 0 || nj < 0 || ni >= W || nj >= W) continue;
         const n = nj * W + ni;
-        if (closed[n] || H[n] <= minH) continue;
-        const L = G * (di && dj ? Math.SQRT2 : 1), sl = Math.abs(H[n] - H[k]) / L;
-        const cost = L * (1 + 30 * sl * sl + (sl > 0.3 ? 15 : 0));
+        if (closed[n] || !pass(n)) continue;
+        const L = G * Math.hypot(di, dj), sl = Math.abs(hAt(n) - hk) / L;
+        let cost = L * (1 + 30 * sl * sl + (sl > 0.3 ? 15 : 0));
+        if (sl > maxSlope) { if (!steep) continue; cost *= steep; }
+        if (extra) cost *= 1 + extra(-half + ni * G, -half + nj * G);
         if (g[k] + cost < g[n]) { g[n] = g[k] + cost; from[n] = k; push(g[n] + G * Math.hypot(ni - ti, nj - tj), n); }
       }
     }
@@ -93,6 +105,57 @@ export function makeRouter(hf, G = 8, minH = 0.8) {
   };
 }
 
+// Наибольший уклон ломаной по рельефу на скользящем окне win м (шаг 2 м)
+export function maxGrade(sample, pts, win = 6) {
+  const q = resample(pts, 2), h = q.map(([x, z]) => sample(x, z)), n = Math.max(1, Math.round(win / 2));
+  let m = 0;
+  for (let i = n; i < q.length; i++) m = Math.max(m, Math.abs(h[i] - h[i - n]) / pathLength(q.slice(i - n, i + 1)));
+  return m;
+}
+
+// Подрезка и подсыпка рельефа вдоль трассы: профиль (шаг 2 м, сглажен) с уклоном не круче maxSlope,
+// срез и насыпь не больше maxCut; полоса halfW — по профилю, откос ещё на shoulder м. Клетки ниже minH не трогает.
+// Возвращает { cut — наибольший срез или насыпь, м; grade — остаточный уклон }. dry — только оценить нужный срез (без maxCut), не меняя рельеф.
+// lock (Uint8Array клеток) — полотно уже выровненных путей: не трогается, а полотно этого пути в него добавляется —
+// пути, выровненные позже, не портят прежние, а примыкают к ним по их высоте.
+export function gradeAlong(hf, pts, halfW, maxSlope, { maxCut = 2, minH = 0.7, shoulder = 4, dry = false, lock = null } = {}) {
+  const q = resample(pts, 2), n = q.length;
+  if (n < 3) return { cut: 0, grade: 0 };
+  const raw = q.map(([x, z]) => hf.sample(x, z));
+  let prof = raw.map((_, i) => { let a = 0, c = 0; for (let d = -2; d <= 2; d++) { const v = raw[i + d]; if (v !== undefined) { a += v; c++; } } return a / c; });
+  const ds = pathLength(q) / (n - 1), m = maxSlope * ds;
+  for (let it = 0; it < 4; it++) {
+    for (let i = 1; i < n; i++) prof[i] = Math.min(prof[i - 1] + m, Math.max(prof[i - 1] - m, prof[i]));
+    for (let i = n - 2; i >= 0; i--) prof[i] = Math.min(prof[i + 1] + m, Math.max(prof[i + 1] - m, prof[i]));
+  }
+  if (dry) return { cut: prof.reduce((a, v, i) => Math.max(a, Math.abs(v - raw[i])), 0), grade: 0 };
+  prof = prof.map((v, i) => raw[i] + Math.max(-maxCut, Math.min(maxCut, v - raw[i])));
+  // ближайшая точка профиля для клеток вокруг каждого отрезка
+  const [x0, z0] = hf.bounds, st = hf.step, W = hf.size, H = hf.heights, R = halfW + shoulder, best = new Map();
+  for (let i = 0; i < n - 1; i++) {
+    const [ax, az] = q[i], [bx, bz] = q[i + 1], dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1;
+    const i0 = Math.floor((Math.min(ax, bx) - R - x0) / st), i1 = Math.ceil((Math.max(ax, bx) + R - x0) / st);
+    const j0 = Math.floor((Math.min(az, bz) - R - z0) / st), j1 = Math.ceil((Math.max(az, bz) + R - z0) / st);
+    for (let j = Math.max(0, j0); j <= Math.min(W - 1, j1); j++) for (let ii = Math.max(0, i0); ii <= Math.min(W - 1, i1); ii++) {
+      const px = x0 + ii * st, pz = z0 + j * st, t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / l2));
+      const d = Math.hypot(px - ax - dx * t, pz - az - dz * t);
+      if (d > R) continue;
+      const k = j * W + ii, b = best.get(k);
+      if (!b || d < b[0]) best.set(k, [d, prof[i] * (1 - t) + prof[i + 1] * t]);
+    }
+  }
+  let cut = 0;
+  for (const [k, [d, target]] of best) {
+    if (H[k] < minH || lock?.[k]) continue;
+    const u = d <= halfW ? 1 : 1 - (d - halfW) / shoulder, w = u * u * (3 - 2 * u);
+    const nh = Math.max(minH, H[k] + (target - H[k]) * w);
+    cut = Math.max(cut, Math.abs(nh - H[k]));
+    H[k] = nh;
+  }
+  if (lock) for (const [k, [d]] of best) if (d <= halfW) lock[k] = 1;
+  return { cut, grade: maxGrade(hf.sample, pts) };
+}
+
 // Упрощение ломаной (Рамер — Дуглас — Пекер) с допуском eps, м
 export function simplify(pts, eps) {
   if (pts.length < 3) return pts.slice();
@@ -101,10 +164,11 @@ export function simplify(pts, eps) {
   const stack = [[0, pts.length - 1]];
   while (stack.length) {
     const [a, b] = stack.pop();
-    const [ax, az] = pts[a], [bx, bz] = pts[b], dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz) || 1;
+    const [ax, az] = pts[a], [bx, bz] = pts[b], dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz);
     let worst = -1, wd = eps;
     for (let i = a + 1; i < b; i++) {
-      const d = Math.abs((pts[i][0] - ax) * dz - (pts[i][1] - az) * dx) / l;
+      // замкнутый контур (концы совпадают) — расстояние до точки, а не до прямой
+      const d = l > 1e-9 ? Math.abs((pts[i][0] - ax) * dz - (pts[i][1] - az) * dx) / l : Math.hypot(pts[i][0] - ax, pts[i][1] - az);
       if (d > wd) { wd = d; worst = i; }
     }
     if (worst > 0) { keep[worst] = 1; stack.push([a, worst], [worst, b]); }

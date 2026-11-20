@@ -1,4 +1,4 @@
-import { edt, isolines, simplify, chaikin, pathLength, polyline, traceGradient, makeRouter } from './geom.js';
+import { edt, isolines, simplify, chaikin, resample, pathLength, polyline, traceGradient, makeRouter, gradeAlong, maxGrade } from './geom.js';
 
 // Проектирование поселений и всего антропогенного (шаг между биомами и объектами): только данные, без three.js.
 //
@@ -6,7 +6,9 @@ import { edt, isolines, simplify, chaikin, pathLength, polyline, traceGradient, 
 //   граница  — заливка от центра по пригодной суше (тот же остров, не круто), до площади π r² × k: сама тянется вдоль берега;
 //   улицы    — продольные по изолиниям поля F: на ровном F — расстояние до воды (улицы повторяют берег),
 //              на склоне — высота (террасы по горизонталям); первая улица у воды — набережная или главная;
-//              поперечные — от главной вверх по градиенту F, на крутом — лестницы;
+//              периметр каждой зоны — переулок (ring) или полевая дорога (track);
+//              поперечные — по полосам между продольными, вверх по градиенту F со скосом: T-перекрёстки, углы не прямые;
+//              уклон проезжих путей не круче 15 %: подрезка рельефа, серпантин (ramp), иначе лестница;
 //   площадь  — самое ровное место 20×20 м у главной улицы ближе к центру; резервы общественных зданий — вокруг неё;
 //   зоны     — core, residential, waterfront в границе; outskirts и fields в кольце за ней;
 //   причалы  — точки на кромке, где в 20 м от берега достаточно глубоко.
@@ -30,6 +32,9 @@ const HARBOR_USE = new Set(['warehouse', 'customs', 'pilot-station']);
 const ROAD = { port: 'road-cobble', town: 'road-cobble', village: 'road-dirt' };
 const REACH = { 'pier-stone': 40, 'pier-wood': 22, 'quay-wall': 8, 'jetty-small': 10 }; // длина причала: глубина у его конца
 const HW = { 'road-cobble': 2.9, 'road-dirt': 2.1, path: 0.9, stairs: 3.5 }; // полуширина ленты с обочиной
+// предельный уклон (окно 6 м): проезжие пути — VEH, тропы — FOOT; круче — серпантин, подрезка рельефа или лестница
+const VEH = 0.15, FOOT = 0.25;
+const FOOTWAY = new Set(['stairs', 'path']);
 
 export function planSettlements(hf, bio, map, { footprint }) {
   const t0 = performance.now();
@@ -111,6 +116,113 @@ export function planSettlements(hf, bio, map, { footprint }) {
     return runs.filter((r) => r.length > 1 && pathLength(r) >= minLen);
   }
   const smoothLine = (pts) => chaikin(chaikin(simplify(pts, 1.5)));
+  // ближайшая точка ломаной: расстояние, точка, касательная отрезка
+  function nearestOn(px, pz, pts) {
+    let best = { d: Infinity, x: px, z: pz, tx: 1, tz: 0 };
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[i + 1], dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+      if (!l2) continue;
+      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / l2)), x = ax + dx * t, z = az + dz * t, d = Math.hypot(px - x, pz - z);
+      if (d < best.d) { const l = Math.sqrt(l2); best = { d, x, z, tx: dx / l, tz: dz / l }; }
+    }
+    return best;
+  }
+  // куски ломаной, не идущие вдоль других улиц (ближе d и почти параллельно); пересечения не режутся
+  // (короткие «покрытые» куски < 12 м остаются); оборванный у улицы конец дотягивается до неё — выходит примыкание
+  function notAlong(pts, others, d, minLen) {
+    const n = pts.length, cov = new Uint8Array(n), near = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+      let tx = b[0] - a[0], tz = b[1] - a[1];
+      const l = Math.hypot(tx, tz) || 1; tx /= l; tz /= l;
+      for (const o of others) {
+        const q = nearestOn(pts[i][0], pts[i][1], o);
+        if (q.d >= d) continue;
+        near[i] = q;
+        if (Math.abs(tx * q.tx + tz * q.tz) > 0.75) { cov[i] = 1; break; }
+      }
+    }
+    for (let i = 0; i < n;) {
+      if (!cov[i]) { i++; continue; }
+      let j = i, L = 0;
+      while (j + 1 < n && cov[j + 1]) { L += Math.hypot(pts[j + 1][0] - pts[j][0], pts[j + 1][1] - pts[j][1]); j++; }
+      if (L < 12) for (let m = i; m <= j; m++) cov[m] = 0;
+      i = j + 1;
+    }
+    const runs = [];
+    for (let i = 0; i < n;) {
+      if (cov[i]) { i++; continue; }
+      let j = i;
+      while (j + 1 < n && !cov[j + 1]) j++;
+      const run = pts.slice(i, j + 1);
+      if (i > 0 && near[i - 1]) run.unshift([near[i - 1].x, near[i - 1].z]);
+      if (j < n - 1 && near[j + 1]) run.push([near[j + 1].x, near[j + 1].z]);
+      if (pathLength(run) >= minLen) runs.push(run);
+      i = j + 1;
+    }
+    return runs;
+  }
+  // деление пути по уклону (окно 6 м): до VEH — как есть; круче — пешком: у троп и полевых дорог до FOOT — тропа,
+  // у улиц — лестница; круче FOOT — всегда лестница. Куски короче 6 м сливаются с соседями.
+  function splitGrade(pts, cls, road) {
+    const q = resample(pts, 2), n = q.length, h = q.map(([x, z]) => hf.sample(x, z));
+    const soft = cls === 'track' || cls === 'path';
+    const kind = q.map((_, i) => {
+      const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 2), g = Math.abs(h[b] - h[a]) / Math.max(1, pathLength(q.slice(a, b + 1)));
+      return g <= VEH ? (cls === 'path' ? 1 : 0) : g <= FOOT && soft ? 1 : 2;
+    });
+    for (let i = 0; i < n;) { let j = i; while (j + 1 < n && kind[j + 1] === kind[i]) j++; if (j - i < 3 && i > 0) for (let m = i; m <= j; m++) kind[m] = Math.max(kind[m], kind[i - 1]); i = j + 1; }
+    const as = [{ cls, road }, { cls: 'path', road: 'path' }, { cls: 'stairs', road: 'stairs' }], out = [];
+    for (let i = 0; i < n - 1;) {
+      let j = i;
+      while (j + 1 < n && kind[j + 1] === kind[i]) j++;
+      out.push({ ...as[kind[i]], pts: q.slice(i, Math.min(n, j + 2)) });
+      i = j + 1;
+    }
+    return out.filter((l) => l.pts.length > 1);
+  }
+  // перекрёстки сети: T — конец ломаной у середины другой, X — пересечение вдали от концов; angle — острый угол, °
+  function junctionsOf(lines) {
+    const out = [];
+    const acute = (ax, az, bx, bz) => Math.acos(Math.min(1, Math.abs(ax * bx + az * bz))) * 180 / Math.PI;
+    const isEnd = (x, z, pts) => Math.hypot(x - pts[0][0], z - pts[0][1]) < 5 || Math.hypot(x - pts.at(-1)[0], z - pts.at(-1)[1]) < 5;
+    const box = lines.map((l) => { let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity; for (const [x, z] of l.pts) { a = Math.min(a, x); b = Math.min(b, z); c = Math.max(c, x); d = Math.max(d, z); } return [a - 4, b - 4, c + 4, d + 4]; });
+    lines.forEach((a, ia) => {
+      for (const end of [0, 1]) {
+        const e = end ? a.pts.at(-1) : a.pts[0], f = end ? a.pts[Math.max(0, a.pts.length - 3)] : a.pts[Math.min(a.pts.length - 1, 2)];
+        let best = null;
+        lines.forEach((b, ib) => {
+          if (ib === ia || e[0] < box[ib][0] || e[0] > box[ib][2] || e[1] < box[ib][1] || e[1] > box[ib][3]) return;
+          const q = nearestOn(e[0], e[1], b.pts);
+          if (q.d < 3.5 && (!best || q.d < best.d)) best = { ...q, b };
+        });
+        if (!best || isEnd(best.x, best.z, best.b.pts)) continue; // продолжение или стык концами — не перекрёсток
+        const dx = e[0] - f[0], dz = e[1] - f[1], l = Math.hypot(dx, dz) || 1;
+        out.push({ x: best.x, z: best.z, type: 'T', angle: acute(dx / l, dz / l, best.tx, best.tz) });
+      }
+    });
+    for (let ia = 0; ia < lines.length; ia++) for (let ib = ia + 1; ib < lines.length; ib++) {
+      const A = lines[ia].pts, B = lines[ib].pts, ba = box[ia], bb = box[ib];
+      if (ba[0] > bb[2] || bb[0] > ba[2] || ba[1] > bb[3] || bb[1] > ba[3]) continue;
+      for (let i = 0; i < A.length - 1; i++) for (let j = 0; j < B.length - 1; j++) {
+        const [ax, az] = A[i], [bx, bz] = A[i + 1], [cx, cz] = B[j], [dx, dz] = B[j + 1];
+        const rx = bx - ax, rz = bz - az, sx = dx - cx, sz = dz - cz, den = rx * sz - rz * sx;
+        if (Math.abs(den) < 1e-9) continue;
+        const t = ((cx - ax) * sz - (cz - az) * sx) / den, u = ((cx - ax) * rz - (cz - az) * rx) / den;
+        if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+        const x = ax + rx * t, z = az + rz * t;
+        if (isEnd(x, z, A) || isEnd(x, z, B)) continue;
+        const lr = Math.hypot(rx, rz), ls = Math.hypot(sx, sz);
+        out.push({ x, z, type: 'X', angle: acute(rx / lr, rz / lr, sx / ls, sz / ls) });
+      }
+    }
+    return out.filter((j, n) => !out.slice(0, n).some((o) => Math.hypot(o.x - j.x, o.z - j.z) < 4));
+  }
+  const RIGHT = 80; // угол примыкания от 80° — «прямой»
+  const zf = new Float32Array(N); // маска зоны для периметров (очищается после каждой)
+  const lock = new Uint8Array(N); // полотно выровненных путей (gradeAlong)
+  const hole = new Uint8Array(N); // дыры в зонах текущей площадки (кручи внутри): переулки идут через них
+  const local = makeRouter(hf, 4, 0.7, { maxSlope: VEH, dirs16: true }); // серпантины внутри посёлка
 
   const sites = [];
   const order = hf.sites.map((s, i) => [s, i]).sort((a, b) => (ORDER[a[0].type] ?? 9) - (ORDER[b[0].type] ?? 9));
@@ -243,39 +355,8 @@ export function planSettlements(hf, bio, map, { footprint }) {
     p.streets.push(...long.slice(0, nStreets + 1));
     const main = p.streets[0];
 
-    // 4. поперечные: от главной вверх по градиенту высоты с примесью расстояния до воды (на ровном — прочь от берега),
-    // до последней продольной; круто — лестница
-    const F = (x, z) => hf.sample(x, z) + 0.25 * waterDist(x, z);
-    if (main) {
-      const P = polyline(main.pts), every = big ? 42 : 50, ends = p.streets.slice(1).map((l) => l.pts);
-      for (let u = every / 2; u < P.L - 8; u += every) {
-        const a = P.at(u);
-        const tr = traceGradient(F, a.x, a.z, { ds: 3, maxLen: R * 1.8, ok: inMask });
-        if (tr.length < 6) continue;
-        // обрезка после последней встречи с продольной улицей (+ 4 м)
-        let cut = tr.length - 1;
-        if (ends.length) {
-          let last = -1;
-          tr.forEach(([x, z], n) => { if (n > 3 && ends.some((e) => distTo(x, z, e) < 3)) last = n; });
-          if (last > 0) cut = Math.min(tr.length - 1, last + 1);
-          else if (s.type !== 'village') continue; // не дошла ни до одной улицы — не нужна
-        }
-        const lane = tr.slice(0, cut + 1);
-        if (pathLength(lane) < 15) continue;
-        // делим на участки: уклон > 0.25 — лестница
-        let run = [lane[0]], stairs = null;
-        const flush = () => { if (run.length > 1) p.streets.push({ cls: stairs ? 'stairs' : 'lane', road: stairs ? 'stairs' : road, pts: run }); };
-        for (let n = 1; n < lane.length; n++) {
-          const [ax, az] = lane[n - 1], [bx, bz] = lane[n], sl = Math.abs(hf.sample(bx, bz) - hf.sample(ax, az)) / Math.hypot(bx - ax, bz - az);
-          const isSt = sl > 0.25;
-          if (stairs !== null && isSt !== stairs) { flush(); run = [lane[n - 1]]; }
-          stairs = isSt; run.push(lane[n]);
-        }
-        flush();
-      }
-    }
-
-    // 5. площадь: самое ровное 20×20 м у первых двух улиц, ближе к центру
+    // 4. площадь — сразу после продольных улиц: от неё центр (core); переулки примыкают к её краю, периметры её обходят;
+    // самое ровное 20×20 м у первых двух улиц, ближе к центру
     const fpFits = (x, z, w, d, rot, tol) => {
       const c = Math.cos(rot), sn = Math.sin(rot);
       let lo = Infinity, hi = -Infinity;
@@ -321,16 +402,15 @@ export function planSettlements(hf, bio, map, { footprint }) {
     }
     if (plaza) { p.plaza = { x: plaza.x, z: plaza.z, rot: plaza.rot, w: plaza.w, d: plaza.d }; taken.push(plaza); }
     const hub = p.plaza ?? { x: s.x, z: s.z };
-
-    // 6. резервы общественных зданий: у улиц, ближе к площади; портовые (пакгауз, таможня, лоцманская) — ближе к воде
+    // резервы общественных зданий: у улиц, ближе к площади; портовые (пакгауз, таможня, лоцманская) — ближе к воде
     const list = s.fishing ? ['chapel'] : PUBLIC[s.type] ?? [];
     const quay = p.streets.find((l) => l.cls === 'quay');
     const harborHub = quay ? (() => { const P = polyline(quay.pts), a = P.at(P.L / 2); return { x: a.x, z: a.z }; })() : hub;
-    for (const id of list) {
+    function placeReserve(id) {
       const { w, d } = footprint(id), near = HARBOR_USE.has(id) ? harborHub : hub;
       const cand = [];
       for (const l of p.streets) {
-        if (l.cls === 'stairs') continue;
+        if (FOOTWAY.has(l.cls)) continue;
         const P = polyline(l.pts);
         for (let u = w / 2 + 2; u < P.L - w / 2 - 2; u += 3) for (const side of [-1, 1]) {
           const q = besideStreet(l, u, side, w, d);
@@ -347,24 +427,229 @@ export function planSettlements(hf, bio, map, { footprint }) {
         all.sort((a, b) => a.dc - b.dc);
         got = all.find((q) => !overlaps(q.x, q.z, w, d) && fpFits(q.x, q.z, w, d, q.rot, 3) !== null && clearOfStreets(q.x, q.z, w, d, q.rot));
       }
-      if (got) { const r = { id, x: got.x, z: got.z, rot: got.rot, w, d }; p.reserves.push(r); taken.push(r); }
+      if (!got) return null;
+      const r = { id, x: got.x, z: got.z, rot: got.rot, w, d };
+      p.reserves.push(r); taken.push(r);
+      return r;
+    }
+    // площадь и церковь — «блоки»: их край — как улица (к нему примыкают переулки), периметры их обходят,
+    // клетки заперты от подрезки дорог
+    const blocks = [];
+    if (p.plaza) blocks.push(p.plaza);
+    if (list.includes('church')) { const c = placeReserve('church'); if (c) blocks.push(c); }
+    const inBlock = (x, z, pad = 0) => blocks.some(({ x: px, z: pz, rot, w, d }) => {
+      const c = Math.cos(rot), sn = Math.sin(rot), dx = x - px, dz = z - pz;
+      return Math.abs(dx * c - dz * sn) < w / 2 + pad && Math.abs(dx * sn + dz * c) < d / 2 + pad;
+    });
+    const blockRings = blocks.map(({ x: px, z: pz, rot, w, d }) => {
+      const c = Math.cos(rot), sn = Math.sin(rot);
+      return [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]].map(([a, b]) => [px + a * w / 2 * c + b * d / 2 * sn, pz - a * w / 2 * sn + b * d / 2 * c]);
+    });
+    for (const b of blocks) {
+      const R2 = Math.hypot(b.w, b.d);
+      for (let dz = -R2; dz <= R2; dz += st) for (let dx = -R2; dx <= R2; dx += st) if (inBlock(b.x + dx, b.z + dz, 1)) { const k = cellOf(b.x + dx, b.z + dz); if (k >= 0) lock[k] = 1; }
     }
 
-    // 7. зоны: в границе — core / waterfront / residential; кольцо за ней — outskirts и fields (ровный луг)
+    // 5. зоны: в границе — core (у площади, край неровный), waterfront (порт: между набережной и водой), residential;
+    // кольцо за границей — outskirts и fields (ровный луг)
+    let seed = ((map.seed ?? 1) * 7919 + idx * 104729) >>> 0;
+    const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+    const ph = [rnd() * 6.28, rnd() * 6.28, rnd() * 6.28];
+    const wob = (x, z, a) => { const t = Math.atan2(z - hub.z, x - hub.x); return 1 + a * (0.6 * Math.sin(2 * t + ph[0]) + 0.4 * Math.sin(3 * t + ph[1])); };
     for (const k of cells) {
       const [x, z] = xy(k);
-      zone[k] = Math.hypot(x - hub.x, z - hub.z) < R * 0.45 ? PZ.core
+      zone[k] = Math.hypot(x - hub.x, z - hub.z) < R * 0.45 * wob(x, z, 0.25) ? PZ.core
         : s.type === 'port' && nearSea && toWater[k] < level0 - 2 ? PZ.waterfront : PZ.residential;
     }
-    const RO = R * 1.7;
-    for (let dz = -RO; dz <= RO; dz += st) for (let dx = -RO; dx <= RO; dx += st) {
-      if (dx * dx + dz * dz > RO * RO) continue;
+    const mine = cells.slice(), RO = R * 1.7;
+    for (let dz = -RO * 1.2; dz <= RO * 1.2; dz += st) for (let dx = -RO * 1.2; dx <= RO * 1.2; dx += st) {
+      if (Math.hypot(dx, dz) > RO * wob(s.x + dx, s.z + dz, 0.15)) continue;
       const k = cellOf(s.x + dx, s.z + dz);
       if (k < 0 || siteOf[k] >= 0 || zone[k] || H[k] < 0.7 || hf.owner[k] !== p.island || slopeAt(k) > 0.3) continue;
       zone[k] = bio.zone && bio.zoneAt(s.x + dx, s.z + dz) === 'meadow' ? PZ.fields : PZ.outskirts;
+      mine.push(k);
     }
 
-    // 8. причалы: точки кромки у первой улицы; у каждого типа своя глубина у конца
+    // 6. периметры зон: изолиния 0.5 маски зоны без кромки воды и без кусков вдоль уже существующих улиц;
+    // в посёлке — переулок (ring), снаружи окраин и полей — полевая дорога (track)
+    const longs = p.streets.slice();
+    let wi0 = W, wj0 = W, wi1 = 0, wj1 = 0;
+    for (const k of mine) { const i = k % W, j = (k / W) | 0; wi0 = Math.min(wi0, i); wi1 = Math.max(wi1, i); wj0 = Math.min(wj0, j); wj1 = Math.max(wj1, j); }
+    const winO = [Math.max(0, wi0 - 2), Math.max(0, wj0 - 2), Math.min(W - 1, wi1 + 2), Math.min(W - 1, wj1 + 2)];
+    const holes = [];
+    for (const v of [PZ.core, PZ.residential, PZ.waterfront, PZ.outskirts, PZ.fields]) {
+      let any = false;
+      for (const k of mine) if (zone[k] === v) { zf[k] = 1; any = true; }
+      // дыры в зоне (кручи, скалы внутри) — не граница с другой зоной: залить (всё, куда не дойти от края окна)
+      if (any) {
+        const seen = new Uint8Array((winO[2] - winO[0] + 1) * (winO[3] - winO[1] + 1)), ww = winO[2] - winO[0] + 1;
+        const at = (i, j) => (j - winO[1]) * ww + (i - winO[0]), stack = [];
+        for (let i = winO[0]; i <= winO[2]; i++) for (const j of [winO[1], winO[3]]) stack.push([i, j]);
+        for (let j = winO[1]; j <= winO[3]; j++) for (const i of [winO[0], winO[2]]) stack.push([i, j]);
+        while (stack.length) {
+          const [i, j] = stack.pop();
+          if (i < winO[0] || j < winO[1] || i > winO[2] || j > winO[3] || seen[at(i, j)] || zf[j * W + i]) continue;
+          seen[at(i, j)] = 1;
+          stack.push([i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]);
+        }
+        for (let j = winO[1]; j <= winO[3]; j++) for (let i = winO[0]; i <= winO[2]; i++) if (!seen[at(i, j)] && !zf[j * W + i]) { zf[j * W + i] = 1; mine.push(j * W + i); holes.push(j * W + i); if (v <= PZ.waterfront) hole[j * W + i] = 1; }
+      }
+      if (any) {
+        const outer = v >= PZ.outskirts;
+        for (const c of isolines(zf, W, st, x0, z0, 0.5, winO)) {
+          const dry = [];
+          let run = [];
+          for (const q of c) {
+            if (waterDist(q[0], q[1]) > 8 && hf.sample(q[0], q[1]) > 0.7) run.push(q);
+            else { if (run.length > 1) dry.push(run); run = []; }
+          }
+          if (run.length > 1) dry.push(run);
+          // без кусков через площадь и церковь
+          const out = [];
+          for (const r of dry) { let q = []; for (const pt of r) { if (inBlock(pt[0], pt[1], 2)) { if (q.length > 1) out.push(q); q = []; } else q.push(pt); } if (q.length > 1) out.push(q); }
+          for (const r of out) for (const piece of notAlong(simplify(r, 1), [...p.streets.map((l) => l.pts), ...blockRings], 6, 10)) {
+            p.streets.push({ cls: outer ? 'track' : 'ring', road: outer ? 'road-dirt' : road, pts: chaikin(chaikin(simplify(piece, 2.5))) });
+          }
+        }
+      }
+      for (const k of mine) zf[k] = 0;
+      for (const k of holes.splice(0)) mine.pop();
+    }
+
+    // 7. поперечные по полосам: от продольной улицы вверх по градиенту F до первой встречной улицы или периметра —
+    // T-перекрёстки; старты соседних полос сдвинуты на полшага; трасса скошена на θ к нормали улицы — углы не прямые
+    const F = (x, z) => hf.sample(x, z) + 0.25 * waterDist(x, z);
+    const every = big ? 42 : 50, lanes = [];
+    let sgn = 1;
+    // источники полос: продольные улицы, затем кольца периметров в посёлке (от кольца центра — наружу)
+    const sources = [...longs, ...p.streets.filter((l) => l.cls === 'ring')];
+    const inTown = (x, z) => { const k = cellOf(x, z); return k >= 0 && (cur[k] === 1 || hole[k] === 1); };
+    function traceLane(band, u, theta) {
+      const l0 = sources[band], a = polyline(l0.pts).at(u), e = 2;
+      const g0 = Math.hypot(F(a.x + e, a.z) - F(a.x - e, a.z), F(a.x, a.z + e) - F(a.x, a.z - e)) / (2 * e);
+      const kk = Math.tan(theta) * g0;
+      const Fs = (x, z) => F(x, z) + kk * ((x - a.x) * a.tx + (z - a.z) * a.tz);
+      if (inBlock(a.x, a.z, 2)) return null;
+      const tr = traceGradient(Fs, a.x, a.z, { ds: 3, maxLen: R * 1.8, ok: inTown });
+      if (tr.length < 4) return null;
+      // остановилась на вершине (градиент обнулился) — дальше прямо по инерции, пока в границе
+      for (let m = 0, [px, pz] = tr.at(-2), [qx, qz] = tr.at(-1); m < R / 3; m++) {
+        const l = Math.hypot(qx - px, qz - pz) || 1, nx = qx + (qx - px) / l * 3, nz = qz + (qz - pz) / l * 3;
+        if (!inTown(nx, nz)) break;
+        tr.push([nx, nz]); [px, pz, qx, qz] = [qx, qz, nx, nz];
+      }
+      const targets = [...p.streets.filter((l) => l !== l0), ...lanes.filter((q) => q.band !== band || q.u !== u)].map((l) => l.pts);
+      targets.push(...blockRings);
+      for (let n = 2; n < tr.length + 2; n++) {
+        const [x, z] = n < tr.length ? tr[n] : tr.at(-1);
+        let hit = null;
+        for (const t of targets) { const q = nearestOn(x, z, t); if (q.d < (n < tr.length ? 2.5 : 4) && (!hit || q.d < hit.d)) hit = q; }
+        if (hit) {
+          const pts = [...tr.slice(0, Math.min(n, tr.length - 1) + 1), [hit.x, hit.z]];
+          return pathLength(pts) >= 12 ? { band, u, theta, pts } : null;
+        }
+      }
+      // не дошла ни до какой улицы: в деревне — тупик, в городе не нужна
+      return s.type === 'village' && pathLength(tr) >= 15 ? { band, u, theta, pts: tr } : null;
+    }
+    const pickTheta = () => { sgn = -sgn; return rnd() < 0.15 ? 0 : sgn * (18 + rnd() * 17) * Math.PI / 180; };
+    for (let band = 0; band < sources.length; band++) {
+      const L = polyline(sources[band].pts).L;
+      for (let u = every * (band % 2 ? 1 : 0.5) * (0.85 + 0.3 * rnd()); u < L - 8; u += every * (0.75 + 0.5 * rnd())) {
+        const lane = traceLane(band, u, pickTheta());
+        if (lane) lanes.push(lane);
+      }
+    }
+    // доля прямых углов — не больше 20 %: самые прямые переулки перетрассировать с бо́льшим скосом (до 2 проходов)
+    const laneAngle = (lane) => {
+      const near = junctionsOf([...p.streets, ...lanes]).filter((j) => [lane.pts[0], lane.pts.at(-1)].some((e) => Math.hypot(e[0] - j.x, e[1] - j.z) < 4));
+      return near.reduce((m, j) => Math.max(m, j.angle), 0);
+    };
+    for (let pass = 0; pass < 2; pass++) {
+      const js = junctionsOf([...p.streets, ...lanes]);
+      if (js.length < 5 || js.filter((j) => j.angle >= RIGHT).length <= 0.2 * js.length) break;
+      for (const lane of lanes.slice()) {
+        if (laneAngle(lane) < RIGHT) continue;
+        const th = (Math.sign(lane.theta) || (rnd() < 0.5 ? -1 : 1)) * (38 + 6 * pass) * Math.PI / 180;
+        const again = traceLane(lane.band, lane.u, th);
+        if (again) lanes[lanes.indexOf(lane)] = again;
+      }
+    }
+
+    // концы колец и переулков, примыкающие почти под прямым углом, — сдвинуть вдоль улицы: последние 8 м подхода косые
+    const DEG = Math.PI / 180;
+    for (const l of [...p.streets.filter((q) => !longs.includes(q)), ...lanes]) {
+      for (const end of [0, 1]) {
+        const pts = l.pts, n = pts.length;
+        if (n < 3) break;
+        const e = end ? pts[n - 1] : pts[0];
+        let best = null;
+        for (const o of [...p.streets, ...lanes]) {
+          if (o === l) continue;
+          const q = nearestOn(e[0], e[1], o.pts);
+          if (q.d < 3.5 && (!best || q.d < best.d)) best = { ...q, o };
+        }
+        if (!best) continue;
+        // точка подхода — 8 м назад по ломаной
+        let m = end ? n - 1 : 0, acc = 0;
+        while (acc < 8 && (end ? m > 0 : m < n - 1)) { const m2 = end ? m - 1 : m + 1; acc += Math.hypot(pts[m2][0] - pts[m][0], pts[m2][1] - pts[m][1]); m = m2; }
+        const f = pts[m], dx = e[0] - f[0], dz = e[1] - f[1], L = Math.hypot(dx, dz) || 1, dot = (dx * best.tx + dz * best.tz) / L;
+        if (Math.abs(dot) > Math.cos(RIGHT * DEG) || L < 5) continue;
+        const sg = dot >= 0 ? 1 : (dot < 0 ? -1 : (rnd() < 0.5 ? 1 : -1)), sh = L * Math.tan((24 + 10 * rnd()) * DEG);
+        const q = nearestOn(best.x + best.tx * sg * sh, best.z + best.tz * sg * sh, best.o.pts), ne = [q.x, q.z];
+        l.pts = end ? [...pts.slice(0, m + 1), ne] : [ne, ...pts.slice(m)];
+      }
+    }
+
+    // 8. уклоны: проезжие пути не круче VEH — подрезка рельефа; переулок — ещё серпантин (ramp); иначе пешком
+    const cuts = [];
+    const grade = (l, maxCut) => { const r = gradeAlong(hf, l.pts, HW[l.road] ?? 2, VEH, { maxCut, lock }); cuts.push(r.cut); return r.grade; };
+    // по старшинству: продольные, периметры, переулки; каждый выровненный путь запирает своё полотно
+    for (const l of longs) if (maxGrade(hf.sample, l.pts) > VEH) grade(l, 3); else gradeAlong(hf, l.pts, HW[l.road] ?? 2, VEH, { maxCut: 0, lock });
+    for (const l of p.streets.filter((q) => q.cls === 'ring' || q.cls === 'track')) if (maxGrade(hf.sample, l.pts) > VEH) grade(l, 3);
+    const ramp = (lane, maxCut) => {
+      const [a, b] = [lane.pts[0], lane.pts.at(-1)];
+      let path = local(a[0], a[1], b[0], b[1], { ok: (x, z) => inTown(x, z) || waterDist(x, z) > 3 && siteOf[cellOf(x, z)] < 0 });
+      if (!path) return null;
+      path = chaikin(chaikin([a, ...path.slice(1, -1), b]));
+      if (pathLength(path) > 4 * Math.max(20, pathLength(lane.pts))) return null;
+      const l = { cls: 'ramp', road, pts: path };
+      grade(l, maxCut);
+      return l;
+    };
+    const vehicleBands = new Set();
+    for (const lane of lanes) {
+      const l = { cls: 'lane', road, pts: lane.pts };
+      let out = [l];
+      if (maxGrade(hf.sample, l.pts) > VEH) {
+        if (gradeAlong(hf, l.pts, HW[road], VEH, { dry: true }).cut <= 1.5) grade(l, 1.5);
+        else { const r = ramp(lane, 2); out = r ? [r] : splitGrade(l.pts, 'lane', road); }
+      }
+      if (out.every((q) => !FOOTWAY.has(q.cls))) vehicleBands.add(lane.band);
+      lane.out = out;
+    }
+    // связность: в каждой полосе хотя бы один проезжий путь вверх — серпантин принудительно, со срезом до 3 м
+    for (let band = 0; band < longs.length; band++) {
+      const inBand = lanes.filter((q) => q.band === band);
+      if (!inBand.length || vehicleBands.has(band)) continue;
+      inBand.sort((a, b) => Math.abs(a.u - polyline(longs[band].pts).L / 2) - Math.abs(b.u - polyline(longs[band].pts).L / 2));
+      for (const lane of inBand) { const r = ramp(lane, 3); if (r) { lane.out.push(r); vehicleBands.add(band); break; } }
+    }
+    for (const lane of lanes) p.streets.push(...lane.out);
+    // что и после подрезки круче VEH — пешком (лестница; у полевой дороги — тропа)
+    for (const l of p.streets.slice()) {
+      if (FOOTWAY.has(l.cls) || maxGrade(hf.sample, l.pts) <= VEH + 0.005) continue;
+      p.streets.splice(p.streets.indexOf(l), 1, ...splitGrade(l.pts, l.cls, l.road));
+    }
+    p.cut = cuts.reduce((m, v) => Math.max(m, v), 0);
+    p.bands = longs.length;
+    p.vehicleBands = [...vehicleBands].filter((b) => b < longs.length).length;
+    p.junctions = junctionsOf(p.streets);
+
+    // 9. остальные резервы общественных зданий (церковь — уже на шаге 4)
+    for (const id of list) if (id !== 'church') placeReserve(id);
+
+    // 10. причалы: точки кромки у первой улицы; у каждого типа своя глубина у конца
     if (nearSea && main) {
       const NEED = { 'pier-stone': 2.5, 'pier-wood': 1.8, 'quay-wall': 1.2, 'jetty-small': 1.0 }, P = polyline(main.pts), spots = [];
       for (let u = 4; u < P.L - 4; u += 6) {
@@ -393,6 +678,7 @@ export function planSettlements(hf, bio, map, { footprint }) {
       }
     }
     for (const k of cells) cur[k] = 0;
+    hole.fill(0);
   }
 
   // --- дороги между поселениями одного массива суши ------------------------------
@@ -411,18 +697,57 @@ export function planSettlements(hf, bio, map, { footprint }) {
     }
     return mass[k0];
   };
-  const route = makeRouter(hf);
+  const route = makeRouter(hf, 4, 0.7); // шаг 4 м: узкие перешейки (у губ и бухт) на 8 м пропадают
   const roads = [];
   const byIsland = new Map();
   for (const p of sites) {
     const m = massAt(p.x, p.z);
     if (m >= 0) (byIsland.get(m) ?? byIsland.set(m, []).get(m)).push(p);
   }
-  // точки входа: концы продольных и поперечных улиц (у маяка — сама точка)
-  const gates = (p) => {
-    const g = p.streets.filter((l) => l.cls !== 'stairs').flatMap((l) => [l.pts[0], l.pts.at(-1)]);
-    return g.length ? g : [[p.x, p.z]];
+  // точка входа: ближайшая к соседу точка внешнего периметра (полевой дороги или кольца; у маяка — сама точка);
+  // away — не ближе 60 м к этой точке (вход запасной дороги)
+  const gate = (p, to, away = null) => {
+    let best = null;
+    const outer = p.streets.filter((l) => l.cls === 'track' || l.cls === 'ring');
+    for (const l of outer.length ? outer : p.streets) {
+      if (FOOTWAY.has(l.cls)) continue;
+      for (const [x, z] of away ? resample(l.pts, 4) : []) {
+        if (Math.hypot(x - away[0], z - away[1]) < 60) continue;
+        const d = Math.hypot(x - to.x, z - to.z);
+        if (!best || d < best.d) best = { d, x, z };
+      }
+      if (away) continue;
+      const q = nearestOn(to.x, to.z, l.pts);
+      if (!best || q.d < best.d) best = q;
+    }
+    return best ? [best.x, best.z] : [p.x, p.z];
   };
+  // прокладка пути ga → gb. kind: 'road-dirt' — дорога (не круче VEH; если так нельзя — круче со штрафом и подрезкой
+  // сильнее), 'track' — полевая дорога (не круче VEH, подрезка до 2 м, остаток — тропой), 'path' — тропа (не круче FOOT,
+  // иначе лестницей). Куски вдоль уже проложенных дорог и улиц посёлков near отрезаются — путь к ним примыкает.
+  // extra — добавка к цене узла (другой коридор); accept(pts) — проверка трассы до записи. Возвращает куски или null.
+  function lay(ga, gb, kind, from, to, near, { extra = null, accept = null, noSteep = false } = {}) {
+    const lim = kind === 'path' ? FOOT : VEH;
+    let path = route(ga[0], ga[1], gb[0], gb[1], { maxSlope: lim, dirs16: true, extra }), steep = false;
+    if (!path && !noSteep) { path = route(ga[0], ga[1], gb[0], gb[1], { maxSlope: lim, dirs16: true, extra, steep: 8 }); steep = true; }
+    if (!path || path.length < 2) return null;
+    const all = chaikin(chaikin([ga, ...path.slice(1, -1), gb]));
+    if (accept && !accept(all)) return null;
+    const ways = [...roads.map((r) => r.pts), ...near.flatMap((q) => q.streets.filter((l) => !FOOTWAY.has(l.cls)).map((l) => l.pts))];
+    const out = [];
+    for (const pts of notAlong(all, ways, 5, 8)) {
+      const r = { kind, from, to, pts, L: pathLength(pts) };
+      if (kind === 'path') r.segs = splitGrade(pts, 'path', 'path');
+      else {
+        Object.assign(r, gradeAlong(hf, pts, HW['road-dirt'], VEH, { maxCut: kind === 'track' ? 2 : steep ? 5 : 3, lock }));
+        if (kind === 'track' && r.grade > VEH + 0.005) r.segs = splitGrade(pts, 'track', 'road-dirt');
+      }
+      roads.push(r); out.push(r);
+    }
+    return out;
+  }
+  const SETTLE = new Set(['port', 'town', 'village']);
+  const nearMain = new Uint8Array(N); // коридор основной дороги (±45 м) — запасная его обходит
   for (const [, list] of byIsland) {
     const towns = list.filter((p) => p.type !== 'lighthouse'), edges = [];
     const inT = new Set(towns.length ? [towns[0]] : []);
@@ -442,12 +767,59 @@ export function planSettlements(hf, bio, map, { footprint }) {
       if (best) edges.push([l, best[0], 'path']);
     }
     for (const [a, b, kind] of edges) {
-      let g = null;
-      for (const ga of gates(a)) for (const gb of gates(b)) { const d = Math.hypot(ga[0] - gb[0], ga[1] - gb[1]); if (!g || d < g[2]) g = [ga, gb, d]; }
-      const path = route(g[0][0], g[0][1], g[1][0], g[1][1]);
-      if (!path || path.length < 2) continue;
-      const pts = chaikin(chaikin([g[0], ...path.slice(1, -1), g[1]]));
-      roads.push({ kind, from: a.name, to: b.name, pts, L: pathLength(pts) });
+      const ga = gate(a, b), gb = gate(b, a), main = lay(ga, gb, kind, a.name, b.name, [a, b]);
+      // между посёлками — вторая связь другим коридором: полевая дорога, если рельеф позволяет, иначе тропа;
+      // не длиннее основной втрое и не вдоль неё (не больше 40 % трассы ближе 15 м к основной)
+      if (!main?.length || !SETTLE.has(a.type) || !SETTLE.has(b.type)) continue;
+      const mainPts = main.flatMap((r) => r.pts), mainL = main.reduce((t, r) => t + r.L, 0) + Math.hypot(ga[0] - gb[0], ga[1] - gb[1]) * 0.2;
+      const R45 = Math.ceil(45 / st);
+      for (const [x, z] of resample(mainPts, 8)) {
+        const ci = Math.round((x - x0) / st), cj = Math.round((z - z0) / st);
+        for (let dj = -R45; dj <= R45; dj++) for (let di = -R45; di <= R45; di++) {
+          const i = ci + di, j = cj + dj;
+          if (i >= 0 && j >= 0 && i < W && j < W && di * di + dj * dj <= R45 * R45) nearMain[j * W + i] = 1;
+        }
+      }
+      const ga2 = gate(a, b, ga), gb2 = gate(b, a, gb);
+      const opts = {
+        extra: (x, z) => { const k = cellOf(x, z); return k >= 0 && nearMain[k] ? 6 : 0; },
+        accept: (pts) => pathLength(pts) <= 3 * Math.max(mainL, 50) && resample(pts, 4).filter(([x, z]) => mainPts.length && nearestOn(x, z, mainPts).d < 15).length <= 0.4 * resample(pts, 4).length,
+        noSteep: true,
+      };
+      lay(ga2, gb2, 'track', a.name, b.name, [a, b], opts) ?? lay(ga2, gb2, 'path', a.name, b.name, [a, b], opts);
+      nearMain.fill(0);
+    }
+
+    // названные места массива (пляжи, бухты, области) — тропа или полевая дорога от ближайшего посёлка,
+    // если до места ещё не доходит ни одна улица или дорога (ближе 30 м)
+    const from = towns.filter((p) => SETTLE.has(p.type));
+    const srcs = from.length ? from : towns.length ? towns : list;
+    if (!srcs.length) continue;
+    const m0 = massAt(srcs[0].x, srcs[0].z);
+    const landward = (x, z) => {
+      // ближайшая точка суши выше 1.2 м (до 60 м)
+      for (let r = 0; r <= 60; r += 4) for (let a = 0; a < 16; a++) {
+        const px = x + Math.cos(a * Math.PI / 8) * r, pz = z + Math.sin(a * Math.PI / 8) * r;
+        if (hf.sample(px, pz) > 1.2 && massAt(px, pz) === m0) return [px, pz];
+        if (!r) break;
+      }
+      return null;
+    };
+    const places = [
+      ...(map.beaches ?? []).map((b) => ({ name: b.name, kind: 'path', pts: resample(b.pts, 10) })),
+      ...(map.bays ?? []).map((b) => ({ name: b.name, kind: 'track', pts: [b.head] })),
+      ...(map.biomeRegions ?? []).filter((r) => r.x !== undefined).map((r) => ({ name: r.name, kind: 'track', pts: [[r.x, r.z]] })),
+    ];
+    const reached = (x, z) => [...roads.map((r) => r.pts), ...list.flatMap((q) => q.streets.map((l) => l.pts))].some((pts) => nearestOn(x, z, pts).d < 30);
+    for (const pl of places) {
+      const cand = pl.pts.map(([x, z]) => landward(x, z)).filter(Boolean);
+      if (!cand.length) continue;
+      let best = null;
+      for (const c of cand) for (const q of srcs) { const d = Math.hypot(c[0] - q.x, c[1] - q.z); if (!best || d < best.d) best = { d, c, q }; }
+      if (reached(best.c[0], best.c[1])) continue;
+      const g = gate(best.q, { x: best.c[0], z: best.c[1] });
+      const done = lay(g, best.c, pl.kind, best.q.name, pl.name, list, { noSteep: pl.kind === 'track' });
+      if (!done && pl.kind === 'track') lay(g, best.c, 'path', best.q.name, pl.name, list);
     }
   }
 
