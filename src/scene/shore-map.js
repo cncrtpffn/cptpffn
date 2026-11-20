@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { edt } from './terrain/geom.js';
 
 // Гашение волн у берега: на урезе и над сушей остаётся min от волны (накат),
 // с глубины depth (м) — полная волна. Одна формула для CPU (waves.damp) и вершинного
@@ -175,46 +176,5 @@ export function bakeShoreMap(shores, { texel = 0.6, maxSize = 2048, range = 16, 
       },
     };
     return out;
-  }
-}
-
-// Квадрат евклидова расстояния от каждого текселя до ближайшего с mask == target
-// (Felzenszwalb & Huttenlocher: точный EDT за O(N), сначала по столбцам, потом по строкам).
-export function edt(mask, target, W, H) {
-  const INF = 1e20;
-  const g = new Float32Array(W * H);
-  for (let k = 0; k < W * H; k++) g[k] = mask[k] === target ? 0 : INF;
-  const n = Math.max(W, H);
-  const f = new Float32Array(n), d = new Float32Array(n), v = new Int32Array(n), zb = new Float32Array(n + 1);
-  for (let i = 0; i < W; i++) {
-    for (let j = 0; j < H; j++) f[j] = g[j * W + i];
-    edt1d(f, H, d, v, zb);
-    for (let j = 0; j < H; j++) g[j * W + i] = d[j];
-  }
-  for (let j = 0; j < H; j++) {
-    const o = j * W;
-    for (let i = 0; i < W; i++) f[i] = g[o + i];
-    edt1d(f, W, d, v, zb);
-    for (let i = 0; i < W; i++) g[o + i] = d[i];
-  }
-  return g;
-}
-
-// нижняя огибающая парабол (q − p)² + f(p)
-function edt1d(f, n, d, v, z) {
-  let k = 0;
-  v[0] = 0; z[0] = -Infinity; z[1] = Infinity;
-  const cross = (q, p) => ((f[q] + q * q) - (f[p] + p * p)) / (2 * q - 2 * p);
-  for (let q = 1; q < n; q++) {
-    let s = cross(q, v[k]);
-    // z[0] = −∞, так что k не уходит ниже нуля
-    while (s <= z[k]) { k--; s = cross(q, v[k]); }
-    k++; v[k] = q; z[k] = s; z[k + 1] = Infinity;
-  }
-  k = 0;
-  for (let q = 0; q < n; q++) {
-    while (z[k + 1] < q) k++;
-    const p = v[k];
-    d[q] = (q - p) * (q - p) + f[p];
   }
 }

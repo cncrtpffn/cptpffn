@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createNoise } from './noise.js';
 import { MAT } from './heightfield.js';
-import { edt } from '../shore-map.js';
+import { edt } from './geom.js';
 import { smooth, sdEllipse, sdPolygon } from './shapes.js';
 
 // Биомы и ландшафтные зоны по полю высот (сетка та же, 2 м).
@@ -125,6 +125,7 @@ export function classifyBiomes(hf, map, regions = map.biomeRegions ?? []) {
     biome[k] = best;
   }
   const P = PARAMS.map((p) => BIOME_IDS.map((b) => BIOMES[b][p]));
+  const islMoist = map.islands.map((isl) => isl.moist ?? 0); // поправка влажности острова (мелкие острова — почти весь берег)
   const param = (k, p) => { let v = 0; for (let b = 0; b < NB; b++) v += weights[k * NB + b] * P[p][b]; return v / 255; };
 
   // расстояние до берега (м) по суше
@@ -149,12 +150,13 @@ export function classifyBiomes(hf, map, regions = map.biomeRegions ?? []) {
       }
       // влажность: шум + сдвиг биома, у самого берега суше (ветер, соль), в низинах чуть влажнее
       const cd = (Math.sqrt(toWater[k]) - 0.5) * step;
-      let m = 0.5 + 0.45 * fbm(x / 280, z / 280, 3) + B.moist - 0.2 * smooth(60, 0, cd) + 0.1 * smooth(20, 0, s * 40);
+      let m = 0.5 + 0.45 * fbm(x / 280, z / 280, 3) + B.moist + (islMoist[hf.owner[k]] ?? 0) - 0.2 * smooth(60, 0, cd) + 0.1 * smooth(20, 0, s * 40);
       m = Math.min(1, Math.max(0, m));
       moist[k] = m * 255;
       const n = 0.4 * fbm(x / 20, z / 20, 2);
       let zn;
-      if (h < 1.5 + n || (mat === MAT.sand && h < 3)) zn = Z.beach;
+      if (mat === MAT.rock) zn = Z.rock; // камни рифов над водой — скалы, а не пляж
+      else if (h < 1.5 + n || (mat === MAT.sand && h < 3)) zn = Z.beach;
       else if (mat === MAT.sand) zn = Z.dune; // песчаный остров (sandy) — дюны целиком
       else if (s > B.rockSlope + 0.1 * n) zn = Z.rock;
       else if (h > B.peakH + 10 * n) zn = Z.peak;
@@ -166,19 +168,6 @@ export function classifyBiomes(hf, map, regions = map.biomeRegions ?? []) {
       zone[k] = zn;
     }
   }
-  // площадки посёлков — свободны под постройки
-  for (const st of hf.sites) {
-    const r = st.r * (st.type === 'lighthouse' ? 1 : 0.85);
-    const i0 = Math.max(0, Math.floor((st.x - r - x0) / step)), i1 = Math.min(W - 1, Math.ceil((st.x + r - x0) / step));
-    const j0 = Math.max(0, Math.floor((st.z - r - z0) / step)), j1 = Math.min(W - 1, Math.ceil((st.z + r - z0) / step));
-    for (let j = j0; j <= j1; j++) {
-      for (let i = i0; i <= i1; i++) {
-        const k = j * W + i;
-        if (H[k] > 0.5 && Math.hypot(x0 + i * step - st.x, z0 + j * step - st.z) < r) zone[k] = Z.settle;
-      }
-    }
-  }
-
   const idx = (x, z) => {
     const i = Math.min(W - 1, Math.max(0, Math.round((x - x0) / step))), j = Math.min(W - 1, Math.max(0, Math.round((z - z0) / step)));
     return j * W + i;
@@ -234,4 +223,10 @@ export function classifyBiomes(hf, map, regions = map.biomeRegions ?? []) {
   }
 
   return { biome, weights, zone, moist, regions, zoneAt, biomeAt, weightsAt, pickBiome, paint, ms: performance.now() - t0 };
+}
+
+// зона «посёлок» — по границам из плана поселений (settlement-plan.js), вместо кругов площадок
+export function markSettle(bio, hf, plan) {
+  const H = hf.heights, Zs = Z.settle;
+  for (let k = 0; k < H.length; k++) if (plan.siteOf[k] >= 0 && H[k] > 0.5) bio.zone[k] = Zs;
 }

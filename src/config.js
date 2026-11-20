@@ -98,29 +98,6 @@ export const SEA = {
 export const SCENE = {
   waterSize: 440,
   waterSegments: 176,
-  // Острова: см. поля в src/scene/island.js (виды деревьев, цвета листвы и скал, количество объектов).
-  islands: [
-    { x: 260, z: -140, r: 48, h: 26, trees: 28, lighthouse: true, name: 'Маячный',
-      treeKinds: { pine: 2, cypress: 1 }, rockColor: ['gray', 'dark'], rocks: 16 },
-    { x: -230, z: 180, r: 70, h: 18, trees: 60, name: 'Сосновый',
-      treeKinds: { pine: 5, oak: 1 }, leaf: ['deep', 'green'], treeScale: [0.9, 1.5], rockColor: ['gray', 'grayBrown'] },
-    { x: 120, z: 330, r: 36, h: 12, trees: 20, name: 'Пальмовый',
-      treeKinds: { palm: 3, oak: 1 }, leaf: ['lime', 'fresh'], rockColor: ['sandstone'], flowers: 0.6,
-      grassColor: ['green', 'dry'], sandColor: 0xf0e2b6 },
-    { x: -340, z: -260, r: 90, h: 34, trees: 80, name: 'Большой',
-      treeKinds: { oak: 3, pine: 2, cypress: 1 }, leaf: { oak: ['fresh', 'olive', 'autumn', 'red'], pine: ['green', 'deep'], cypress: ['deep'] }, rockColor: ['grayBrown', 'gray'],
-      rockScale: [0.8, 3.0] },
-    { x: 420, z: 220, r: 55, h: 20, trees: 36, name: 'Кипарисовый',
-      treeKinds: { cypress: 3, oak: 1 }, leaf: ['deep', 'olive'], rockColor: ['sandstone', 'grayBrown'],
-      grassColor: ['dry', 'green'], groundColor: 0x93ad66 },
-  ],
-  buoys: [
-    { x: 60, z: -40, color: 0xe9553b },
-    { x: -70, z: 50, color: 0x3bb273 },
-    { x: 140, z: 90, color: 0xe9553b },
-    { x: -150, z: -110, color: 0x3bb273 },
-    { x: 30, z: 170, color: 0xf2c14e },
-  ],
 };
 
 export function beaufort(ms) {

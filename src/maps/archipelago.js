@@ -6,15 +6,21 @@
 //   islands — { name?, kind: 'mountain' | 'plain', h, lobes: [[x, z, a, b, rot°], …], shelf (м), shelfDepth (м),
 //               rough (рваность берега), cliff 0..1 (доля клифов), cliffMin (клиф по всему берегу не ниже этой доли),
 //               cliffH, lowland (ширина прибрежной низины), core, sandy (вся суша — песок: пляж и дюны), bare (без деревьев и кустов),
-//               biome (south | north | atlantic — для шага биомов), label ([x, z] подписи на стенде, иначе центр 1-го лепестка) }
+//               biome (south | north | atlantic — для шага биомов), moist (сдвиг влажности острова: больше — больше леса), label ([x, z] подписи на стенде, иначе центр 1-го лепестка) }
 //   ridges  — { pts, h, w, taper }       хребет: добавка к суше вдоль ломаной
 //   bays    — { name, mouth, head, w, depth, bank }  бухта-капсула: глубина depth у входа, к вершине мельче
 //   shoals  — { name, x, z, a, b, rot, depth }  отмель или банка
 //   spits   — { pts, w, crest }           песчаная коса, дальний конец уходит под воду
+//   beaches — { name, pts, w }            пологий песчаный пляж вдоль участка берега (ломаная по кромке, ширина влияния w)
 //   reefs   — { name, x, z, r, count, top: [min, max], size, base }  подводные скалы
-//   sites   — { type: 'port' | 'town' | 'village' | 'lighthouse', name, x, z, r, h, proto }  площадки: суша выравнивается к h
+//             или гряда: { name, pts, r, … } — камни вдоль ломаной в полосе ±r
+//   buoys   — { x, z, color }             буи (в игре качаются на волнах)
+//   sites   — { type: 'port' | 'town' | 'village' | 'lighthouse' | 'landing' (причал снабжения маяка), name, x, z, r, h, proto }  площадки: суша выравнивается к h
 //             (по умолчанию: порт — 2.5 м, маяк — высота в центре, остальные — высота в центре, но не выше 25 м);
 //             proto — прототип постройки для шага объектов (маяк Фастнет и т. п.)
+//             flat — сила выравнивания площадки 0..1 (по умолчанию 0.9; меньше — посёлок на склоне, террасами)
+//             field, spacing, streets — подсказки планировщику улиц (src/scene/terrain/settlement-plan.js)
+//             fishing — у деревни: рыбацкий посёлок (хижины, мостки и лодочные сараи по берегу, сети, малый маяк)
 //   start   — { x, z, headingDeg } старт лодки в игре (?map=archipelago; ?pos=x,z[,курс°] переопределяет)
 //   biomeRegions — области биомов поверх биома острова (поля и смешение — см. src/scene/terrain/biomes.js)
 //   biomeRules   — правила, по которым инструмент ставит области (src/scene/terrain/biome-rules.js);

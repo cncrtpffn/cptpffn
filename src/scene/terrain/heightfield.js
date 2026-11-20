@@ -1,8 +1,9 @@
 import { createNoise, mulberry32 } from './noise.js';
 import { smooth, sdEllipse, sdPolyline, smin, polyBox } from './shapes.js';
+import { polyline } from './geom.js';
 
 // Поле высот на весь мир по описанию карты (src/maps/*.js): сетка step м, высоты Float32 и материал Uint8.
-// Порядок слоёв: дно моря → острова (max) → хребты (+) → бухты (min) → отмели, косы, рифы (max) → площадки посёлков.
+// Порядок слоёв: дно моря → острова (max) → хребты (+) → бухты (min) → отмели, косы (max) → пляжи → рифы (max) → площадки посёлков.
 // Каждый примитив считается только в своём bbox.
 //
 // Материал: 0 — по высоте и уклону, 1 — песок (косы, отмели), 2 — скала (рифы).
@@ -130,16 +131,37 @@ export function buildHeightfield(map) {
     });
   }
 
+  // пляжи: у ломаной вдоль берега профиль 4 м суши и 6 м воды становится пологим — высоты у кромки сжимаются
+  // (f(0) = 0, f(±край) = край, наклон у кромки ×0.25): кромка остаётся на месте, полоса пляжа и мелководья шире
+  for (const b of map.beaches ?? []) {
+    const bw = b.w ?? 40, up = 4, dn = 6;
+    each(polyBox(b.pts, bw + 20), (k, x, z) => {
+      const h = heights[k];
+      if (h > up || h < -dn) return;
+      const t = smooth(bw, bw * 0.5, sdPolyline(x, z, b.pts, pl) + 10 * fbm(x / 40, z / 40, 2));
+      if (t <= 0) return;
+      const e = h > 0 ? up : dn, u = Math.abs(h) / e;
+      heights[k] = lerp(h, Math.sign(h) * e * u * (0.25 + 0.75 * u * u), t);
+      if (heights[k] > -3 && heights[k] < 2.5 && t > 0.5) material[k] = MAT.sand;
+    });
+  }
+
   // рифы: плита на глубине base и камни, часть из них выходит из воды
+  // гряда (pts): камни вдоль ломаной в полосе ±r, плита — вдоль неё же
   for (const r of map.reefs ?? []) {
-    const rng = mulberry32(Math.round(r.x * 31 + r.z * 17));
+    const P = r.pts && polyline(r.pts);
+    const [cx, cz] = r.pts ? r.pts[0] : [r.x, r.z];
+    const rng = mulberry32(Math.round(cx * 31 + cz * 17));
     const rocks = Array.from({ length: r.count }, () => {
-      const a = rng() * Math.PI * 2, t = Math.sqrt(rng()) * r.r;
-      return { x: r.x + Math.cos(a) * t, z: r.z + Math.sin(a) * t, r: 3 + rng() * (r.size ?? 9), top: lerp(r.top[0], r.top[1], rng() ** 1.5) };
+      let x, z;
+      if (P) { const p = P.at(rng() * P.L), o = (rng() * 2 - 1) * r.r; x = p.x - p.tz * o; z = p.z + p.tx * o; }
+      else { const a = rng() * Math.PI * 2, t = Math.sqrt(rng()) * r.r; x = r.x + Math.cos(a) * t; z = r.z + Math.sin(a) * t; }
+      return { x, z, r: 3 + rng() * (r.size ?? 9), top: lerp(r.top[0], r.top[1], rng() ** 1.5) };
     });
     const base = r.base ?? 4;
-    each([r.x - r.r - 220, r.z - r.r - 220, r.x + r.r + 220, r.z + r.r + 220], (k, x, z) => {
-      const dc = Math.hypot(x - r.x, z - r.z) * (1 + 0.25 * fbm(x / 60, z / 60, 2));
+    const box = P ? polyBox(r.pts, r.r + 220) : [r.x - r.r - 220, r.z - r.r - 220, r.x + r.r + 220, r.z + r.r + 220];
+    each(box, (k, x, z) => {
+      const dc = (P ? sdPolyline(x, z, r.pts, pl) + r.r * 0.5 : Math.hypot(x - r.x, z - r.z)) * (1 + 0.25 * fbm(x / 60, z / 60, 2));
       let h = -base - Math.max(0, dc - r.r) * 0.25 + 0.8 * fbm(x / 20, z / 20, 2), rock = false;
       for (const p of rocks) {
         const dd = Math.hypot(x - p.x, z - p.z) / p.r;
@@ -159,7 +181,7 @@ export function buildHeightfield(map) {
     each([s.x - r, s.z - r, s.x + r, s.z + r], (k, x, z) => {
       const h = heights[k];
       if (h < 0.3) return;
-      const t = 0.9 * smooth(r, r * 0.45, Math.hypot(x - s.x, z - s.z));
+      const t = (s.flat ?? 0.9) * smooth(r, r * 0.45, Math.hypot(x - s.x, z - s.z));
       heights[k] = Math.max(0.4, lerp(h, target, t));
     });
   }

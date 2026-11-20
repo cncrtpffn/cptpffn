@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MAT } from './heightfield.js';
 import { PropBatch, propMaterial, addTree, addBush, addGrass, addRock, mat, LEAF_COLORS, TRUNK_COLORS } from '../flora.js';
 import { mulberry32 } from './noise.js';
 import { ZONES } from './biomes.js';
@@ -60,6 +61,9 @@ const DENSITY = {
   settle: [0.03, 0.05, 0.5, 0],
 };
 const DOUBLE_GRASS = new Set(['meadow', 'dune']);
+// пальмы на южных пляжах и дюнах растут рощами: шанс дерева там ×PALM_GROVE (у других биомов — прежний);
+// на южной низине у берега (ниже PALM_H м) половина деревьев — пальмы
+const PALM_H = 7, PALM_GROVE = 10, SHORE = new Set(['beach', 'dune']);
 // деревья по биому и зоне ([вид, вес]); other — для всех прочих зон
 const TREES = {
   south: { forest: [['cypress', 3], ['olive', 4], ['pine', 2]], scrub: [['olive', 3], ['cypress', 1]], dune: [['palm', 1]], beach: [['palm', 1]], other: [['olive', 2], ['cypress', 1]] },
@@ -85,7 +89,7 @@ function protoGeometry(fn, rng) {
   return g;
 }
 
-// bare — индексы островов (map.islands) без деревьев и кустов: голые скалы
+// bare — индексы островов (map.islands) без деревьев и кустов: голые скалы (камни рифов — всегда без них)
 export function buildVegetation(hf, bio, occ, { density = 1, cell = 300, seed = 7, bare = new Set() } = {}) {
   const t0 = performance.now();
   const rng = mulberry32(seed);
@@ -128,7 +132,7 @@ export function buildVegetation(hf, bio, occ, { density = 1, cell = 300, seed = 
       if (!D) continue;
       const m = bio.moist[k] / 255;
       const tries = [
-        [0, Math.min(0.95, D[0] * (0.45 + 1.1 * m)) * density, 0.75],
+        [0, Math.min(0.95, D[0] * (0.45 + 1.1 * m) * (SHORE.has(zone) ? PALM_GROVE : 1)) * density, 0.75],
         [1, D[1] * density, 1.0],
         [2, D[2] * density, 1.3],
         [3, D[3] * density, 9],
@@ -141,12 +145,13 @@ export function buildVegetation(hf, bio, occ, { density = 1, cell = 300, seed = 
         if (maxSlope < 9 && hf.slope(x, z, 2) > maxSlope) continue;
         let biome = bio.pickBiome(x, z, rng());
         if (!TREES[biome]) biome = 'atlantic';
+        if (type === 0 && SHORE.has(zone) && biome !== 'south' && rng() * PALM_GROVE >= 1) continue;
         let id;
-        if (type < 2 && bare.has(hf.owner[k])) continue;
+        if (type < 2 && (bare.has(hf.owner[k]) || hf.material[k] === MAT.rock)) continue; // и камни рифов над водой
         if (type === 0) {
           if (h < 1.2 && zone !== 'beach' && zone !== 'dune') continue;
           const t = TREES[biome];
-          id = pickW(t[zone] ?? t.other, rng());
+          id = biome === 'south' && h < PALM_H && zone !== 'forest' && rng() < 0.5 ? 'palm' : pickW(t[zone] ?? t.other, rng());
         } else if (type === 1) id = biome === 'atlantic' && zone === 'forest' ? 'shrub' : BUSH[biome];
         else if (type === 2) id = biome === 'south' || zone === 'dune' || zone === 'peak' ? 'grassDry' : 'grass';
         else id = biome === 'south' ? 'rockRed' : 'rock';

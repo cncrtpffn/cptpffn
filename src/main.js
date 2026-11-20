@@ -29,11 +29,11 @@ import './debug/polar.js';
 const STEP = 1 / 120;
 // стартовый сетап: время суток, погода, положение лодки
 const START = await (await fetch('start.json')).json();
-// ?map=<id> — карта по полю высот (src/maps/index.js) вместо демо; ?pos=x,z[,курс°] — старт лодки
-// (без него — старт карты map.start, у демо — start.json); туда же возвращает «Вернуть лодку»
+// ?map=<id> — карта по полю высот (src/maps/index.js), без него — демо; ?pos=x,z[,курс°] — старт лодки
+// (без него — старт карты map.start, иначе start.json); туда же возвращает «Вернуть лодку»
 const params = new URLSearchParams(location.search);
-const MAP = MAPS[params.get('map')] ?? null;
-const startBoat = { ...START.boat, ...MAP?.start };
+const MAP = MAPS[params.get('map')] ?? MAPS.demo;
+const startBoat = { ...START.boat, ...MAP.start };
 if (params.has('pos')) {
   const [x, z, h] = params.get('pos').split(',').map(Number);
   Object.assign(startBoat, { x, z }, Number.isFinite(h) && { headingDeg: h });
@@ -66,15 +66,17 @@ placeBoat();
 const sea = { ...SEA, ...START.weather.sea };
 
 // --- сцена ---
-// большая карта: острова и буи демо не нужны, тень — окном вокруг камеры (на таче меньше и грубее)
-const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : MAP ? 4096 : 2048,
-  ...(MAP && { islands: [], buoys: [], shadowRange: isTouchDevice() ? 70 : 120 }) });
-const world = MAP ? buildWorld(MAP, { density: params.has('veg') ? parseFloat(params.get('veg')) : 1 }) : null;
-if (world) { scene.add(world.group); console.log(world.summary()); }
+// мир — до окружения: буи берутся из него (ручные из описания карты и навигационные знаки плана);
+// тень — окном вокруг камеры (на таче меньше и грубее)
+const world = buildWorld(MAP, { density: params.has('veg') ? parseFloat(params.get('veg')) : 1 });
+const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 4096,
+  buoys: world.buoys, shadowRange: isTouchDevice() ? 70 : 120 });
+scene.add(world.group);
+console.log(world.summary());
 const planar = createPlanarReflection(renderer);
 const bakeT0 = performance.now();
-// карта берега большой карты — на весь мир 3 км: текстура больше, чтобы тексель был ≈0.75 м
-const shoreMap = world ? bakeShoreMap([world.shore], { maxSize: isTouchDevice() ? 2048 : 4096 }) : bakeShoreMap(env.islands.map((g) => g.userData.shore));
+// карта берега — на весь мир: тексель ≈0.4 м у демо 1.5 км, ≈0.75 м у карты 3 км (на таче вдвое крупнее)
+const shoreMap = bakeShoreMap([world.shore], { maxSize: isTouchDevice() ? 2048 : 4096 });
 const bakeMs = performance.now() - bakeT0;
 // физика гасит волны у берега так же, как вершинный шейдер воды
 waves.damp = (x, z) => shoreDamp(shoreMap.depthAt(x, z));
@@ -92,16 +94,13 @@ const bowSpray = createBowSpray(particles);
 const shoreSpray = createShoreSpray(particles, shoreMap);
 const crestSpray = createCrestSpray(particles);
 const followCam = new FollowCamera(camera, canvas);
-// в отражение — крупное: острова (без травы), буи, облака, лодка без мелочи; свет — весь
+// в отражение — крупное: рельеф и постройки целиком, из растительности — деревья и крупные камни, буи, облака,
+// лодка без мелочи; свет — весь
 scene.traverse((o) => { if (o.isLight) markReflected(o); });
-for (const g of env.islands) markReflected(g);
 for (const g of env.buoys) markReflected(g);
-if (world) {
-  // большая карта: рельеф и постройки целиком, из растительности — деревья и крупные камни
-  markReflected(world.terrain);
-  markReflected(world.settle.group);
-  markReflected(world.veg.group, { minRadius: 2 });
-}
+markReflected(world.terrain);
+markReflected(world.settle.group);
+markReflected(world.veg.group, { minRadius: 2 });
 markReflected(env.clouds.group);
 markReflected(boatMesh.group, { minRadius: 0.25 });
 markReflected(boatMesh.sailor.group, { minRadius: 0.1 }); // моряк мельче, но заметен: тело, голова, шапка
@@ -247,7 +246,7 @@ function frame(now) {
   });
   env.update(halted ? 0 : dt, waves, wind, boat, camera);
   followCam.update(dt || 0.016, boat, boatMesh);
-  world?.update(camera.position);
+  world.update(camera.position);
   if (camPitch) camera.rotateX(camPitch);
   hud.update({ boat, wind, cameraMode: followCam.mode });
   const R = water.reflection;
