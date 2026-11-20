@@ -7,6 +7,7 @@ import { propMaterial } from '../flora.js';
 // Шаги кратны шагу поля высот: вершины ложатся на его узлы, без биений билинейной выборки («лесенки»).
 // По краю чанка — «юбка» вниз на skirt м: закрывает щели на стыке чанков разного шага.
 // Цвет вершины даёт paint(x, z, h, color) — палитра биомов (biomes.js).
+// userData.heightAt(x, z) — высота самого меша (та же триангуляция): по ней ленты дорог ложатся на рельеф без провалов.
 
 export function buildTerrain(hf, paint, { chunk = 200, step = 4, coarse = 25, deep = 15, skirt = 4 } = {}) {
   const [bx, bz, bw, bh] = hf.bounds;
@@ -14,6 +15,7 @@ export function buildTerrain(hf, paint, { chunk = 200, step = 4, coarse = 25, de
   const material = propMaterial();
   const c = new THREE.Color();
   let tris = 0;
+  const nx = Math.ceil(bw / chunk - 1e-6), chunks = []; // для heightAt: { cx, cz, st, V, pos } по сетке чанков
   for (let cz = bz; cz < bz + bh - 1e-6; cz += chunk) {
     for (let cx = bx; cx < bx + bw - 1e-6; cx += chunk) {
       // шаг чанка: есть ли выше −deep хоть одна точка (проверка по узлам поля высот)
@@ -54,6 +56,7 @@ export function buildTerrain(hf, paint, { chunk = 200, step = 4, coarse = 25, de
         idx.push(k0, k1, s1, k0, s1, s0, k0, s1, k1, k0, s0, s1); // двусторонняя полоса
       }
       const geo = new THREE.BufferGeometry();
+      chunks.push({ cx, cz, st, V, pos });
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
       geo.setIndex(idx);
@@ -68,5 +71,15 @@ export function buildTerrain(hf, paint, { chunk = 200, step = 4, coarse = 25, de
     }
   }
   group.userData.tris = tris;
+  group.userData.heightAt = (x, z) => {
+    const ci = Math.min(nx - 1, Math.max(0, Math.floor((x - bx) / chunk))), cj = Math.min(nx - 1, Math.max(0, Math.floor((z - bz) / chunk)));
+    const { cx, cz, st, V, pos } = chunks[cj * nx + ci], n = V - 1;
+    const fx = Math.min(n - 1e-6, Math.max(0, (x - cx) / st)), fz = Math.min(n - 1e-6, Math.max(0, (z - cz) / st));
+    const i = Math.floor(fx), j = Math.floor(fz), tx = fx - i, tz = fz - j, a = j * V + i;
+    const ha = pos[a * 3 + 1], hb = pos[(a + 1) * 3 + 1], hd = pos[(a + V) * 3 + 1], he = pos[(a + V + 1) * 3 + 1];
+    // диагонали как в индексах: (i + j) нечётно — b–d, иначе a–e
+    if ((i + j) & 1) return tx + tz <= 1 ? ha + (hb - ha) * tx + (hd - ha) * tz : he + (hd - he) * (1 - tx) + (hb - he) * (1 - tz);
+    return tz >= tx ? ha + (he - hd) * tx + (hd - ha) * tz : ha + (hb - ha) * tx + (he - hb) * tz;
+  };
   return group;
 }

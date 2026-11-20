@@ -7,6 +7,9 @@ import { STREET } from './street.js';
 // opts.points — [[x, y, z], …] в СК base, y — высота земли под осью; через точки идёт кривая Catmull-Rom,
 // поперечник всегда горизонтален. Без points строится демо-отрезок для стенда (DEMO) — на плоском полу,
 // с подсыпкой земли там, где объекту нужен перепад (лестница, подпорная стенка).
+// У лент (тропа, грунтовка, мостовая) opts.ground(x, z) — высота рельефа в мировых координатах (base — единичная):
+// тогда каждая вершина полос ложится на рельеф в своей точке (полосы делятся поперёк через ~1 м), а не на высоту оси;
+// opts.lift — общая прибавка высоты (разводит наложенные ленты разного старшинства).
 
 const DIRT = 0x9a8466, RUT = 0x6f5e48, GRASS = 0x7f9a4a, WORN = 0x8f9a5a, EARTH = 0x8a7a5e, TURF = 0x8fae6a;
 const WOOD = 0x8f7a62, PILE = 0x5c4a3a, IRON = 0x2b2b2b, WATER = 0x6fa8c0, PEBBLE = 0x8f8c86;
@@ -22,16 +25,20 @@ const DEMO = {
 
 // --- лента: кадры, полосы, стенки ------------------------------------------
 
-// Кадры вдоль кривой с шагом ≈step: p — точка оси, s — горизонталь вправо, t — касательная, u — длина дуги
-export function roadFrames(points, step = 1) {
+// Кадры вдоль кривой с шагом ≈step: p — точка оси, s — горизонталь вправо, t — касательная, u — длина дуги;
+// o.ground / o.lift (см. выше) запоминаются в кадрах как g / lift
+export function roadFrames(points, step = 1, o = {}) {
   const curve = new THREE.CatmullRomCurve3(points.map((q) => new THREE.Vector3(...q)), false, 'centripetal');
   const L = curve.getLength(), n = Math.max(1, Math.ceil(L / step));
   return Array.from({ length: n + 1 }, (_, i) => {
     const u = i / n, p = curve.getPointAt(u), t = curve.getTangentAt(u), h = Math.hypot(t.x, t.z) || 1;
-    return { p: [p.x, p.y, p.z], s: [-t.z / h, 0, t.x / h], t: [t.x, t.y, t.z], u: u * L };
+    return { p: [p.x, p.y, p.z], s: [-t.z / h, 0, t.x / h], t: [t.x, t.y, t.z], u: u * L, g: o.ground, lift: o.lift ?? 0 };
   });
 }
-const off = (f, x, dy = 0) => [f.p[0] + f.s[0] * x, f.p[1] + dy, f.p[2] + f.s[2] * x];
+const off = (f, x, dy = 0) => {
+  const px = f.p[0] + f.s[0] * x, pz = f.p[2] + f.s[2] * x;
+  return [px, (f.g ? f.g(px, pz) : f.p[1]) + dy + (f.lift ?? 0), pz];
+};
 const yaw = (f) => Math.atan2(f.t[0], f.t[2]);
 const frameAt = (F, u) => F[Math.max(0, Math.min(F.length - 1, Math.round(u / F.at(-1).u * (F.length - 1))))];
 const fn = (v) => (typeof v === 'function' ? v : () => v);
@@ -48,7 +55,10 @@ const quad = (tris, a, b, c, d, dir = [0, 1, 0]) => { tri(tris, a, b, c, dir); t
 // fj — разброс цвета по граням (камни, неровный грунт)
 function strip(b, base, F, x0, x1, dy, color, rng, fj = 0.6) {
   const X0 = fn(x0), X1 = fn(x1), tris = [];
-  for (let i = 0; i < F.length - 1; i++) quad(tris, off(F[i], X0(i), dy), off(F[i], X1(i), dy), off(F[i + 1], X1(i + 1), dy), off(F[i + 1], X0(i + 1), dy));
+  // по рельефу (ground) — поперёк кусками ~1 м, чтобы складки меша рельефа не проступали сквозь полосу
+  const m = F[0]?.g ? Math.max(1, Math.ceil(Math.abs(X1(0) - X0(0)) / 1.1)) : 1;
+  const xa = (i, k) => X0(i) + (X1(i) - X0(i)) * k / m;
+  for (let i = 0; i < F.length - 1; i++) for (let k = 0; k < m; k++) quad(tris, off(F[i], xa(i, k), dy), off(F[i], xa(i, k + 1), dy), off(F[i + 1], xa(i + 1, k + 1), dy), off(F[i + 1], xa(i + 1, k), dy));
   b.add(triGeo(tris), color, base, rng, fj);
 }
 
@@ -88,7 +98,7 @@ function masonry(b, base, F, { x, y0, y1, t, color, rng, bl = 1.2, rh = 0.5, lea
 
 // Тропа 1.2 м: грунт с неровным краем, вытоптанная трава по бокам, камешки
 function path(b, base, o, rng) {
-  const F = roadFrames(o.points ?? DEMO.path, 0.8), w = 0.6;
+  const F = roadFrames(o.points ?? DEMO.path, 0.8, o), w = 0.6;
   const e = F.map(() => [w + (rng() - 0.5) * 0.25, w + (rng() - 0.5) * 0.25]);
   strip(b, base, F, (i) => -e[i][0] - 0.25, (i) => e[i][1] + 0.25, 0.02, WORN, rng, 1);
   strip(b, base, F, (i) => -e[i][0], (i) => e[i][1], 0.04, jitterColor(DIRT, rng, 0.5), rng, 1);
@@ -101,7 +111,7 @@ function path(b, base, o, rng) {
 
 // Грунтовая дорога 3.5 м: обочины, колеи, трава между колеями, лужи в колеях
 function roadDirt(b, base, o, rng) {
-  const F = roadFrames(o.points ?? DEMO.road, 1), hw = 1.75;
+  const F = roadFrames(o.points ?? DEMO.road, 1, o), hw = 1.75;
   const e = F.map(() => [hw + (rng() - 0.5) * 0.3, hw + (rng() - 0.5) * 0.3]);
   strip(b, base, F, (i) => -e[i][0] - 0.35, (i) => e[i][1] + 0.35, 0.02, WORN, rng, 1);
   strip(b, base, F, (i) => -e[i][0], (i) => e[i][1], 0.04, jitterColor(DIRT, rng, 0.5), rng, 0.8);
@@ -117,7 +127,7 @@ function roadDirt(b, base, o, rng) {
 // Мощёная улица 5 м: брусчатка рядами (5 полос по ширине), водостоки у краёв.
 // Вар. 0 — края из крупного камня; 1 — бордюр и тротуары по 1.4 м из плит
 function roadCobble(b, base, o, rng) {
-  const s = o.style ?? 'atlantic', hw = 2.5, c = COBBLE[s], F = roadFrames(o.points ?? DEMO.road, 0.5);
+  const s = o.style ?? 'atlantic', hw = 2.5, c = COBBLE[s], F = roadFrames(o.points ?? DEMO.road, 0.5, o);
   for (let j = 0; j < 5; j++) strip(b, base, F, -hw + j, -hw + j + 1, 0.05, jitterColor(c, rng, 0.3), rng, 1.6);
   const gutter = new THREE.Color(c).offsetHSL(0, 0, -0.12);
   for (const k of [-1, 1]) strip(b, base, F, k * (hw - 0.45), k * (hw - 0.15), 0.06, gutter, rng, 0.6);
@@ -125,7 +135,7 @@ function roadCobble(b, base, o, rng) {
     for (const k of [-1, 1]) strip(b, base, F, k * hw, k * (hw + 0.35), 0.06, new THREE.Color(c).offsetHSL(0, 0, -0.06), rng, 1.4);
     return;
   }
-  const curb = STONE[s], walk = new THREE.Color(c).offsetHSL(0, 0, 0.06), Fw = roadFrames(o.points ?? DEMO.road, 1.0);
+  const curb = STONE[s], walk = new THREE.Color(c).offsetHSL(0, 0, 0.06), Fw = roadFrames(o.points ?? DEMO.road, 1.0, o);
   for (const k of [-1, 1]) {
     slab(b, base, F, k < 0 ? -hw - 0.25 : hw, k < 0 ? -hw : hw + 0.25, 0.16, curb, rng, 0.3);
     slab(b, base, Fw, k < 0 ? -hw - 1.65 : hw + 0.25, k < 0 ? -hw - 0.25 : hw + 1.65, 0.15, walk, rng, 1.0);

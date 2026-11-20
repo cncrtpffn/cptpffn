@@ -26,7 +26,7 @@ export function buildWorld(map, { regions, tstep, density = 1 } = {}) {
   markSettle(bio, hf, plan);
   const terrain = buildTerrain(hf, bio.paint, tstep ? { step: tstep } : {}); lap('terrain');
   // строитель по плану — тоже только у plan: 'v2'; у остальных — замороженный строитель со своей сеткой улиц
-  const settle = map.plan === 'v2' ? buildSettlements(hf, bio, map, plan) : buildSettlementsV1(hf, bio, map); lap('settlements');
+  const settle = map.plan === 'v2' ? buildSettlements(hf, bio, map, plan, { ground: terrain.userData.heightAt }) : buildSettlementsV1(hf, bio, map); lap('settlements');
   const veg = buildVegetation(hf, bio, settle.occ, { density, bare: new Set(map.islands.flatMap((isl, i) => (isl.bare ? [i] : []))) }); lap('vegetation');
   const group = new THREE.Group();
   group.name = map.name;

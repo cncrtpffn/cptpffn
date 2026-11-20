@@ -605,9 +605,12 @@ export function planSettlements(hf, bio, map, { footprint }) {
     // 8. уклоны: проезжие пути не круче VEH — подрезка рельефа; переулок — ещё серпантин (ramp); иначе пешком
     const cuts = [];
     const grade = (l, maxCut) => { const r = gradeAlong(hf, l.pts, HW[l.road] ?? 2, VEH, { maxCut, lock }); cuts.push(r.cut); return r.grade; };
-    // по старшинству: продольные, периметры, переулки; каждый выровненный путь запирает своё полотно
-    for (const l of longs) if (maxGrade(hf.sample, l.pts) > VEH) grade(l, 3); else gradeAlong(hf, l.pts, HW[l.road] ?? 2, VEH, { maxCut: 0, lock });
-    for (const l of p.streets.filter((q) => q.cls === 'ring' || q.cls === 'track')) if (maxGrade(hf.sample, l.pts) > VEH) grade(l, 3);
+    // по старшинству: продольные, периметры, переулки; каждый выровненный путь запирает своё полотно.
+    // Не крутые — тоже через gradeAlong с maxCut 0: поперёк ровно (лента не уходит краем в косогор), вдоль — профиль земли;
+    // младший путь у перекрёстка выходит на запертое полотно старшего — без ступеньки
+    const flat = (l) => gradeAlong(hf, l.pts, HW[l.road] ?? 2, VEH, { maxCut: 0, lock });
+    for (const l of longs) if (maxGrade(hf.sample, l.pts) > VEH) grade(l, 3); else flat(l);
+    for (const l of p.streets.filter((q) => q.cls === 'ring' || q.cls === 'track')) if (maxGrade(hf.sample, l.pts) > VEH) grade(l, 3); else flat(l);
     const ramp = (lane, maxCut) => {
       const [a, b] = [lane.pts[0], lane.pts.at(-1)];
       let path = local(a[0], a[1], b[0], b[1], { ok: (x, z) => inTown(x, z) || waterDist(x, z) > 3 && siteOf[cellOf(x, z)] < 0 });
@@ -625,7 +628,7 @@ export function planSettlements(hf, bio, map, { footprint }) {
       if (maxGrade(hf.sample, l.pts) > VEH) {
         if (gradeAlong(hf, l.pts, HW[road], VEH, { dry: true }).cut <= 1.5) grade(l, 1.5);
         else { const r = ramp(lane, 2); out = r ? [r] : splitGrade(l.pts, 'lane', road); }
-      }
+      } else flat(l);
       if (out.every((q) => !FOOTWAY.has(q.cls))) vehicleBands.add(lane.band);
       lane.out = out;
     }

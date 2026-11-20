@@ -22,6 +22,10 @@ const pickW = (table, rng) => { // [[id, вес], …]
 const HW = { 'road-cobble': 2.9, 'road-dirt': 2.1, path: 0.9, 'stairs-slope': 1.4 }; // полуширина ленты с обочиной
 const RIBBON = { 'road-cobble': 'road-cobble', 'road-dirt': 'road-dirt', path: 'path', stairs: 'stairs-slope' }; // road плана → объект
 const FOOT = new Set(['stairs', 'path']);
+// старшинство путей (меньше — старше): младшая лента у перекрёстка обрезается по краю старшей и лежит ниже на LIFT
+const RANK = { main: 0, quay: 0, street: 0, ring: 1, lane: 2, ramp: 2, 'road-dirt': 2, track: 3, path: 4, stairs: 5 };
+const LIFT = [0.06, 0.045, 0.03, 0.015, 0, 0];
+const VIS = { 'road-cobble': [2.85, 4.15], 'road-dirt': [2.1, 2.1], path: [0.85, 0.85] }; // видимая полуширина [вар. 0, вар. 1]
 // не встал дом — пробуем меньше: кварталы между продольными улицами ~22 м, два ряда больших домов в них не входят
 // (в городе цепочка кончается городским домом, хижина — только в деревне)
 const SMALLER = {
@@ -64,7 +68,9 @@ export function buildSettlements(hf, bio, map, plan, opts = {}) {
   const material = propMaterial();
   const counts = {};
   let tris = 0;
-  const land = (x, z) => hf.sample(x, z);
+  // высота земли — по самому мешу рельефа (opts.ground), если он дан: ленты и постройки стоят на том, что видно
+  const ground = opts.ground ?? null;
+  const land = ground ?? ((x, z) => hf.sample(x, z));
   const [gx0, gz0] = hf.bounds;
   const cellOf = (x, z) => {
     const i = Math.round((x - gx0) / hf.step), j = Math.round((z - gz0) / hf.step);
@@ -115,7 +121,8 @@ export function buildSettlements(hf, bio, map, plan, opts = {}) {
       return true;
     };
     const ribbon = (id, pts3, o = {}) => {
-      extras.push(...addStructure(batch, id, new THREE.Matrix4(), { style, variant: o.variant ?? 0, points: pts3, ...o.params }, rng));
+      const drape = ground && VIS[id] ? { ground, lift: o.lift ?? 0 } : {};
+      extras.push(...addStructure(batch, id, new THREE.Matrix4(), { style, variant: o.variant ?? 0, points: pts3, ...drape, ...o.params }, rng));
       counts[id] = (counts[id] ?? 0) + 1;
     };
     // лента: суша по точкам через step м (вода и обрывки короче minLen отбрасываются), y — высота земли
@@ -428,13 +435,55 @@ export function buildSettlements(hf, bio, map, plan, opts = {}) {
     ctx.put('boat-beached', ...at(3, -9), rot + 0.4, { minH: 0.2, pad: 0.2 });
   }
 
+  // --- перекрёстки: все пути плана одним списком; конец младшего (или равного) пути, упёршийся в середину другого,
+  // обрезается до края того (минус 0.3 м нахлёста под ним). Стыки концами (куски одной улицы) не трогаются.
+  const lines = [];
+  plan.sites.forEach((p, idx) => p.streets.forEach((l, n) => {
+    const id = RIBBON[l.road] ?? l.road, variant = id === 'road-cobble' ? hash(p.name + n) % 2 : 0;
+    lines.push({ site: idx, cls: l.cls, id, variant, rank: RANK[l.cls] ?? 2, pts: l.pts });
+  }));
+  for (const r of plan.roads) {
+    for (const sg of r.segs ?? [{ road: r.kind === 'path' ? 'path' : 'road-dirt', pts: r.pts }]) {
+      const id = RIBBON[sg.road] ?? sg.road;
+      lines.push({ road: r, id, variant: 0, rank: sg.road === 'stairs' ? 5 : sg.road === 'path' ? 4 : RANK[r.kind] ?? 2, pts: sg.pts });
+    }
+  }
+  for (const l of lines) {
+    l.box = l.pts.reduce((b, [x, z]) => [Math.min(b[0], x), Math.min(b[1], z), Math.max(b[2], x), Math.max(b[3], z)], [Infinity, Infinity, -Infinity, -Infinity]);
+  }
+  const nearest = (x, z, pts) => {
+    let best = { d: Infinity, end: false };
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[i + 1], dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2)), d = Math.hypot(x - ax - dx * t, z - az - dz * t);
+      if (d < best.d) best = { d, x: ax + dx * t, z: az + dz * t };
+    }
+    best.end = Math.hypot(best.x - pts[0][0], best.z - pts[0][1]) < 4 || Math.hypot(best.x - pts.at(-1)[0], best.z - pts.at(-1)[1]) < 4;
+    return best;
+  };
+  for (const l of lines) {
+    if (l.rank >= 5) continue;
+    let q = resample(l.pts, 0.5);
+    for (const end of [0, 1]) {
+      const e = end ? q.at(-1) : q[0];
+      let cut = 0;
+      for (const o of lines) {
+        if (o === l || o.rank > l.rank || o.rank >= 5 || e[0] < o.box[0] - 4 || e[0] > o.box[2] + 4 || e[1] < o.box[1] - 4 || e[1] > o.box[3] + 4) continue;
+        const nb = nearest(e[0], e[1], o.pts);
+        if (nb.d < 3.5 && !nb.end) cut = Math.max(cut, VIS[o.id][o.variant] - 0.3 - nb.d * 0.5);
+      }
+      const k = Math.round(cut / 0.5);
+      if (k > 0 && q.length - k >= 3) q = end ? q.slice(0, q.length - k) : q.slice(k);
+    }
+    l.pts = q;
+  }
+
   // --- все площадки плана: сначала ленты улиц (они занимают маску первыми), потом стенки, площадь, резервы, остальное ---
   plan.sites.forEach((p, idx) => {
     const ctx = batchCtx(p.name, p.style, seeded(hash(p.name)));
     const streets = [];
-    for (const l of p.streets) {
-      const id = RIBBON[l.road] ?? l.road;
-      for (const run of ctx.road(id, l.pts, { variant: id === 'road-cobble' ? hash(p.name + streets.length) % 2 : 0 })) streets.push({ cls: l.cls, road: id, P: polyline(run) });
+    for (const l of lines.filter((q) => q.site === idx)) {
+      for (const run of ctx.road(l.id, l.pts, { variant: l.variant, lift: LIFT[l.rank] })) streets.push({ cls: l.cls, road: l.id, P: polyline(run) });
     }
     for (const st of streets) if (!FOOT.has(st.cls)) walls(ctx, st, idx);
     if (p.type === 'lighthouse') lighthouse(p, ctx);
@@ -458,10 +507,8 @@ export function buildSettlements(hf, bio, map, plan, opts = {}) {
     const first = plan.sites.find((p) => p.island === isl);
     const ctx = batchCtx(`дороги ${map.islands[isl]?.name ?? isl}`, first?.style ?? 'atlantic', seeded(isl * 977 + 13));
     for (const r of list) {
-      const segs = r.segs ?? [{ road: r.kind === 'path' ? 'path' : 'road-dirt', pts: r.pts }];
-      for (const s of segs) {
-        const id = RIBBON[s.road] ?? s.road;
-        for (const run of ctx.road(id, s.pts)) {
+      for (const l of lines.filter((q) => q.road === r)) {
+        for (const run of ctx.road(l.id, l.pts, { lift: LIFT[l.rank] })) {
           const P = polyline(run);
           roadKm += P.L / 1000;
           if (r.kind !== 'road-dirt') continue;
