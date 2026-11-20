@@ -17,7 +17,8 @@ import { edt, isolines, simplify, chaikin, resample, pathLength, polyline, trace
 // знак отдельной опасности над камнями, целиком скрытыми водой.
 //
 // opts.footprint(id) → { w, d } — размеры построек (из библиотеки src/scene/structures).
-// Подсказки площадки в описании карты: field ('shore' | 'height'), spacing (шаг продольных улиц, м), streets (ручные ломаные).
+// Подсказки площадки в описании карты: field ('shore' | 'height'), spacing (шаг продольных улиц, м), streets (ручные ломаные),
+// maxSlope (потолок уклона клеток границы: круче — не посёлок, даже если площади не хватает).
 
 export const PLAN_ZONES = ['none', 'core', 'residential', 'waterfront', 'outskirts', 'fields'];
 const PZ = Object.fromEntries(PLAN_ZONES.map((z, i) => [z, i]));
@@ -253,7 +254,7 @@ export function planSettlements(hf, bio, map, { footprint }) {
 
   function planTown(s, p, idx) {
     const big = s.type !== 'village', R = s.r;
-    const maxSlope = p.style === 'south' ? 0.4 : 0.3;
+    const maxSlope = s.maxSlope ?? (p.style === 'south' ? 0.4 : 0.3);
     const target = Math.PI * R * R * (AREA_K[s.type] ?? 1.2) / (st * st);
     // 1. граница: «волна» от центра по ближайшим пригодным клеткам (куча по расстоянию до центра)
     const c0 = cellOf(s.x, s.z);
@@ -268,7 +269,7 @@ export function planSettlements(hf, bio, map, { footprint }) {
     for (let lim = maxSlope; ; lim += 0.1) {
       heap = [[0, c0]]; seen = new Set([c0]); cells = [];
       grow(lim);
-      if (cells.length >= target * 0.6 || lim >= 0.5) break;
+      if (cells.length >= target * 0.6 || lim >= (s.maxSlope ?? 0.5)) break;
     }
     function grow(lim) {
       const fits = (k) => H[k] > 0.7 && siteOf[k] < 0 && (hf.owner[k] === p.island || hf.owner[k] < 0) && slopeAt(k) < lim;

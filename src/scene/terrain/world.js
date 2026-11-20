@@ -6,6 +6,7 @@ import { planSettlements as planSettlementsV1 } from './settlement-plan-v1.js';
 import { STRUCTURES } from '../structures/index.js';
 import { buildTerrain } from './terrain-mesh.js';
 import { buildSettlements } from './settlements.js';
+import { buildSettlements as buildSettlementsV1 } from './settlements-v1.js';
 import { buildVegetation } from './vegetation.js';
 
 // Мир по описанию карты (src/maps/*.js) — общий для игры и стенда карты:
@@ -24,7 +25,8 @@ export function buildWorld(map, { regions, tstep, density = 1 } = {}) {
   const plan = (map.plan === 'v2' ? planSettlements : planSettlementsV1)(hf, bio, map, { footprint: (id) => STRUCTURES[id].footprint }); lap('plan');
   markSettle(bio, hf, plan);
   const terrain = buildTerrain(hf, bio.paint, tstep ? { step: tstep } : {}); lap('terrain');
-  const settle = buildSettlements(hf, bio, map); lap('settlements');
+  // строитель по плану — тоже только у plan: 'v2'; у остальных — замороженный строитель со своей сеткой улиц
+  const settle = map.plan === 'v2' ? buildSettlements(hf, bio, map, plan) : buildSettlementsV1(hf, bio, map); lap('settlements');
   const veg = buildVegetation(hf, bio, settle.occ, { density, bare: new Set(map.islands.flatMap((isl, i) => (isl.bare ? [i] : []))) }); lap('vegetation');
   const group = new THREE.Group();
   group.name = map.name;

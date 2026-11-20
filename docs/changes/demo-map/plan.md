@@ -225,6 +225,7 @@
 - Сравнение с сеткой: тот же ракурс Порто-Сале до и после (`archipelago-map/img/16-port.jpeg`).
 
 ## 3б. Объекты по плану (бывший шаг 4)
+**Сделано** (только демо; «Архипелаг» — на замороженном `settlements-v1.js`), итоги — `summary.md`.
 - **`buildSettlements(hf, bio, map, plan)`** — только строитель:
   - ленты дорог по `plan.streets` и `plan.roads`, на `stairs` — `stairs-slope`, на террасах — `retaining-wall`;
   - площадь и общественные здания — в резервах;

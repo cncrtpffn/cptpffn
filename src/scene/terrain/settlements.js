@@ -3,12 +3,13 @@ import { PropBatch, propMaterial, mat } from '../flora.js';
 import { STRUCTURES, addStructure } from '../structures/index.js';
 import { seeded } from '../structures/kit.js';
 import { mergeStatic } from '../merge-static.js';
-import { polyline, resample, chaikin, makeRouter } from './geom.js';
+import { polyline, resample } from './geom.js';
+import { PLAN_ZONES } from './settlement-plan.js';
 
-// Поселения, порты, маяки и дороги на карте по полю высот (шаг 3 карты «Архипелаг»).
-// По площадкам hf.sites: port/town — сетка улиц вдоль берега с площадью и общественными зданиями, village — улица
-// вдоль берега и короткая поперечная, lighthouse — маяк (и дом смотрителя), landing — причал снабжения маяка. Постройки — библиотека src/scene/structures.
-// Стиль посёлка — преобладающий биом в центре площадки. Дороги между поселениями одного острова — A* по сетке 8 м.
+// Поселения, порты, маяки и дороги по плану поселений (settlement-plan.js) — только строитель, раскладки здесь нет:
+// ленты улиц и дорог по plan.sites[].streets и plan.roads (лестница — stairs-slope), подпорные стенки там, где полотно
+// круто обрывается вбок; площадь и общественные здания — по plaza и reserves; причалы — по berths; дома вдоль улиц,
+// тип — по зоне плана; хутора — вдоль полевых дорог окраин, мельницы — в полях. Постройки — библиотека src/scene/structures.
 // Один PropBatch на поселение (и на дороги острова), светящиеся детали сливаются по материалу (mergeStatic).
 // Маска занятости occ (сетка поля высот): 1 — дорога, 2 — постройка; растительность её обходит.
 
@@ -18,7 +19,15 @@ const pickW = (table, rng) => { // [[id, вес], …]
   for (const [id, w] of table) if ((t -= w) < 0) return id;
   return table[0][0];
 };
-const HW = { 'road-cobble': 2.9, 'road-dirt': 2.1, path: 0.9 }; // полуширина ленты с обочиной
+const HW = { 'road-cobble': 2.9, 'road-dirt': 2.1, path: 0.9, 'stairs-slope': 1.4 }; // полуширина ленты с обочиной
+const RIBBON = { 'road-cobble': 'road-cobble', 'road-dirt': 'road-dirt', path: 'path', stairs: 'stairs-slope' }; // road плана → объект
+const FOOT = new Set(['stairs', 'path']);
+// не встал дом — пробуем меньше: кварталы между продольными улицами ~22 м, два ряда больших домов в них не входят
+// (в городе цепочка кончается городским домом, хижина — только в деревне)
+const SMALLER = {
+  town: { villa: 'cottage', tenement: 'shophouse', shophouse: 'townhouse', cottage: 'townhouse' },
+  village: { cottage: 'hut', townhouse: 'hut', shed: 'hut' },
+};
 
 // Маска занятости на сетке поля высот
 export function occupancy(hf) {
@@ -48,7 +57,7 @@ export function occupancy(hf) {
   };
 }
 
-export function buildSettlements(hf, bio, map, opts = {}) {
+export function buildSettlements(hf, bio, map, plan, opts = {}) {
   const t0 = performance.now();
   const occ = opts.occ ?? occupancy(hf);
   const group = new THREE.Group();
@@ -56,6 +65,13 @@ export function buildSettlements(hf, bio, map, opts = {}) {
   const counts = {};
   let tris = 0;
   const land = (x, z) => hf.sample(x, z);
+  const [gx0, gz0] = hf.bounds;
+  const cellOf = (x, z) => {
+    const i = Math.round((x - gx0) / hf.step), j = Math.round((z - gz0) / hf.step);
+    return i < 0 || j < 0 || i >= hf.size || j >= hf.size ? -1 : j * hf.size + i;
+  };
+  const zoneAt = (x, z) => { const k = cellOf(x, z); return k < 0 ? 'none' : PLAN_ZONES[plan.zone[k]]; };
+  const siteAt = (x, z) => { const k = cellOf(x, z); return k < 0 ? -1 : plan.siteOf[k]; };
 
   // градиент высоты → нормаль берега (в сторону воды)
   function seaNormal(x, z) {
@@ -73,17 +89,8 @@ export function buildSettlements(hf, bio, map, opts = {}) {
     }
     return null;
   }
-  // направление к ближайшей воде от центра площадки
-  function seaward(s) {
-    let best = null;
-    for (let i = 0; i < 48; i++) {
-      const a = (i / 48) * Math.PI * 2, e = edge(s.x, s.z, Math.cos(a), Math.sin(a), s.r + 160);
-      if (e && (!best || e.t < best.t)) best = { ...e, dx: Math.cos(a), dz: Math.sin(a) };
-    }
-    return best;
-  }
 
-  // контекст одного батча: put — постройка из библиотеки, road — лента по точкам
+  // контекст одного батча: put — постройка из библиотеки, road — лента по точкам, ribbon — объект-лента по точкам с высотой
   function batchCtx(name, style, rng) {
     const batch = new PropBatch(), extras = [];
     const put = (id, x, z, rot, o = {}) => {
@@ -107,24 +114,26 @@ export function buildSettlements(hf, bio, map, opts = {}) {
       counts[id] = (counts[id] ?? 0) + 1;
       return true;
     };
-    // лента: суша по точкам (вода и обрывки короче 12 м отбрасываются), y — высота земли
+    const ribbon = (id, pts3, o = {}) => {
+      extras.push(...addStructure(batch, id, new THREE.Matrix4(), { style, variant: o.variant ?? 0, points: pts3, ...o.params }, rng));
+      counts[id] = (counts[id] ?? 0) + 1;
+    };
+    // лента: суша по точкам через step м (вода и обрывки короче minLen отбрасываются), y — высота земли
     const road = (id, pts, o = {}) => {
-      const hw = HW[id] ?? 2;
+      const hw = HW[id] ?? 2, minLen = o.minLen ?? 5;
       const runs = [[]];
-      for (const p of resample(pts, 4)) {
+      for (const p of resample(pts, o.step ?? 3)) {
         if (land(p[0], p[1]) > 0.5) runs.at(-1).push(p); else if (runs.at(-1).length) runs.push([]);
       }
-      for (const run of runs) {
-        if (run.length < 4) continue;
-        const pts3 = run.map(([x, z]) => [x, land(x, z), z]);
-        extras.push(...addStructure(batch, id, new THREE.Matrix4(), { style, variant: o.variant ?? 0, points: pts3 }, rng));
+      const out = runs.filter((r) => r.length >= 2 && polyline(r).L >= minLen);
+      for (const run of out) {
+        ribbon(id, run.map(([x, z]) => [x, land(x, z), z]), o);
         for (let i = 0; i < run.length - 1; i++) {
           const [ax, az] = run[i], [bx, bz] = run[i + 1];
           occ.mark((ax + bx) / 2, (az + bz) / 2, 2 * hw, Math.hypot(bx - ax, bz - az) + 1, Math.atan2(bx - ax, bz - az), 0, 1);
         }
-        counts[id] = (counts[id] ?? 0) + 1;
       }
-      return runs.filter((r) => r.length >= 4);
+      return out;
     };
     const finish = () => {
       if (!batch.pos.length) return;
@@ -137,7 +146,7 @@ export function buildSettlements(hf, bio, map, opts = {}) {
       g.traverse((m) => { if (m.isMesh) tris += m.geometry.attributes.position.count / 3; });
       group.add(g);
     };
-    return { put, road, finish, rng };
+    return { put, road, ribbon, finish, rng, style };
   }
 
   // постройка у улицы: от u0 в обе стороны с шагом 2 м до первого свободного места; side ±1 — сторона от оси
@@ -151,272 +160,315 @@ export function buildSettlements(hf, bio, map, opts = {}) {
     }
     return null;
   }
-  // застройка улицы с обеих сторон: choose(dc) — id по расстоянию от центра
-  function fillStreet(ctx, st, s, choose) {
+  // застройка улицы с обеих сторон: choose(x, z) — id дома в этой точке или null (здесь не строить);
+  // smaller — чем заменить дом, если не встал
+  function fillStreet(ctx, st, choose, smaller) {
     const hw = HW[st.road] ?? 2;
     for (const side of [-1, 1]) {
       let u = 3 + ctx.rng() * 3;
       while (u < st.P.L - 3) {
-        const p = st.P.at(u), dc = Math.hypot(p.x - s.x, p.z - s.z) / s.r, id = choose(dc);
-        const { w, d } = STRUCTURES[id].footprint;
-        const q = st.P.at(Math.min(st.P.L, u + w / 2)), nx = -q.tz * side, nz = q.tx * side, off = hw + 0.8 + d / 2 + ctx.rng() * 0.8;
-        if (ctx.put(id, q.x + nx * off, q.z + nz * off, Math.atan2(-nx, -nz))) u += w + 0.6 + ctx.rng() * 1.4;
-        else u += 2;
+        const p = st.P.at(u), nx0 = -p.tz * side, nz0 = p.tx * side, id = choose(p.x + nx0 * (hw + 5), p.z + nz0 * (hw + 5));
+        if (!id) { u += 4; continue; }
+        const gap = ctx.rng() * 0.8;
+        let w = 0;
+        for (let t = id; t && !w; t = smaller[t]) {
+          const fp = STRUCTURES[t].footprint;
+          const q = st.P.at(Math.min(st.P.L, u + fp.w / 2)), nx = -q.tz * side, nz = q.tx * side, off = hw + 0.8 + fp.d / 2 + gap;
+          if (ctx.put(t, q.x + nx * off, q.z + nz * off, Math.atan2(-nx, -nz))) w = fp.w;
+        }
+        u += w ? w + 0.6 + ctx.rng() * 1.4 : 2;
       }
     }
   }
-  // фонари вдоль улицы
-  function lamps(ctx, st, every) {
+  // фонари вдоль улицы — только в границе посёлка idx
+  function lamps(ctx, st, every, idx) {
     const hw = HW[st.road] ?? 2;
     for (let u = every / 2, i = 0; u < st.P.L; u += every, i++) {
       const p = st.P.at(u), side = i % 2 ? 1 : -1, nx = -p.tz * side, nz = p.tx * side;
+      if (siteAt(p.x, p.z) !== idx) continue;
       ctx.put('street-lamp', p.x + nx * (hw + 0.5), p.z + nz * (hw + 0.5), Math.atan2(-nx, -nz), { pad: 0, mark: 0.2 });
     }
   }
-  // хутора и мельницы за околицей
-  function outskirts(ctx, s, n, style, mills) {
-    const rng = ctx.rng;
-    for (let i = 0; i < mills; i++) {
-      for (let k = 0; k < 30; k++) {
-        const a = rng() * Math.PI * 2, d = s.r * (1.05 + rng() * 0.6);
-        if (ctx.put('windmill', s.x + Math.cos(a) * d, s.z + Math.sin(a) * d, rng() * 6.28, { tol: 1.6, pad: 3 })) break;
+  // подпорные стенки вдоль улицы в границе посёлка: земля сбоку (за обочиной, до 4 м) ниже полотна больше чем на 1.2 м —
+  // стенка с низовой стороны лицом наружу; выше — с верховой, лицом к улице. Куски короче 6 м отбрасываются.
+  function walls(ctx, st, idx) {
+    const hw = HW[st.road] ?? 2, off = hw + 0.6, P = st.P;
+    for (const side of [-1, 1]) {
+      let run = [];
+      const flush = () => {
+        if (run.length >= 4 && polyline(run.map((r) => [r.x, r.z])).L >= 6) {
+          const down = run.filter((r) => r.down).length >= run.length / 2;
+          const h = Math.min(4, Math.max(1, Math.round(run.reduce((a, r) => a + (down ? r.drop : r.rise), 0) / run.length * 2) / 2));
+          let pts = run.map((r) => [r.x, down ? r.y - h : r.y, r.z]);
+          // лицо — к +s ленты: s = (−tz, tx), это нормаль стороны side = +1
+          if (down !== (side > 0)) pts = pts.reverse();
+          ctx.ribbon('retaining-wall', pts, { params: { height: h } });
+          for (const r of run) occ.mark(r.x, r.z, 1.5, 2.5, 0, 0, 1);
+        }
+        run = [];
+      };
+      for (let u = 1; u < P.L - 1; u += 2) {
+        const p = P.at(u), nx = -p.tz * side, nz = p.tx * side, x = p.x + nx * off, z = p.z + nz * off;
+        const y = land(p.x, p.z), g1 = land(x, z), g2 = land(p.x + nx * (off + 3.4), p.z + nz * (off + 3.4));
+        const drop = y - Math.min(g1, g2), rise = Math.max(g1, g2) - y;
+        const ok = siteAt(p.x, p.z) === idx && g1 > 0.5 && occ.at(p.x + nx * (off + 1.5), p.z + nz * (off + 1.5)) === 0 && (drop > 1.2 || rise > 1.2);
+        if (!ok) { flush(); continue; }
+        const down = drop >= rise;
+        if (run.length && run.at(-1).down !== down) flush();
+        run.push({ x, z, y, drop, rise, down });
       }
-    }
-    for (let i = 0; i < n; i++) {
-      const a = rng() * Math.PI * 2, d = s.r * (0.95 + rng() * 0.7), x = s.x + Math.cos(a) * d, z = s.z + Math.sin(a) * d;
-      const rot = rng() * 6.28, c = Math.cos(rot), sn = Math.sin(rot);
-      const at = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c];
-      if (!ctx.put(rng() < 0.6 ? 'cottage' : 'shed', x, z, rot, { pad: 1.5 })) continue;
-      ctx.put('shed', ...at(9, 2 * (rng() - 0.5)), rot + Math.PI / 2);
-      ctx.put('woodpile', ...at(-7, 1), rot);
-      if (rng() < 0.4) ctx.put('cart', ...at(-6, 7), rot + 1);
-      if (rng() < 0.5) ctx.put('well', ...at(4, 7), rot);
-      // ограда огорода: ряд секций по 4 м перед домом
-      const fl = 3 + Math.floor(rng() * 4);
-      for (let f = 0; f < fl; f++) ctx.put('fence', ...at(-fl * 2 + 2 + f * 4, 11), rot, { pad: 0, mark: 0.1, tol: 1.2 });
+      flush();
     }
   }
-
-  // --- город и порт ---------------------------------------------------------
-  function town(s, style, ctx, sea) {
-    const rng = ctx.rng, port = s.type === 'port', R = s.r;
-    // оси: n — к воде, a — вдоль берега; без воды рядом — случайно
-    const n = sea ? [sea.dx, sea.dz] : (() => { const a = rng() * 6.28; return [Math.cos(a), Math.sin(a)]; })();
-    const a = [-n[1], n[0]];
-    const P = (u, v) => [s.x + a[0] * u + n[0] * v, s.z + a[1] * u + n[1] * v];
-    // порт: улицы отодвинуты от воды (первая — набережная), в городе — сетка через центр
-    // порт: между набережной и водой ~24 м под причальную полосу
-    const vEdge = sea ? Math.min(sea.t - (port ? 24 : 12), R * 0.4) : R * 0.6;
-    const vs = port ? [vEdge, vEdge - 30, vEdge - 60, vEdge - 90].filter((v) => v > -R * 1.4)
-      : [30, 0, -30, -60].filter((v) => v <= vEdge).slice(0, 3);
-    const L = R * (port ? 1.25 : 1.05);
-    const roadId = 'road-cobble', streets = [];
-    const addStreet = (pts) => { for (const run of ctx.road(roadId, pts, { variant: rng() < 0.5 ? 0 : 1 })) streets.push({ road: roadId, P: polyline(run) }); };
-    for (const v of vs) addStreet([P(-L, v + 3 * (rng() - 0.5)), P(0, v), P(L, v + 3 * (rng() - 0.5))]);
-    const us = port ? [-40, 0, 40] : [0, rng() < 0.5 ? -35 : 35];
-    const vMin = Math.min(...vs) - 12, vMax = Math.max(...vs);
-    for (const u of us) addStreet([P(u, vMax), P(u + 4 * (rng() - 0.5), vMin)]);
-
-    // площадь между первыми двумя продольными улицами у поперечной u = 0
-    const pc = P(12, (vs[0] + vs[1]) / 2), rot = Math.atan2(n[0], n[1]);
-    ctx.put('plaza', pc[0], pc[1], rot, { check: false, y: land(...pc) - 0.02 });
-    ctx.put('fountain', pc[0], pc[1], rot, { check: false, y: land(...pc) + 0.04 });
-    for (const [lx, lz, id] of [[6, 6.5, 'bench'], [-6, 6.5, 'bench'], [6.5, -6.5, 'kiosk'], [-6.5, -6, 'advert-column'], [7.5, 0, 'post-box']]) {
-      const c = Math.cos(rot), sn = Math.sin(rot);
-      ctx.put(id, pc[0] + lx * c + lz * sn, pc[1] - lx * sn + lz * c, rot + (lz > 0 ? Math.PI : 0), { check: false, y: land(...pc) + 0.06 });
-    }
-    if (port && sea) waterfront(s, ctx, n, a, P, vEdge, style);
-    // общественные здания — ближе к площади; стороны: ±1 от оси улицы (у продольных −1 — к морю), не встало — другая
-    const main = streets[0], second = streets[1] ?? streets[0];
-    const mid = (st) => st.P.L / 2;
-    const pub = port
-      ? [['town-hall', second, 1], ['church', streets[2] ?? second, 1], ['customs', main, -1], ['tavern', main, -1], ['market', second, -1],
-        ['warehouse', main, 1], ['warehouse', main, 1], ['pilot-station', main, -1]]
-      : [['church', second, 1], ['tavern', main, -1], ['market', second, -1], ['town-hall', main, 1]];
-    for (const [id, st, side] of pub) {
-      const u0 = mid(st) + (rng() - 0.5) * 30, r = alongStreet(ctx, id, st, side, u0) ?? alongStreet(ctx, id, st, -side, u0);
-      if (r && id === 'town-hall') ctx.put('flagpole', r.x + n[0] * 2, r.z + n[1] * 2, 0, { pad: 0 });
-    }
-    ctx.put('monument', ...P(-14, (vs[0] + vs[1]) / 2), rot, { pad: 0.5 });
-
-    // жилая застройка: в центре — доходные дома и лавки, к окраине — дома и хижины
-    const choose = (dc) => pickW(dc < 0.55
-      ? [['tenement', 3], ['townhouse', 4], ['shophouse', 4], ['villa', 0.5]]
-      : dc < 1 ? [['townhouse', 3], ['cottage', 4], ['shophouse', 1.5], ['villa', 1], ['hut', 1]]
-        : [['cottage', 5], ['hut', 3], ['shed', 1.5]], rng);
-    for (const st of streets) fillStreet(ctx, st, s, choose);
-    for (const st of streets) lamps(ctx, st, 18);
-    // скамьи, тумбы, коновязи вдоль улиц — по случайным свободным местам
-    for (let i = 0; i < 12; i++) {
-      const st = streets[Math.floor(rng() * streets.length)], u = rng() * st.P.L, p = st.P.at(u), side = rng() < 0.5 ? 1 : -1;
-      const nx = -p.tz * side, nz = p.tx * side, id = pickW([['bench', 3], ['hitching-post', 1], ['advert-column', 1], ['telegraph-pole', 1]], rng);
-      ctx.put(id, p.x + nx * 4, p.z + nz * 4, Math.atan2(-nx, -nz), { pad: 0.2 });
-    }
-    outskirts(ctx, s, port ? 5 : 4, style, style === 'north' ? 0 : 1);
+  // хутор фасадом к дороге: дом, сарай, поленница, телега, колодец, ограда огорода
+  function farmstead(ctx, x, z, rot) {
+    const rng = ctx.rng, c = Math.cos(rot), sn = Math.sin(rot);
+    const at = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c];
+    if (!ctx.put(rng() < 0.7 ? 'cottage' : 'shed', x, z, rot, { pad: 1.5 })) return false;
+    ctx.put('shed', ...at(9, -2 * rng()), rot + Math.PI / 2);
+    ctx.put('woodpile', ...at(-7, -1), rot);
+    if (rng() < 0.4) ctx.put('cart', ...at(-6, -7), rot + 1);
+    if (rng() < 0.5) ctx.put('well', ...at(4, -7), rot);
+    // ограда огорода: ряд секций по 4 м за домом
+    const fl = 3 + Math.floor(rng() * 4);
+    for (let f = 0; f < fl; f++) ctx.put('fence', ...at(-fl * 2 + 2 + f * 4, -11), rot, { pad: 0, mark: 0.1, tol: 1.2 });
+    return true;
   }
-
-  // набережная порта: мол, пирсы, стенки, стапель, кран и грузы у кромки
-  function waterfront(s, ctx, n, a, P, vEdge, style) {
-    const rng = ctx.rng;
-    const shore = (u) => {
-      const [x, z] = P(u, vEdge - 4), e = edge(x, z, n[0], n[1], 70);
-      if (!e) return null;
-      const [nx, nz] = seaNormal(e.x, e.z);
-      return { ...e, rot: Math.atan2(nx, nz), nx, nz };
-    };
-    const water = (id, u, params) => {
-      const e = shore(u);
-      return e && ctx.put(id, e.x, e.z, e.rot, { params }) ? e : null;
-    };
-    const mole = water('pier-stone', 0, { length: 45 });
-    water('pier-wood', -30, { length: 26 });
-    water('pier-wood', 32, { length: 22, tee: 0 });
-    for (const u of [-14, 14, 46, -46]) water('quay-wall', u);
-    water('slipway', -62);
-    water('shipyard', 62);
-    if (style !== 'south') water('lifeboat-station', 78);
-    else water('steps-water', 22);
-    // кран и грузы на причальной полосе
-    if (mole) {
-      const bx = mole.x - mole.nx * 5, bz = mole.z - mole.nz * 5;
-      ctx.put('crane', bx + a[0] * 6, bz + a[1] * 6, mole.rot, { pad: 0.2 });
-      for (let i = 0; i < 6; i++) ctx.put('cargo', bx + a[0] * (-12 + i * 5 + rng()) - mole.nx * rng() * 4, bz + a[1] * (-12 + i * 5) - mole.nz * rng() * 4, mole.rot + (rng() - 0.5), { pad: 0.2 });
-      ctx.put('signal-mast', bx - a[0] * 16 - mole.nx * 4, bz - a[1] * 16 - mole.nz * 4, mole.rot, { pad: 0.3 });
-    }
-  }
-
-  // --- деревня ----------------------------------------------------------------
-  function village(s, style, ctx, sea) {
-    const rng = ctx.rng, R = s.r;
-    const n = sea ? [sea.dx, sea.dz] : (() => { const a = rng() * 6.28; return [Math.cos(a), Math.sin(a)]; })();
-    const a = [-n[1], n[0]];
-    const P = (u, v) => [s.x + a[0] * u + n[0] * v, s.z + a[1] * u + n[1] * v];
-    const roadId = 'road-dirt', streets = [];
-    const v0 = sea ? Math.min(0, sea.t - 14) : 0, L = R * 1.15, bend = 3 + rng() * 4;
-    const mainPts = Array.from({ length: 7 }, (_, i) => { const u = -L + (i / 6) * 2 * L; return P(u, v0 + bend * Math.sin(u / R * 2)); });
-    for (const run of ctx.road(roadId, mainPts)) streets.push({ road: roadId, P: polyline(run) });
-    if (R >= 30) for (const run of ctx.road(roadId, [P(4, v0), P(6 + 6 * (rng() - 0.5), v0 - R)])) streets.push({ road: roadId, P: polyline(run) });
-    if (!streets.length) return;
-    const main = streets[0];
-    ctx.put('well', ...P(-6, v0 - 6), 0, { pad: 0.3 });
-    if (rng() < 0.5) alongStreet(ctx, 'chapel', main, -1, main.P.L * (0.3 + 0.4 * rng()));
-    if (rng() < 0.5) alongStreet(ctx, 'tavern', main, -1, main.P.L * (0.3 + 0.4 * rng()));
-    // рыбацкий (fishing): хижины, редкие дома, сараи под снасти; без хуторов и мельниц
-    const fish = !!s.fishing;
-    const choose = (dc) => pickW(fish ? [['hut', 6], ['cottage', 1], ['shed', 2]]
-      : dc < 0.8 ? [['cottage', 5], ['hut', 3], ['townhouse', 0.6], ['shed', 0.8]] : [['hut', 3], ['cottage', 3], ['shed', 2]], rng);
-    for (const st of streets) fillStreet(ctx, st, s, choose);
-    for (let i = 0; i < 5; i++) {
-      const st = streets[Math.floor(rng() * streets.length)], p = st.P.at(rng() * st.P.L), side = rng() < 0.5 ? 1 : -1;
-      ctx.put(pickW(fish ? [['net-rack', 3], ['woodpile', 1], ['boat-beached', 2], ['bench', 1]] : [['woodpile', 2], ['cart', 1], ['bench', 1], ['telegraph-pole', 1]], rng), p.x - p.tz * side * 4, p.z + p.tx * side * 4, rng() * 6.28, { pad: 0.2 });
-    }
-    // у воды: мостки, лодочный сарай, лодки на берегу, сушилки сетей (у рыбацкого — по всему берегу и малый маяк)
-    if (sea && sea.t < R + 40) {
-      const shoreline = fish
-        ? [['jetty-small', 0], ['boathouse', 10], ['jetty-small', 20], ['boathouse', -12], ['jetty-small', -24], ['boathouse', 32], ['jetty-small', -40], ['boathouse', -50]]
-        : [['jetty-small', 0], ['boathouse', 14], ['jetty-small', -22], ['boathouse', -36]];
-      for (const [id, u] of shoreline) {
-        const [x, z] = P(u, 0), e = edge(x, z, n[0], n[1], R + 60);
-        if (!e) continue;
-        const [nx, nz] = seaNormal(e.x, e.z);
-        ctx.put(id, e.x, e.z, Math.atan2(nx, nz), { params: id === 'jetty-small' ? { length: 8 + Math.round(rng() * 4) } : undefined });
-        if (id === 'jetty-small') {
-          for (let b = 0; b < 2; b++) ctx.put('boat-beached', e.x - nx * 3 + nz * (5 + b * 2.5), e.z - nz * 3 - nx * (5 + b * 2.5), Math.atan2(nx, nz) + (rng() - 0.5) * 0.5, { minH: 0.2, pad: 0.2 });
-          ctx.put('net-rack', e.x - nx * 8 - nz * 6, e.z - nz * 8 + nx * 6, Math.atan2(nx, nz), { pad: 0.3 });
+  // окраины: хутора вдоль полевых дорог (track) в outskirts/fields через 30–45 м, мельницы — в полях
+  function outskirts(ctx, p, streets, n, mills) {
+    const rng = ctx.rng, tracks = streets.filter((l) => l.cls === 'track');
+    let made = 0;
+    for (const st of tracks) {
+      const hw = HW[st.road] ?? 2;
+      for (let u = 10 + rng() * 15; u < st.P.L - 8 && made < n; u += 30 + rng() * 15) {
+        // сторона — та, где окраина или поле (снаружи полевой дороги обычно уже ничья земля)
+        const q = st.P.at(u), s0 = rng() < 0.5 ? 1 : -1;
+        for (const side of [s0, -s0]) {
+          const nx = -q.tz * side, nz = q.tx * side, off = hw + 6, x = q.x + nx * off, z = q.z + nz * off, zn = zoneAt(x, z);
+          if ((zn === 'outskirts' || zn === 'fields') && siteAt(x, z) < 0 && farmstead(ctx, x, z, Math.atan2(-nx, -nz))) { made++; break; }
         }
       }
     }
+    if (!mills) return;
+    // мельницы — на клетках полей вокруг посёлка (нет полей — на окраинах), случайные пробы
+    const R = p.r * 2.2, fields = [], outs = [];
+    for (let dz = -R; dz <= R; dz += 4) for (let dx = -R; dx <= R; dx += 4) {
+      const x = p.x + dx, z = p.z + dz, zn = zoneAt(x, z);
+      if (siteAt(x, z) >= 0) continue;
+      if (zn === 'fields') fields.push([x, z]); else if (zn === 'outskirts') outs.push([x, z]);
+    }
+    const pool = fields.length > 20 ? fields : fields.concat(outs);
+    for (let i = 0, k = 0; i < mills && k < 60 && pool.length; k++) {
+      const [x, z] = pool[Math.floor(rng() * pool.length)];
+      if (ctx.put('windmill', x, z, rng() * 6.28, { tol: 1.6, pad: 3 })) i++;
+    }
+  }
+
+  // точки кромки вдоль улицы через 6 м: луч к воде по склону
+  function shoreSpots(st, max = 60) {
+    const out = [];
+    for (let u = 4; u < st.P.L - 4; u += 6) {
+      const a = st.P.at(u), [nx, nz] = seaNormal(a.x, a.z), e = edge(a.x, a.z, nx, nz, max);
+      if (!e) continue;
+      const [sx, sz] = seaNormal(e.x, e.z);
+      out.push({ x: e.x, z: e.z, nx: sx, nz: sz, rot: Math.atan2(sx, sz) });
+    }
+    return out;
+  }
+  // объект у воды — в ближайшую к середине точку кромки, не ближе gap к уже занятым
+  function atShore(ctx, id, spots, used, gap, o = {}) {
+    const mid = spots.length / 2;
+    const order = spots.map((q, i) => [q, Math.abs(i - mid)]).sort((a, b) => a[1] - b[1]).map((e) => e[0]);
+    for (const q of order) {
+      if (used.some((b) => Math.hypot(b.x - q.x, b.z - q.z) < gap)) continue;
+      if (ctx.put(id, q.x, q.z, q.rot, o)) { used.push(q); return q; }
+    }
+    return null;
+  }
+  // причалы по berths плана
+  const BERTH_LEN = { 'pier-stone': () => 45, 'pier-wood': (rng) => 22 + Math.round(rng() * 4), 'jetty-small': (rng) => 8 + Math.round(rng() * 4) };
+  function berths(ctx, p) {
+    const out = [];
+    for (const b of p.berths) {
+      if (!b.kind) continue;
+      const len = BERTH_LEN[b.kind]?.(ctx.rng);
+      if (ctx.put(b.kind, b.x, b.z, b.rot, { params: len ? { length: len } : undefined })) out.push(b);
+    }
+    return out;
+  }
+
+  // --- площадь и общественные здания -------------------------------------------
+  function plazaAndReserves(ctx, p, town) {
+    if (p.plaza) {
+      const { x, z, rot, w } = p.plaza, y = land(x, z), c = Math.cos(rot), sn = Math.sin(rot);
+      const at = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c];
+      if (town) {
+        ctx.put('plaza', x, z, rot, { check: false, y: y - 0.02, variant: 2 });
+        ctx.put('fountain', x, z, rot, { check: false, y: y + 0.04 });
+        for (const [lx, lz, id] of [[6, 6.5, 'bench'], [-6, 6.5, 'bench'], [6.5, -6.5, 'kiosk'], [-6.5, -6, 'advert-column'], [7.5, 0, 'post-box']]) {
+          ctx.put(id, ...at(lx, lz), rot + (lz > 0 ? Math.PI : 0), { check: false, y: y + 0.06 });
+        }
+        ctx.put('monument', ...at(-(w / 2 + 3), 0), rot, { pad: 0.5 });
+      } else {
+        // деревенская площадь — без мощения: колодец и скамьи
+        ctx.put('well', x, z, rot, { check: false });
+        for (const lx of [-4, 4]) ctx.put('bench', ...at(lx, 3), rot + Math.PI, { pad: 0.2 });
+      }
+    }
+    for (const r of p.reserves) {
+      if (!ctx.put(r.id, r.x, r.z, r.rot, { check: false })) continue;
+      if (r.id === 'town-hall') ctx.put('flagpole', r.x + Math.sin(r.rot) * (r.d / 2 + 2), r.z + Math.cos(r.rot) * (r.d / 2 + 2), 0, { pad: 0 });
+    }
+  }
+
+  // --- город и порт ---------------------------------------------------------------
+  function town(p, idx, ctx, streets) {
+    const rng = ctx.rng, port = p.type === 'port';
+    if (port) {
+      const quay = streets.find((l) => l.cls === 'quay') ?? streets.find((l) => !FOOT.has(l.cls));
+      const used = berths(ctx, p);
+      const mole = used.find((b) => b.kind === 'pier-stone');
+      // кран, грузы и сигнальная мачта — на причальной полосе у мола
+      if (mole) {
+        const ax = -mole.nz, az = mole.nx, bx = mole.x - mole.nx * 5, bz = mole.z - mole.nz * 5;
+        ctx.put('crane', bx + ax * 6, bz + az * 6, mole.rot, { pad: 0.2 });
+        for (let i = 0; i < 6; i++) ctx.put('cargo', bx + ax * (-12 + i * 5 + rng()) - mole.nx * rng() * 4, bz + az * (-12 + i * 5) - mole.nz * rng() * 4, mole.rot + (rng() - 0.5), { pad: 0.2 });
+        ctx.put('signal-mast', bx - ax * 16 - mole.nx * 4, bz - az * 16 - mole.nz * 4, mole.rot, { pad: 0.3 });
+      }
+      if (quay) {
+        const spots = shoreSpots(quay), taken = used.slice();
+        atShore(ctx, 'slipway', spots, taken, 16);
+        atShore(ctx, 'shipyard', spots, taken, 16);
+        atShore(ctx, p.style !== 'south' ? 'lifeboat-station' : 'steps-water', spots, taken, 12);
+      }
+    }
+    // жилая застройка по зонам плана
+    const choose = (x, z) => {
+      const zn = siteAt(x, z) === idx ? zoneAt(x, z) : zoneAt(x, z) === 'outskirts' ? 'outskirts' : 'none';
+      if (zn === 'core') return pickW([['tenement', 3], ['townhouse', 4], ['shophouse', 4], ['villa', 0.5]], rng);
+      if (zn === 'residential') return pickW([['townhouse', 3], ['cottage', 4], ['shophouse', 1.5], ['villa', 1], ['hut', 1]], rng);
+      if (zn === 'waterfront') return pickW([['shed', 3], ['hut', 2], ['shophouse', 2], ['townhouse', 1]], rng);
+      if (zn === 'outskirts' && rng() < 0.4) return pickW([['cottage', 5], ['hut', 3], ['shed', 1.5]], rng);
+      return null;
+    };
+    const drive = streets.filter((l) => !FOOT.has(l.cls) && l.cls !== 'track');
+    for (const st of drive) fillStreet(ctx, st, choose, SMALLER.town);
+    for (const st of drive) lamps(ctx, st, 18, idx);
+    // скамьи, тумбы, коновязи вдоль улиц — по случайным свободным местам в границе
+    for (let i = 0; i < 12 && drive.length; i++) {
+      const st = drive[Math.floor(rng() * drive.length)], q = st.P.at(rng() * st.P.L), side = rng() < 0.5 ? 1 : -1;
+      const nx = -q.tz * side, nz = q.tx * side, id = pickW([['bench', 3], ['hitching-post', 1], ['advert-column', 1], ['telegraph-pole', 1]], rng);
+      if (siteAt(q.x, q.z) === idx) ctx.put(id, q.x + nx * 4, q.z + nz * 4, Math.atan2(-nx, -nz), { pad: 0.2 });
+    }
+    outskirts(ctx, p, streets, port ? 5 : 4, p.style === 'north' ? 0 : 1);
+  }
+
+  // --- деревня (и рыбацкий посёлок) -------------------------------------------------
+  function village(p, idx, ctx, streets) {
+    const rng = ctx.rng, fish = p.fishing;
+    const drive = streets.filter((l) => !FOOT.has(l.cls) && l.cls !== 'track');
+    const main = drive[0];
+    // у воды: мостки по berths, при каждых — лодки на берегу и сушилка сетей; лодочные сараи — на свободной кромке
+    const used = berths(ctx, p);
+    for (const b of used) {
+      for (let k = 0; k < 2; k++) ctx.put('boat-beached', b.x - b.nx * 3 + b.nz * (5 + k * 2.5), b.z - b.nz * 3 - b.nx * (5 + k * 2.5), b.rot + (rng() - 0.5) * 0.5, { minH: 0.2, pad: 0.2 });
+      ctx.put('net-rack', b.x - b.nx * 8 - b.nz * 6, b.z - b.nz * 8 + b.nx * 6, b.rot, { pad: 0.3 });
+    }
+    if (main && used.length) {
+      const spots = shoreSpots(main), taken = used.slice();
+      for (let n = 0; n < (fish ? 4 : 2); n++) atShore(ctx, 'boathouse', spots, taken, 9);
+    }
+    // рыбацкий: хижины, редкие дома, сараи под снасти; обычная деревня — дома и хижины, к краю реже
+    const choose = (x, z) => {
+      const zn = siteAt(x, z) === idx ? zoneAt(x, z) : zoneAt(x, z) === 'outskirts' ? 'outskirts' : 'none';
+      if (zn === 'none' || zn === 'fields') return null;
+      if (zn === 'outskirts') return !fish && rng() < 0.3 ? pickW([['hut', 3], ['cottage', 3], ['shed', 2]], rng) : null;
+      if (fish) return pickW([['hut', 6], ['cottage', 1], ['shed', 2]], rng);
+      return zn === 'core' ? pickW([['cottage', 5], ['hut', 3], ['townhouse', 0.6], ['shed', 0.8]], rng) : pickW([['hut', 3], ['cottage', 3], ['shed', 2]], rng);
+    };
+    for (const st of drive) fillStreet(ctx, st, choose, SMALLER.village);
+    if (!p.plaza) ctx.put('well', p.x, p.z, 0, { pad: 0.3 });
+    for (let i = 0; i < 5 && drive.length; i++) {
+      const st = drive[Math.floor(rng() * drive.length)], q = st.P.at(rng() * st.P.L), side = rng() < 0.5 ? 1 : -1;
+      ctx.put(pickW(fish ? [['net-rack', 3], ['woodpile', 1], ['boat-beached', 2], ['bench', 1]] : [['woodpile', 2], ['cart', 1], ['bench', 1], ['telegraph-pole', 1]], rng), q.x - q.tz * side * 4, q.z + q.tx * side * 4, rng() * 6.28, { pad: 0.2 });
+    }
     if (fish) {
-      // малый маяк на краю посёлка у кромки: первое место, где встаёт
-      for (const k of [0.9, -0.9, 0.7, -0.7, 0.5, -0.5]) for (const back of [2, 4, 7]) {
-        const [x, z] = P(L * k, v0), e = edge(x, z, n[0], n[1], R + 60);
-        if (e && ctx.put('harbor-light', e.x - n[0] * back, e.z - n[1] * back, Math.atan2(n[0], n[1]), { minH: 0.2, tol: 3, pad: 0.2 })) return;
+      // малый маяк у кромки за концом главной улицы: первое место, где встаёт
+      if (!main) return;
+      for (const u of [4, main.P.L - 4, main.P.L * 0.2, main.P.L * 0.8]) for (const back of [2, 4, 7]) {
+        const a = main.P.at(u), [nx, nz] = seaNormal(a.x, a.z), e = edge(a.x, a.z, nx, nz, 60);
+        if (e && ctx.put('harbor-light', e.x - nx * back, e.z - nz * back, Math.atan2(nx, nz), { minH: 0.2, tol: 3, pad: 0.2 })) return;
       }
       return;
     }
-    outskirts(ctx, s, 2 + Math.floor(rng() * 2), style, s.name === 'Мельница' ? 3 : style === 'north' ? 0 : rng() < 0.5 ? 1 : 0);
+    outskirts(ctx, p, streets, 2 + Math.floor(rng() * 2), p.name === 'Мельница' ? 3 : p.style === 'north' ? 0 : rng() < 0.5 ? 1 : 0);
   }
 
   // --- маяк ----------------------------------------------------------------------
-  function lighthouse(s, style, ctx, sea) {
-    const y = land(s.x, s.z) - 0.2, rot = sea ? Math.atan2(sea.dx, sea.dz) : 0;
-    if (s.proto === 'fastnet') { ctx.put('lighthouse-fastnet', s.x, s.z, rot, { check: false, y: y - 0.4 }); return; }
-    ctx.put('lighthouse', s.x, s.z, rot, { check: false, y });
+  function lighthouse(p, ctx) {
+    const y = land(p.x, p.z) - 0.2, rot = p.sea ? Math.atan2(p.sea.dx, p.sea.dz) : 0;
+    if (p.proto === 'fastnet') { ctx.put('lighthouse-fastnet', p.x, p.z, rot, { check: false, y: y - 0.4 }); return; }
+    ctx.put('lighthouse', p.x, p.z, rot, { check: false, y });
     // дом смотрителя — от моря, первое место, где встаёт
     for (let k = 0; k < 16; k++) {
       const a = rot + Math.PI + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.35, d = 9 + (k > 8 ? 4 : 0);
-      if (ctx.put('keeper-house', s.x + Math.sin(a) * d, s.z + Math.cos(a) * d, rot, { variant: 0, tol: 2.5 })) break;
+      if (ctx.put('keeper-house', p.x + Math.sin(a) * d, p.z + Math.cos(a) * d, rot, { variant: 0, tol: 2.5 })) break;
     }
   }
 
-  // --- причал снабжения (у маяка без посёлка): мостки, сарай, грузы; тропа к маяку — общей прокладкой дорог ---
-  function landing(s, style, ctx, sea) {
-    if (!sea) return;
-    const [nx, nz] = seaNormal(sea.x, sea.z), rot = Math.atan2(nx, nz);
-    ctx.put('jetty-small', sea.x, sea.z, rot, { params: { length: 12 } });
-    const at = (back, side) => [sea.x - nx * back + nz * side, sea.z - nz * back - nx * side];
+  // --- причал снабжения (у маяка без посёлка): мостки по berth плана, сарай, грузы, лодка ---
+  function landing(p, ctx) {
+    const b = p.berths[0];
+    if (!b) return;
+    const { nx, nz, rot } = b;
+    ctx.put('jetty-small', b.x, b.z, rot, { params: { length: 12 } });
+    const at = (back, side) => [b.x - nx * back + nz * side, b.z - nz * back - nx * side];
     ctx.put('shed', ...at(9, 6), rot, { tol: 2.5 });
     ctx.put('cargo', ...at(6, -4), rot + 0.3, { pad: 0.2, tol: 2.5 });
     ctx.put('boat-beached', ...at(3, -9), rot + 0.4, { minH: 0.2, pad: 0.2 });
   }
 
-  // --- раскладка всех площадок ------------------------------------------------
-  const islandOf = (x, z) => {
-    const [x0, z0] = hf.bounds, i = Math.round((x - x0) / hf.step), j = Math.round((z - z0) / hf.step);
-    return hf.owner[j * hf.size + i];
-  };
-  const placed = [];
-  for (const s of hf.sites) {
-    const style = bio.biomeAt(s.x, s.z) === 'none' ? 'atlantic' : bio.biomeAt(s.x, s.z);
-    const ctx = batchCtx(s.name, style, seeded(hash(s.name)));
-    const sea = seaward(s);
-    if (s.type === 'lighthouse') lighthouse(s, style, ctx, sea);
-    else if (s.type === 'village') village(s, style, ctx, sea);
-    else if (s.type === 'landing') landing(s, style, ctx, sea);
-    else town(s, style, ctx, sea);
+  // --- все площадки плана: сначала ленты улиц (они занимают маску первыми), потом стенки, площадь, резервы, остальное ---
+  plan.sites.forEach((p, idx) => {
+    const ctx = batchCtx(p.name, p.style, seeded(hash(p.name)));
+    const streets = [];
+    for (const l of p.streets) {
+      const id = RIBBON[l.road] ?? l.road;
+      for (const run of ctx.road(id, l.pts, { variant: id === 'road-cobble' ? hash(p.name + streets.length) % 2 : 0 })) streets.push({ cls: l.cls, road: id, P: polyline(run) });
+    }
+    for (const st of streets) if (!FOOT.has(st.cls)) walls(ctx, st, idx);
+    if (p.type === 'lighthouse') lighthouse(p, ctx);
+    else if (p.type === 'landing') landing(p, ctx);
+    else {
+      plazaAndReserves(ctx, p, p.type !== 'village');
+      if (p.type === 'village') village(p, idx, ctx, streets); else town(p, idx, ctx, streets);
+    }
     ctx.finish();
-    placed.push({ ...s, style, island: islandOf(s.x, s.z) });
-  }
+  });
 
-  // дороги между поселениями острова: минимальное остовное дерево по расстоянию, путь — A*;
-  // маяки — тропой к ближайшему поселению. Вдоль дорог между городами — телеграфные столбы
-  const route = makeRouter(hf);
+  // дороги между посёлками (plan.roads) — батч на остров; у дорог (не полевых) — телеграфные столбы
+  const islandOf = new Map(plan.sites.map((p) => [p.name, p.island]));
   const byIsland = new Map();
-  for (const s of placed) if (s.island >= 0) (byIsland.get(s.island) ?? byIsland.set(s.island, []).get(s.island)).push(s);
+  for (const r of plan.roads) {
+    const isl = islandOf.get(r.from) ?? -1;
+    (byIsland.get(isl) ?? byIsland.set(isl, []).get(isl)).push(r);
+  }
   let roadKm = 0;
   for (const [isl, list] of byIsland) {
-    const ctx = batchCtx(`дороги ${map.islands[isl].name ?? isl}`, list[0].style, seeded(isl * 977 + 13));
-    const towns = list.filter((s) => s.type !== 'lighthouse'), edges = [];
-    const inT = new Set(towns.length ? [towns[0]] : []);
-    while (inT.size < towns.length) {
-      let best = null;
-      for (const p of inT) for (const q of towns) {
-        if (inT.has(q)) continue;
-        const d = Math.hypot(p.x - q.x, p.z - q.z);
-        if (!best || d < best[2]) best = [p, q, d];
-      }
-      inT.add(best[1]);
-      edges.push([best[0], best[1], 'road-dirt']);
-    }
-    for (const l of list.filter((s) => s.type === 'lighthouse')) {
-      let best = null;
-      for (const q of towns) { const d = Math.hypot(l.x - q.x, l.z - q.z); if (!best || d < best[1]) best = [q, d]; }
-      if (best) edges.push([l, best[0], 'path']);
-    }
-    for (const [p, q, id] of edges) {
-      const path = route(p.x, p.z, q.x, q.z);
-      if (!path || path.length < 3) continue;
-      // обрезка внутри площадок: там свои улицы
-      const cut = path.filter(([x, z]) => Math.hypot(x - p.x, z - p.z) > p.r * 0.55 && Math.hypot(x - q.x, z - q.z) > q.r * 0.55);
-      if (cut.length < 3) continue;
-      const pts = chaikin(chaikin(cut));
-      for (const run of ctx.road(id, pts)) {
-        const P = polyline(run);
-        roadKm += P.L / 1000;
-        if (id !== 'road-dirt') continue;
-        for (let u = 20; u < P.L - 10; u += 42) {
-          const c = P.at(u);
-          ctx.put('telegraph-pole', c.x - c.tz * 4.5, c.z + c.tx * 4.5, Math.atan2(c.tx, c.tz), { pad: 0, mark: 0.2, tol: 3 });
+    const first = plan.sites.find((p) => p.island === isl);
+    const ctx = batchCtx(`дороги ${map.islands[isl]?.name ?? isl}`, first?.style ?? 'atlantic', seeded(isl * 977 + 13));
+    for (const r of list) {
+      const segs = r.segs ?? [{ road: r.kind === 'path' ? 'path' : 'road-dirt', pts: r.pts }];
+      for (const s of segs) {
+        const id = RIBBON[s.road] ?? s.road;
+        for (const run of ctx.road(id, s.pts)) {
+          const P = polyline(run);
+          roadKm += P.L / 1000;
+          if (r.kind !== 'road-dirt') continue;
+          for (let u = 20; u < P.L - 10; u += 42) {
+            const c = P.at(u);
+            ctx.put('telegraph-pole', c.x - c.tz * 4.5, c.z + c.tx * 4.5, Math.atan2(c.tx, c.tz), { pad: 0, mark: 0.2, tol: 3 });
+          }
         }
       }
     }
@@ -424,5 +476,5 @@ export function buildSettlements(hf, bio, map, opts = {}) {
   }
 
   const buildings = Object.entries(counts).reduce((a, [id, n]) => a + (STRUCTURES[id].road ? 0 : n), 0);
-  return { group, occ, counts, sites: placed, stats: { buildings, tris, roadKm, ms: performance.now() - t0 } };
+  return { group, occ, counts, sites: plan.sites, stats: { buildings, tris, roadKm, ms: performance.now() - t0 } };
 }

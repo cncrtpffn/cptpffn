@@ -83,7 +83,7 @@ export const DEMO = {
   ],
 
   sites: [
-    { type: 'port', name: 'Порто-Сирена', x: -290, z: -405, r: 70, flat: 0.35 },
+    { type: 'port', name: 'Порто-Сирена', x: -290, z: -405, r: 70, flat: 0.35, maxSlope: 0.25 }, // без крутого запада с лестницами
     { type: 'village', name: 'Оливето', x: -585, z: -135, r: 40 },
     { type: 'village', name: 'Сосновка', x: -330, z: 160, r: 35 },
     { type: 'village', name: 'Рыбачий', x: 100, z: 322, r: 32, fishing: true }, // внутренний (северный) берег Пальмового
