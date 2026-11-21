@@ -3,13 +3,14 @@
 // скорость перекладки (как удержание клавиши, только плавно).
 
 import { ICONS } from './icons.js';
+import { readParams } from '../params.js';
 
 const DEADZONE = 0.08;
 
 const capture = (el, id) => { try { el.setPointerCapture(id); } catch { /* указатель уже отпущен */ } };
 
 export function isTouchDevice() {
-  if (new URLSearchParams(location.search).has('touch')) return true;
+  if (readParams().touch) return true;
   return matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 }
 

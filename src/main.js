@@ -24,18 +24,20 @@ import { makeCollapsible } from './ui/collapse.js';
 import { setupFullscreen } from './ui/fullscreen.js';
 import { applyIcons } from './ui/icons.js';
 import { createPerf, createAdaptiveResolution, createPerfOverlay } from './perf.js';
+import { readParams } from './params.js';
 import './debug/polar.js';
 
 const STEP = 1 / 120;
 // стартовый сетап: время суток, погода, положение лодки
 const START = await (await fetch('start.json')).json();
+// URL-параметры — реестр src/params.js (он же таблица на tools.html).
 // ?map=<id> — карта по полю высот (src/maps/index.js), без него — демо; ?pos=x,z[,курс°] — старт лодки
 // (без него — старт карты map.start, иначе start.json); туда же возвращает «Вернуть лодку»
-const params = new URLSearchParams(location.search);
-const MAP = MAPS[params.get('map')] ?? MAPS.demo;
+const P = readParams();
+const MAP = MAPS[P.map] ?? MAPS.demo;
 const startBoat = { ...START.boat, ...MAP.start };
-if (params.has('pos')) {
-  const [x, z, h] = params.get('pos').split(',').map(Number);
+if (P.pos) {
+  const [x, z, h] = P.pos;
   Object.assign(startBoat, { x, z }, Number.isFinite(h) && { headingDeg: h });
 }
 
@@ -68,7 +70,7 @@ const sea = { ...SEA, ...START.weather.sea };
 // --- сцена ---
 // мир — до окружения: буи берутся из него (ручные из описания карты и навигационные знаки плана);
 // тень — окном вокруг камеры (на таче меньше и грубее)
-const world = buildWorld(MAP, { density: params.has('veg') ? parseFloat(params.get('veg')) : 1 });
+const world = buildWorld(MAP, { density: P.veg ?? 1 });
 const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 4096,
   buoys: world.buoys, shadowRange: isTouchDevice() ? 70 : 120 });
 scene.add(world.group);
@@ -111,8 +113,8 @@ const cloudsHidden = [env.clouds.group], noHide = [];
 // дальше разрешение подстраивается под бюджет GPU (?dpr=1.5 — зафиксировать вручную)
 const perf = createPerf(renderer);
 const resolution = createAdaptiveResolution(renderer, perf, { max: Math.min(window.devicePixelRatio, isTouchDevice() ? 1.5 : 2) });
-if (params.has('dpr')) { resolution.state.auto = false; resolution.state.ratio = parseFloat(params.get('dpr')); }
-const perfOverlay = createPerfOverlay(perf, resolution, renderer, { visible: params.has('perf') });
+if ('dpr' in P) { resolution.state.auto = false; resolution.state.ratio = P.dpr; }
+const perfOverlay = createPerfOverlay(perf, resolution, renderer, { visible: !!P.perf });
 
 // --- UI ---
 const input = new Input();
@@ -167,19 +169,19 @@ window.addEventListener('resize', () => {
 
 // --- отладка через URL: ?t=30&twa=60&wind=8&cam=chase&auto=1 ---
 let simTime = 0;
-const debugAuto = params.has('auto') || params.has('t');
-if (params.has('wind')) wind.baseSpeed = parseFloat(params.get('wind'));
-if (params.has('winddir')) wind.baseDirDeg = parseFloat(params.get('winddir'));
-if (params.has('cam')) followCam.mode = params.get('cam');
-if (params.has('camaz')) followCam.azimuth = parseFloat(params.get('camaz')) * DEG;
-if (params.has('campolar')) followCam.polar = parseFloat(params.get('campolar'));
-if (params.has('camdist')) followCam.distance = parseFloat(params.get('camdist'));
-const camPitch = parseFloat(params.get('campitch') || '0') * DEG;
-if (params.has('reefs')) boat.sail.setReef(parseInt(params.get('reefs'), 10));
-if (params.has('board')) boat.board = parseFloat(params.get('board'));
-if (params.has('tod')) env.setTimeOfDay(parseFloat(params.get('tod')));
-if (params.has('clouds')) env.setCloudType(params.get('clouds'), true);
-const autoTwa = parseFloat(params.get('twa') || '60') * DEG;
+const debugAuto = !!P.auto || 't' in P;
+if ('wind' in P) wind.baseSpeed = P.wind;
+if ('winddir' in P) wind.baseDirDeg = P.winddir;
+if ('cam' in P) followCam.mode = P.cam;
+if ('camaz' in P) followCam.azimuth = P.camaz * DEG;
+if ('campolar' in P) followCam.polar = P.campolar;
+if ('camdist' in P) followCam.distance = P.camdist;
+const camPitch = (P.campitch || 0) * DEG;
+if ('reefs' in P) boat.sail.setReef(Math.trunc(P.reefs));
+if ('board' in P) boat.board = P.board;
+if ('tod' in P) env.setTimeOfDay(P.tod);
+if ('clouds' in P) env.setCloudType(P.clouds, true);
+const autoTwa = (P.twa || 60) * DEG;
 function autopilotControls() {
   const targetPsi = wind.dir - autoTwa;
   let err = targetPsi - boat.psi;
@@ -188,8 +190,8 @@ function autopilotControls() {
   const sheetAngle = Math.abs(boat.aw.awa) - 24 * DEG;
   return { rudderAngle, sheetAngle, crewPos: 2 * Math.sign(boat.aw.twa || 1), board: 0, rudder: 0, sheet: 0 };
 }
-if (params.has('t')) {
-  const secs = parseFloat(params.get('t'));
+if ('t' in P) {
+  const secs = P.t;
   for (let i = 0; i < secs / STEP; i++) {
     wind.update(STEP);
     waves.configure(Math.min(1, 0.006 * wind.baseSpeed * wind.baseSpeed) * SEA.maxHeight, wind.baseDirDeg * DEG, wind.baseSpeed);
@@ -202,7 +204,7 @@ if (params.has('t')) {
   boatMesh.update(boat, 0);
   followCam.update(100, boat, boatMesh);
 }
-const debugLog = params.has('log');
+const debugLog = !!P.log;
 if (debugLog) console.log(`[shore] ${shoreMap.width}×${shoreMap.height}, точек берега ${shoreMap.sites.count} за ${bakeMs.toFixed(0)} мс`);
 
 // --- цикл ---

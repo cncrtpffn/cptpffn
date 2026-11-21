@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Кэтбот — инструменты</title>
+  <!-- Все стенды и отладочные средства на одной странице. Таблица параметров игры строится из src/params.js,
+       описания стендов ведутся здесь вручную: новый стенд или параметр стенда — допиши карточку. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <style>
+    /* токены из style.css; сам style.css не подключён — там html/body без прокрутки под канвас игры */
+    :root {
+      --ink: #2c3440;
+      --ink-soft: #5c6675;
+      --card: rgba(255, 250, 240, 0.86);
+      --card-border: rgba(80, 60, 30, 0.12);
+      --accent: #e9553b;
+      --true: #2f7fd1;
+      --code: rgba(44, 52, 64, 0.07);
+      font-family: 'Nunito', system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #9fd3ec; color: var(--ink); line-height: 1.45; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 30px; font-weight: 800; margin: 0 0 4px; }
+    h2 { font-size: 20px; font-weight: 800; margin: 32px 0 12px; }
+    h3 { font-size: 16px; font-weight: 800; margin: 0 0 6px; }
+    p { margin: 0 0 8px; }
+    .lead { color: var(--ink-soft); margin-bottom: 8px; }
+    a { color: var(--true); }
+    code, pre { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12.5px; }
+    code { background: var(--code); padding: 1px 4px; border-radius: 4px; overflow-wrap: anywhere; }
+    pre { background: var(--code); padding: 10px 12px; border-radius: 10px; overflow-x: auto; margin: 0 0 8px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+    .card {
+      background: var(--card); border: 1px solid var(--card-border); border-radius: 16px;
+      box-shadow: 0 6px 24px rgba(40, 30, 10, 0.12); padding: 14px 16px; min-width: 0;
+    }
+    .card .open { font-weight: 800; text-decoration: none; }
+    .card .open::after { content: ' →'; }
+    .when { color: var(--ink-soft); font-size: 14px; }
+    .links { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 3px; font-size: 14px; }
+    .links a { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12.5px; overflow-wrap: anywhere; }
+    .links span { color: var(--ink-soft); }
+    .params { font-size: 13px; color: var(--ink-soft); margin: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 5px 8px; vertical-align: top; border-top: 1px solid var(--card-border); }
+    th { font-weight: 800; }
+    tr.group th { background: var(--code); border-top: none; font-size: 13px; color: var(--ink-soft); }
+    td:first-child { white-space: nowrap; }
+    td.values { color: var(--ink-soft); }
+    @media (max-width: 600px) {
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: 24px; }
+      /* таблица параметров в столбик: имя и пример сверху, описание под ними */
+      #params thead { display: none; }
+      #params tr:not(.group) { display: block; border-top: 1px solid var(--card-border); padding: 5px 0; }
+      #params td { display: block; border: none; padding: 1px 4px; }
+      #params td:first-child, #params td.values { display: inline-block; }
+      #params tr.group th { display: block; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Инструменты</h1>
+  <p class="lead">Стенды, параметры игры, консоль и команды для отладки. Страница работает под тем же
+    сервером, что и игра: <code>python3 -m http.server</code> в корне проекта. <a href="index.html">Открыть игру</a>.</p>
+
+  <h2>Стенды</h2>
+  <div class="grid">
+    <section class="card">
+      <h3><a class="open" href="src/debug/map-viewer.html">Карта мира</a></h3>
+      <p>Рельеф, глубины, берег, растительность, постройки и дороги тем же кодом, что в игре, вид сверху.
+        Мышь тащит карту, WASD двигает камеру, колесо меняет высоту, в панели включаются слои.</p>
+      <p class="when">Когда: правишь карту или генерацию рельефа, растительности, поселений; ищешь координаты для <code>?pos=</code>; меряешь скорость сборки мира.</p>
+      <ul class="links">
+        <li><a href="src/debug/map-viewer.html?layers=terrain,depth,grid,labels">?layers=terrain,depth,grid,labels</a> <span>— глубины</span></li>
+        <li><a href="src/debug/map-viewer.html?layers=terrain,plan,build,grid,labels">?layers=terrain,plan,build,grid,labels</a> <span>— план поселений</span></li>
+        <li><a href="src/debug/map-viewer.html?layers=terrain,biome,regions,labels">?layers=terrain,biome,regions,labels</a> <span>— биомы и области</span></li>
+        <li><a href="src/debug/map-viewer.html?veg=0&amp;bench=5">?veg=0&amp;bench=5</a> <span>— без растительности, бенч 5 с</span></li>
+      </ul>
+      <p class="params">Параметры: <code>map</code> (demo | archipelago), <code>layers</code> (terrain, height, biome, zones,
+        regions, plan, veg, build, lod, depth, dist, normal, sites, grid, labels), <code>autoregions=1</code>, <code>veg</code>,
+        <code>tstep</code> (шаг меша, м), <code>bench</code> (с), <code>cam=x,z,h,pitch,yaw</code>.</p>
+    </section>
+
+    <section class="card">
+      <h3><a class="open" href="src/debug/props-viewer.html">Библиотека объектов</a></h3>
+      <p>Флора и постройки из <code>src/scene/structures</code>: все объекты сеткой по категориям и стилям.
+        Клик по объекту открывает его отдельно, рядом стоят моряк и двухметровая линейка для масштаба.</p>
+      <p class="when">Когда: делаешь или правишь объект, сверяешь стили юг / север / атлантика, считаешь треугольники.</p>
+      <ul class="links">
+        <li><a href="src/debug/props-viewer.html?cat=housing&amp;style=north">?cat=housing&amp;style=north</a> <span>— жильё, северный стиль</span></li>
+        <li><a href="src/debug/props-viewer.html?cat=port">?cat=port</a> <span>— порт во всех стилях</span></li>
+        <li><a href="src/debug/props-viewer.html?obj=lighthouse&amp;style=atlantic">?obj=lighthouse&amp;style=atlantic</a> <span>— один объект</span></li>
+        <li><a href="src/debug/props-viewer.html?obj=cottage&amp;style=south&amp;views=turn">?obj=cottage&amp;style=south&amp;views=turn</a> <span>— 4 ракурса</span></li>
+      </ul>
+      <p class="params">Параметры: <code>cat</code> (nature, housing, public, farm, piers, port, roads, street, all),
+        <code>style</code> (south | north | atlantic | all), <code>obj</code>, <code>seed</code>, <code>variant</code>,
+        параметры объекта, <code>views=turn</code>, <code>cam=x,y,z,tx,ty,tz</code>.</p>
+    </section>
+
+    <section class="card">
+      <h3><a class="open" href="src/debug/boat-viewer.html">Лодка</a></h3>
+      <p>Модель кэтбота в четырёх ракурсах на одном кадре: парус, гик, шверт, крен и положение рулевого
+        задаются параметрами, есть сценарии анимации моряка.</p>
+      <p class="when">Когда: правишь модель лодки, такелаж или позы рулевого; сверяешь с чертежом.</p>
+      <ul class="links">
+        <li><a href="src/debug/boat-viewer.html?views=crew">?views=crew</a> <span>— рулевой в кокпите</span></li>
+        <li><a href="src/debug/boat-viewer.html?views=detail">?views=detail</a> <span>— крупные планы такелажа</span></li>
+        <li><a href="src/debug/boat-viewer.html?views=ortho">?views=ortho</a> <span>— проекции для сверки с чертежом</span></li>
+        <li><a href="src/debug/boat-viewer.html?seat=stbd-bench&amp;seat2=port-bench&amp;at=1&amp;live=1">?seat=stbd-bench&amp;seat2=port-bench&amp;at=1&amp;live=1</a> <span>— пересадка вживую</span></li>
+        <li><a href="src/debug/boat-viewer.html?heel=20&amp;boom=-40&amp;awa=-100&amp;reef=1">?heel=20&amp;boom=-40&amp;awa=-100&amp;reef=1</a> <span>— крен, риф, левый галс</span></li>
+      </ul>
+      <p class="params">Параметры: <code>views</code> (ortho | detail | pennant | fittings | helm | crew), <code>cam</code>, <code>t</code>, <code>live=1</code>;
+        <code>seat</code>, <code>seat2</code>, <code>boom2</code>, <code>at</code>, <code>rock</code> — сценарии рулевого;
+        <code>boom</code>, <code>sheet</code>, <code>reef</code>, <code>furl</code>, <code>awa</code>, <code>aws</code>, <code>heel</code>,
+        <code>rudder</code>, <code>board</code>, <code>status</code> (fill | luff | gybe), <code>flutter</code>, <code>crew</code>, <code>crewy</code>, <code>water</code>.</p>
+    </section>
+
+    <section class="card">
+      <h3><a class="open" href="src/debug/sailor-viewer.html">Моряк</a></h3>
+      <p>Модель моряка в развёртке: спереди, 3/4, сбоку, сзади. Поворот головы и моргание задаются параметрами.</p>
+      <p class="when">Когда: правишь модель моряка, лицо, анимацию головы.</p>
+      <ul class="links">
+        <li><a href="src/debug/sailor-viewer.html?views=hero">?views=hero</a> <span>— «геройские» ракурсы</span></li>
+        <li><a href="src/debug/sailor-viewer.html?yaw=40&amp;pitch=-15">?yaw=40&amp;pitch=-15</a> <span>— поворот головы</span></li>
+        <li><a href="src/debug/sailor-viewer.html?blink=1">?blink=1</a> <span>— глаза закрыты</span></li>
+      </ul>
+      <p class="params">Параметры: <code>yaw</code>, <code>pitch</code> (°), <code>blink</code> (0..1), <code>views</code> (turn | hero), <code>t</code> (с).</p>
+    </section>
+  </div>
+
+  <h2>Игра с параметрами</h2>
+  <div class="grid">
+    <section class="card">
+      <h3>Готовые сцены</h3>
+      <ul class="links">
+        <li><a href="index.html?perf=1">?perf=1</a> <span>— счётчик кадра</span></li>
+        <li><a href="index.html?touch=1">?touch=1</a> <span>— тач-управление на десктопе</span></li>
+        <li><a href="index.html?perf=1&amp;touch=1&amp;dpr=1.5">?perf=1&amp;touch=1&amp;dpr=1.5</a> <span>— замер как на таче</span></li>
+        <li><a href="index.html?t=30&amp;twa=60&amp;cam=chase">?t=30&amp;twa=60&amp;cam=chase</a> <span>— 30 с на курсе 60°, камера сзади</span></li>
+        <li><a href="index.html?t=30&amp;twa=60&amp;wind=9&amp;cam=chase&amp;reefs=1&amp;board=0&amp;tod=0.9">?t=30&amp;twa=60&amp;wind=9&amp;cam=chase&amp;reefs=1&amp;board=0&amp;tod=0.9</a> <span>— воспроизводимая сцена из README</span></li>
+        <li><a href="index.html?tod=0.9&amp;clouds=Кучевые">?tod=0.9&amp;clouds=Кучевые</a> <span>— вечер, кучевые облака</span></li>
+        <li><a href="index.html?wind=14&amp;reefs=2&amp;cam=chase&amp;auto=1">?wind=14&amp;reefs=2&amp;cam=chase&amp;auto=1</a> <span>— свежий ветер под автопилотом</span></li>
+        <li><a href="index.html?map=archipelago">?map=archipelago</a> <span>— карта «Архипелаг» 3×3 км (заморожена)</span></li>
+      </ul>
+    </section>
+    <section class="card">
+      <h3>Консоль браузера</h3>
+      <p><code>window.__sim</code> — живые объекты сцены: <code>boat</code>, <code>wind</code>, <code>waves</code>,
+        <code>env</code>, <code>followCam</code>, <code>world</code>, <code>perf</code>, <code>resolution</code>,
+        <code>renderer</code>, <code>scene</code>, <code>water</code>, <code>shoreMap</code> и эффекты.</p>
+      <pre>__sim.boat.u                       // скорость, м/с
+__sim.env.setTimeOfDay(0.8)
+polar(10)                          // поляра при 10 м/с
+runCase({ tws: 12, twa: 60, reefs: 1 })</pre>
+      <p class="when">На стендах свои объекты: <code>__props</code> в библиотеке объектов, <code>__sailor</code> у моряка.</p>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top: 14px">
+    <h3>Все параметры игры</h3>
+    <p class="when">Таблица строится из реестра <code>src/params.js</code>; клик по примеру открывает игру с этим параметром.
+      Параметры складываются через <code>&amp;</code>.</p>
+    <table id="params">
+      <thead><tr><th>Параметр</th><th>Значения</th><th>Пример</th><th>Что делает</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <h2>Командная строка</h2>
+  <div class="grid">
+    <section class="card">
+      <h3>Сервер</h3>
+      <p>Сборки нет, нужен любой статический сервер из корня проекта:</p>
+      <pre>python3 -m http.server 8000
+open http://localhost:8000/tools.html</pre>
+    </section>
+    <section class="card">
+      <h3>Физика без браузера</h3>
+      <p>Физика (<code>src/physics</code>) не зависит от Three.js и гоняется в JavaScriptCore:</p>
+      <pre>JSC=/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc
+$JSC -m src/debug/run-polar.mjs   # поляры при разном ветре
+$JSC -m src/debug/trace.mjs       # трасса: выход на режим</pre>
+      <p class="when"><code>run-polar.mjs</code> — установившаяся скорость на разных курсах под автопилотом;
+        <code>trace.mjs</code> — посекундная трасса сил и углов при 7 м/с на курсе 60°.</p>
+    </section>
+  </div>
+</main>
+<script type="module">
+import { GAME_PARAMS, PARAM_GROUPS } from './src/params.js';
+
+const tbody = document.querySelector('#params tbody');
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+for (const group of PARAM_GROUPS) {
+  const head = el('tr', 'group');
+  const th = el('th', '', group);
+  th.colSpan = 4;
+  head.append(th);
+  tbody.append(head);
+  for (const p of GAME_PARAMS.filter((x) => x.group === group)) {
+    const tr = el('tr');
+    const name = el('td');
+    name.append(el('code', '', p.name));
+    const values = el('td', 'values', [p.values, p.default !== undefined && `по умолч. ${p.default}`].filter(Boolean).join(', ') || (p.kind === 'flag' ? 'флаг' : ''));
+    const ex = el('td');
+    const q = `?${p.name}=${p.example}`;
+    const a = el('a', '', q);
+    a.href = `index.html?${new URLSearchParams({ [p.name]: p.example })}`;
+    ex.append(a);
+    tr.append(name, values, ex, el('td', 'desc', p.desc));
+    tbody.append(tr);
+  }
+}
+</script>
+</body>
+</html>
