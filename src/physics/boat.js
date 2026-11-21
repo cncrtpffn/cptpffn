@@ -50,7 +50,7 @@ export class Boat {
   constructor(cfg = BOAT) {
     this.cfg = cfg;
     this.sail = new Sail(cfg);
-    this._bf = { fx: 0, fy: 0, cl: 0 }; this._rf = { fx: 0, fy: 0, cl: 0 }; // скретч для foilForces
+    this._bf = { fx: 0, fy: 0, cl: 0 }; this._rf = { fx: 0, fy: 0, cl: 0 }; this._rf0 = { fx: 0, fy: 0, cl: 0 }; // скретч для foilForces
     this.reset(0, 0, 90 * DEG);
   }
 
@@ -73,6 +73,9 @@ export class Boat {
     this.leeway = 0;
     this.aw = { awa: 0, aws: 0, twa: 0, tws: 0 };
     this.forces = {};
+    // баланс для HUD (м от ЦТ): ЦП с выносом по гику, ЦБС, тенденция (>0 — приводится)
+    this.balance = { ce: 0, ceY: 0, clr: 0, clrOk: false, tend: 0 };
+    this._clrS = null; this._tendS = 0;
     this.waveTilt = { phi: 0, theta: 0, h: 0 };
     this.gybeFlash = 0;
     this.sail.sheet = this.cfg.sheetMax;
@@ -297,5 +300,30 @@ export class Boat {
     }
 
     this.forces = { sail: sf, bFx, bFy, hFy, rFy, rFx, R, surfFx, Fx, du, mSail, mRight, mCrew, mHydro };
+    this._updateBalance(dt, sf, bX, bFy, hFy, u, vr, rEff);
+  }
+
+  // Только для показа: физику не меняет. Руль берём в ДП (только сила от дрейфа):
+  // так ЦБС — центр подводной части, а тенденция — куда пойдёт лодка, если отпустить руль.
+  // ЦБС по силам шумит на малом ходу и при слабых боковых силах — там подмешиваем оценку по площадям.
+  _updateBalance(dt, sf, bX, bFy, hFy, u, vr, rEff) {
+    const c = this.cfg, b = this.balance;
+    const rFy0 = foilForces(u, vr, c.rudderArea * rEff, c.rudderAR, c.rudderStall, 0, 0.03, 1.0, this._rf0).fy;
+    const aB = c.boardArea * this.board;
+    const clrG = (bX * aB + c.hullLatX * c.hullLatArea) / (aB + c.hullLatArea);
+    const sumF = bFy + hFy + rFy0;
+    const w = Math.min(1, Math.max(0, (u - 0.3) / 1.0)) * Math.min(1, Math.abs(sumF) / 300);
+    const clrF = w > 0 ? (bX * bFy + c.hullLatX * hFy + c.rudderX * rFy0) / sumF : clrG;
+    const clr = Math.min(c.boardX, Math.max(c.rudderX, clrG + (clrF - clrG) * w));
+    const k = 1 - Math.exp(-dt / 0.4);
+    this._clrS = this._clrS === null ? clr : this._clrS + (clr - this._clrS) * k;
+    b.clr = this._clrS;
+    b.clrOk = u > 0.3 && !this.capsized;
+    const d = c.mastX - c.ceX, boom = this.sail.boom;
+    b.ce = c.mastX - d * Math.cos(boom);
+    b.ceY = d * Math.sin(boom);
+    const m = this.capsized ? 0 : (sf.mYaw + bX * bFy + c.hullLatX * hFy + c.rudderX * rFy0) * Math.sign(this.aw.twa || 1);
+    this._tendS += (m - this._tendS) * k;
+    b.tend = Math.tanh(this._tendS / 1500); // ≈ 4° руля на ±0.76
   }
 }

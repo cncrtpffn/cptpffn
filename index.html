@@ -29,16 +29,34 @@
 
   <div id="hud">
     <div class="panel" id="hud-main">
-      <svg id="rose" viewBox="-60 -60 120 120" width="150" height="150">
-        <circle r="56" class="rose-ring"/>
-        <g class="rose-ticks" id="rose-ticks"></g>
-        <text x="0" y="-45" class="rose-label">N</text>
-        <text x="47" y="4" class="rose-label">E</text>
-        <text x="0" y="52" class="rose-label">S</text>
-        <text x="-47" y="4" class="rose-label">W</text>
-        <g id="rose-true"><path d="M0,-54 L5,-42 L-5,-42 Z" class="arrow-true"/><line x1="0" y1="-42" x2="0" y2="-30" class="arrow-true-line"/></g>
-        <g id="rose-app"><path d="M0,-40 L4,-30 L-4,-30 Z" class="arrow-app"/></g>
-        <g id="rose-boat"><path d="M0,-18 C6,-10 7,4 5,14 L-5,14 C-7,4 -6,-10 0,-18 Z" class="rose-boat"/><line x1="0" y1="-20" x2="0" y2="-28" class="rose-boat-line"/></g>
+      <!-- лодка неподвижна носом вверх, картушка крутится; всё внутри — в системе лодки, 6.5 ед/м -->
+      <svg id="rose" viewBox="-60 -60 120 120" width="220" height="220">
+        <g id="rose-card">
+          <circle r="56" class="rose-ring"/>
+          <g class="rose-ticks" id="rose-ticks"></g>
+        </g>
+        <path d="M0,-55 L-3.5,-60 L3.5,-60 Z" class="lubber"/>
+        <g id="rose-true" class="arrow-true"><line x1="0" y1="-52" x2="0" y2="46"/><path d="M0,53 L-4,44 L4,44 Z"/></g>
+        <g id="rose-app" class="arrow-app"><line x1="0" y1="-52" x2="0" y2="42"/><path d="M0,53 L-6,40 L6,40 Z"/></g>
+        <path d="M0,-19.5 C6,-17 9,-8 9,2 C9,10 8,16 7.5,19.5 L-7.5,19.5 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-19.5 Z" class="rose-boat"/>
+        <g id="rose-tend" class="rose-tend"><path d="M0,-29 A29,29 0 0,1 13.5,-25.7"/><path d="M17,-23.8 L12.1,-23 L14.9,-28.4 Z" class="head"/></g>
+        <line id="rose-rudder" x1="0" y1="0" x2="0" y2="6.5" class="rose-rudder" transform="translate(0,19.5)"/>
+        <line id="rose-sheet" x1="0" y1="0" x2="0" y2="31.9" class="rose-sheet" transform="translate(0,-15.6)"/>
+        <line id="rose-boom" x1="0" y1="0" x2="0" y2="31.9" class="rose-boom" transform="translate(0,-15.6)"/>
+        <circle cx="0" cy="-15.6" r="2" class="rose-mast"/>
+        <path id="rose-clr" d="M0,-3 L2.6,0 L0,3 L-2.6,0 Z" class="rose-clr"/>
+        <circle id="rose-ce" r="2.6" class="rose-ce"/>
+      </svg>
+      <!-- мини-компас свёрнутой панели: только картушка через 45°, силуэт лодки и вымпельный ветер -->
+      <svg id="rose-mini" viewBox="-60 -60 120 120" width="64" height="64">
+        <g id="rose-mini-card">
+          <circle r="54" class="rose-ring"/>
+          <g class="rose-ticks" id="rose-mini-ticks"></g>
+        </g>
+        <path d="M0,-50 L-8,-60 L8,-60 Z" class="lubber"/>
+        <g id="rose-mini-app" class="arrow-app"><line x1="0" y1="-48" x2="0" y2="30"/><path d="M0,52 L-15,26 L15,26 Z"/></g>
+        <path d="M0,-20 C6.4,-17.6 9.6,-8 9.6,2.4 C9.6,10.4 8.4,16.8 8,20 L-8,20 C-8.4,16.8 -9.6,10.4 -9.6,2.4 C-9.6,-8 -6.4,-17.6 0,-20 Z" class="rose-boat"/>
+        <g id="rose-mini-letters"></g>
       </svg>
       <div class="readouts">
         <div class="big"><span id="hud-speed">0.0</span><small>уз</small></div>
@@ -48,6 +66,13 @@
         <div class="row"><span>Крен</span><b id="hud-heel">0°</b></div>
         <div class="row"><span>Дрейф</span><b id="hud-leeway">0°</b></div>
         <div class="row muted"><span id="hud-beaufort">—</span></div>
+      </div>
+      <div class="rose-legend">
+        <span><svg viewBox="-4 -4 8 8"><circle r="2.6" class="rose-ce"/></svg>ЦП — центр парусности</span>
+        <span><svg viewBox="-4 -4 8 8"><path d="M0,-3 L2.6,0 L0,3 L-2.6,0 Z" class="rose-clr"/></svg>ЦБС — центр бокового сопротивления</span>
+        <span><svg viewBox="-2 -31 20 10" class="rose-tend luff"><path d="M0,-29 A29,29 0 0,1 13.5,-25.7"/><path d="M17,-23.8 L12.1,-23 L14.9,-28.4 Z" class="head"/></svg>приводится</span>
+        <span><svg viewBox="-2 -31 20 10" class="rose-tend bear"><path d="M0,-29 A29,29 0 0,1 13.5,-25.7"/><path d="M17,-23.8 L12.1,-23 L14.9,-28.4 Z" class="head"/></svg>уваливается</span>
+        <span class="hint">стрелка у носа — куда пойдёт лодка, если отпустить руль</span>
       </div>
     </div>
 

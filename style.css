@@ -23,14 +23,40 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd3ec; col
 }
 #hud-main { left: 16px; top: 16px; padding: 10px 14px 10px 8px; display: flex; gap: 10px; align-items: center; }
 #rose { flex: none; }
-.rose-ring { fill: rgba(255,255,255,0.5); stroke: #c9bfae; stroke-width: 1.5; }
+.rose-ring { fill: rgba(255,255,255,0.55); stroke: #c9bfae; stroke-width: 1.5; }
 .rose-ticks line { stroke: #b9ae9b; stroke-width: 1; }
-.rose-label { font-size: 10px; font-weight: 800; fill: var(--ink-soft); text-anchor: middle; }
-.arrow-true { fill: var(--true); }
-.arrow-true-line { stroke: var(--true); stroke-width: 2; }
-.arrow-app { fill: var(--app); }
-.rose-boat { fill: #fff; stroke: var(--ink); stroke-width: 1.5; }
-.rose-boat-line { stroke: var(--ink); stroke-width: 1.5; }
+.rose-label { font-size: 9px; font-weight: 800; fill: var(--ink-soft); text-anchor: middle; }
+.rose-label.n { fill: #2f6fb5; } .rose-label.s { fill: #d8432b; }
+#rose-mini .rose-ring { stroke-width: 4.5; }
+#rose-mini .rose-ticks line { stroke-width: 3; stroke: #9a8f7c; }
+#rose-mini .rose-label { font-size: 18px; stroke: #fffaf0; stroke-width: 4px; stroke-linejoin: round; paint-order: stroke; }
+#rose-mini .rose-boat { stroke-width: 3.6; }
+#rose-mini .arrow-app line { stroke-width: 9.6; }
+#rose-mini, #hud-main.collapsed #rose, #hud-main.collapsed .rose-legend { display: none; }
+#hud-main.collapsed #rose-mini { display: block; flex: none; }
+.rose-rudder { stroke: var(--ink); stroke-width: 2.4; stroke-linecap: round; }
+#hud-main:not(.collapsed) { display: grid; grid-template-columns: auto auto; }
+/* легенда во всю ширину плашки, но ширину плашки не задаёт */
+.rose-legend { grid-column: 1 / -1; width: 0; min-width: 100%; box-sizing: border-box; display: flex; flex-wrap: wrap; gap: 3px 14px; padding: 6px 4px 0 6px; border-top: 1px solid var(--card-border); font-size: 11px; color: var(--ink-soft); font-weight: 700; }
+.rose-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.rose-legend svg { width: 14px; height: 14px; }
+.rose-legend svg.rose-tend { width: 22px; height: 12px; }
+.rose-legend .hint { flex-basis: 100%; white-space: normal; font-weight: 500; font-size: 10.5px; }
+.rose-num { font-size: 6px; font-weight: 700; fill: #9a8f7c; text-anchor: middle; }
+.lubber { fill: var(--ink); }
+.rose-boat { fill: rgba(255,255,255,0.85); stroke: var(--ink); stroke-width: 1.2; }
+.arrow-true line { stroke: var(--true); stroke-width: 1.4; } .arrow-true path { fill: var(--true); }
+.arrow-app line { stroke: var(--app); stroke-width: 3.2; } .arrow-app path { fill: var(--app); }
+.arrow-true, .arrow-app { opacity: 0.9; }
+.rose-boom { stroke: #6b4a2b; stroke-width: 2.6; stroke-linecap: round; }
+.rose-sheet { stroke: #6b4a2b; stroke-width: 1; stroke-dasharray: 2 2; opacity: 0.6; }
+.rose-mast { fill: #6b4a2b; }
+.rose-ce { fill: #fff; stroke: #c0392b; stroke-width: 1.6; }
+.rose-clr { fill: #1f6b8a; }
+.rose-tend path { fill: none; stroke-width: 2.4; stroke-linecap: round; }
+.rose-tend path.head { stroke: none; }
+.rose-tend.luff path { stroke: #e9553b; } .rose-tend.luff path.head { fill: #e9553b; }
+.rose-tend.bear path { stroke: #2a9d8f; } .rose-tend.bear path.head { fill: #2a9d8f; }
 .readouts { min-width: 190px; font-size: 13px; }
 .readouts .big { font-size: 34px; font-weight: 800; line-height: 1; margin-bottom: 6px; }
 .readouts .big small { font-size: 13px; font-weight: 700; color: var(--ink-soft); margin-left: 4px; }
@@ -102,7 +128,7 @@ kbd { font-family: inherit; font-size: 10px; background: #fff; border: 1px solid
 .collapsed > .collapse-btn::before { content: '▸'; }
 #hud-main { padding-right: 38px; }
 #hud-main.collapsed { padding: 6px 38px 6px 6px; }
-#hud-main.collapsed #rose { width: 64px; height: 64px; }
+#hud-main.collapsed #rose-mini { width: 64px; height: 64px; }
 #hud-main.collapsed .readouts { min-width: 0; }
 #hud-main.collapsed .readouts .row:not(:nth-child(2)) { display: none; }
 #hud-main.collapsed .readouts .big { font-size: 26px; margin-bottom: 2px; }
@@ -149,7 +175,7 @@ body.touch #top-bar:has(> .panel:not(.collapsed)) > .panel.collapsed { display: 
 body.touch #top-bar .collapse-btn { top: 4px; right: 4px; width: 24px; height: 24px; line-height: 24px; font-size: 12px; }
 body.touch #top-bar > #hud-main { padding-right: 30px; }
 body.touch #top-bar > #hud-main.collapsed { padding: 4px 30px 4px 4px; gap: 6px; }
-body.touch #top-bar > #hud-main.collapsed #rose { width: 48px; height: 48px; }
+body.touch #top-bar > #hud-main.collapsed #rose-mini { width: 48px; height: 48px; }
 body.touch #top-bar > #hud-main.collapsed .readouts .big { font-size: 22px; }
 body.touch #top-bar > #hud-controls { padding: 6px 30px 6px 10px; }
 body.touch #top-bar > #hud-controls.collapsed .ctl { margin: 2px 0; }
@@ -241,7 +267,7 @@ body.touch .lil-gui.root:not(.closed) > .title { height: 40px; padding: 0 12px; 
 /* ---------- маленькие экраны ---------- */
 @media (max-width: 700px), (max-height: 500px) {
   #hud-main { left: max(8px, env(safe-area-inset-left)); top: max(8px, env(safe-area-inset-top)); }
-  #hud-main #rose { width: 110px; height: 110px; }
+  #hud-main #rose { width: 150px; height: 150px; }
   .readouts { min-width: 150px; font-size: 12px; }
   #hud-controls { left: max(8px, env(safe-area-inset-left)); bottom: max(8px, env(safe-area-inset-bottom)); }
   #warnings { top: max(8px, env(safe-area-inset-top)); max-width: 50vw; }
