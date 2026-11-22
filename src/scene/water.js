@@ -44,6 +44,26 @@ const WATER_SHADOW_GLSL = (taps) => `
   #endif
 `;
 
+// Нормаль волн по пикселю — общая для ближней воды и дальнего кольца. Аналитически по всем компонентам
+// в точке параметризации vWaveP: короткие волны, которых нет в геометрии, видны в свете, а вдали, где
+// геометрии волн нет вовсе, свет рисует их на плоскости. Компоненты, меняющиеся быстрее пикселя
+// (k·fwidth > 1..3), гаснут — без ряби; у горизонта гаснут все. У берега гаснут по глубине.
+const WAVE_NORMAL_GLSL = `
+  {
+    float fw = length(fwidth(vWaveP));
+    vec3 nd = vec3(0.0);
+    for (int i = 0; i < ${MAX_COMP}; i++) {
+      if (i >= uWaveCount) break;
+      float wa = uWaveK[i] * uWaveA[i] * (1.0 - smoothstep(1.0, 3.0, uWaveK[i] * fw));
+      if (wa == 0.0) continue;
+      float th = uWaveK[i] * dot(uWaveDir[i], vWaveP) - uWavePhase[i];
+      nd.xz += uWaveDir[i] * wa * cos(th);
+      nd.y += uWaveQ[i] * wa * sin(th);
+    }
+    nd *= shoreDampAt(vWaveP);
+    normal = normalize((viewMatrix * vec4(-nd.x, 1.0 - nd.y, -nd.z, 0.0)).xyz);
+  }`;
+
 // Вода: один цвет, только рассеянный свет (Lambert, без бликов), без текстур, пены и отражений
 // (эксперимент, панель «Вода»).
 // Вершинный шейдер Герстнера с теми же параметрами, что в физике: лодка качается на тех же волнах,
@@ -102,7 +122,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   const WAVE_UNIFORMS = `
     uniform vec2 uWaveDir[${MAX_COMP}]; uniform float uWaveA[${MAX_COMP}]; uniform float uWaveK[${MAX_COMP}];
     uniform float uWavePhase[${MAX_COMP}]; uniform float uWaveQ[${MAX_COMP}]; uniform int uWaveCount;
-    varying vec2 vWaveP; varying float vWaveEdge;`;
+    varying vec2 vWaveP;`;
   const mat = new THREE.MeshLambertMaterial({ color: settings.color });
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -132,31 +152,19 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         }
         // сетка только сдвигается, так что нормаль в объекте = мировая
         vec3 objectNormal = normalize(vec3(-nd.x * edge, 1.0 - nd.y * edge, -nd.z * edge));
-        vWaveP = wp.xz; vWaveEdge = edge;`)
+        vWaveP = wp.xz;`)
       .replace('#include <begin_vertex>', `
         vec3 transformed = vec3(position) + disp * edge;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-        ${WAVE_UNIFORMS}`)
+        ${WAVE_UNIFORMS} ${SHORE_DAMP_GLSL}`)
       .replace('#include <shadowmap_pars_fragment>', `#include <shadowmap_pars_fragment>
         ${WATER_SHADOW_GLSL(shadowTaps)}`)
-      // нормаль по пикселю, а не по вершинам: сетка 2.5 м короче коротких компонент не передаёт,
+      // нормаль по пикселю, а не по вершинам: сетка короче коротких компонент не передаёт,
       // интерполяция давала грани. Точка параметризации интерполируется линейно — для света хватает.
-      // Компоненты, которые меняются быстрее пикселя (вдали), гаснут — без ряби
+      // К краю сетки гаснет только смещение, свет волн продолжается в дальнем кольце без шва
       .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
-        {
-          float fw = length(fwidth(vWaveP));
-          vec3 nd = vec3(0.0);
-          for (int i = 0; i < ${MAX_COMP}; i++) {
-            if (i >= uWaveCount) break;
-            float th = uWaveK[i] * dot(uWaveDir[i], vWaveP) - uWavePhase[i];
-            float wa = uWaveK[i] * uWaveA[i] * (1.0 - smoothstep(1.0, 3.0, uWaveK[i] * fw));
-            nd.xz += uWaveDir[i] * wa * cos(th);
-            nd.y += uWaveQ[i] * wa * sin(th);
-          }
-          nd *= vWaveEdge;
-          normal = normalize((viewMatrix * vec4(-nd.x, 1.0 - nd.y, -nd.z, 0.0)).xyz);
-        }`)
+        ${WAVE_NORMAL_GLSL}`)
       .replace('#include <opaque_fragment>', `
         #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
           outgoingLight = mix(outgoingLight, uShadowColor, waterShadow());
@@ -171,10 +179,24 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   mesh.receiveShadow = false;
   mesh.frustumCulled = false;
 
-  // Дальняя вода без волн — до горизонта, растворяется в тумане. Кольцо с дырой под ближней водой:
-  // сплошная плоскость торчала бы из ложбин волн плоским полигоном. К краю ближней воды волны
-  // гаснут (edge → 0), нормали там уже смотрят вверх — шва по освещению нет.
+  // Дальняя вода — плоское кольцо до горизонта, растворяется в тумане. Кольцо с дырой под ближней
+  // водой: сплошная плоскость торчала бы из ложбин волн плоским полигоном. Волны здесь только в свете
+  // (та же нормаль по пикселю): издали силуэт волн не виден, а затенение — да, и геометрия не нужна.
   const farMat = new THREE.MeshLambertMaterial({ color: settings.color });
+  farMat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+        varying vec2 vWaveP;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vWaveP = (modelMatrix * vec4(position, 1.0)).xz;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        ${WAVE_UNIFORMS} ${SHORE_DAMP_GLSL}`)
+      .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
+        ${WAVE_NORMAL_GLSL}`);
+  };
+  farMat.customProgramCacheKey = () => 'cozy-water-far';
   const far = new THREE.Mesh(
     new THREE.RingGeometry(size * 0.5 * 0.97, 3000, 64, 1).rotateX(-Math.PI / 2),
     farMat,
