@@ -5,7 +5,7 @@ const N = 8;                 // компонент в одной системе 
 const MAX_TRAINS = 4;        // всего систем (одна из них может догасать при переполнении)
 const MAX_ACTIVE = 3;        // систем, которые затухают в обычном темпе
 export const MAX_COMP = N * MAX_TRAINS;
-// Спектр системы: длины лесенкой от λ до LAMBDA_MIN·λ, амплитуда ∝ длине (одинаковая крутизна),
+// Спектр системы: длины лесенкой от λ до LAMBDA_MIN·λ, амплитуда ∝ длина^ampPower,
 // Σ доль² = AMP_ENERGY — значимая высота та же, что у прежних 4 компонент. Направления разбросаны
 // вокруг ветра: длинные почти по ветру, короткие шире. Длины, углы и фазы с джиттером — у нескольких
 // ровных плоских волн под большими углами сумма периодична: шишки на гребнях рядами наискось.
@@ -49,6 +49,7 @@ export class Waves {
     this.trains = [];
     this._seed = 1;          // у каждой новой системы свой набор компонент
     this.sharpness = 1;      // множитель q: 0 — синусоида, 1 — гребни Герстнера в полную силу (панель «Море»)
+    this._ampPower = 2.8;
     this.manual = false;     // ручной режим: системы задаются из панели, высоты не меняются
     this._init = false;
     this.count = 0;
@@ -97,25 +98,42 @@ export class Waves {
     this._rebuild();
   }
 
+  // Гладкость волн (панель «Море»): показатель в амплитуда ∝ длина^p. При 1 (одинаковая крутизна)
+  // короткие волны наклоняют воду не меньше длинных и дробят свет на пятна цепочками; чем больше p,
+  // тем быстрее падает крутизна с длиной: склоны длинных волн гладкие, короткие — только фактура.
+  get ampPower() { return this._ampPower; }
+  set ampPower(p) {
+    this._ampPower = p;
+    for (const t of this.trains) this._spectrum(t);
+    this._rebuild();
+  }
+
+  // доли амплитуд по долям длин, Σ доль² = AMP_ENERGY
+  _spectrum(t) {
+    let e = 0;
+    for (let i = 0; i < N; i++) {
+      t.ampFrac[i] = t.lamFrac[i] ** this._ampPower;
+      e += t.ampFrac[i] ** 2;
+    }
+    const norm = Math.sqrt(AMP_ENERGY / e);
+    for (let i = 0; i < N; i++) t.ampFrac[i] *= norm;
+  }
+
   _makeTrain(dir, lambda, h) {
     const t = { dir, lambda, h, fading: false,
       dirX: new Float32Array(N), dirZ: new Float32Array(N), k: new Float32Array(N),
       omega: new Float32Array(N), phase: new Float32Array(N),
       lamFrac: new Float32Array(N), ampFrac: new Float32Array(N), dirOff: new Float32Array(N) };
     const r = rng(this._seed++);
-    let e = 0;
     for (let i = 0; i < N; i++) {
       const u = i / (N - 1);
       t.lamFrac[i] = LAMBDA_MIN ** u * (i ? 1 + LAMBDA_JITTER * (2 * r() - 1) : 1);
-      t.ampFrac[i] = t.lamFrac[i];
-      e += t.ampFrac[i] ** 2;
       // главная — точно по ветру, остальные по очереди в разные стороны
       const spread = SPREAD_LONG + (SPREAD_SHORT - SPREAD_LONG) * u;
       t.dirOff[i] = i ? (i % 2 ? 1 : -1) * spread * (0.3 + 0.7 * r()) * DEG : 0;
       t.phase[i] = 2 * Math.PI * r();
     }
-    const norm = Math.sqrt(AMP_ENERGY / e);
-    for (let i = 0; i < N; i++) t.ampFrac[i] *= norm;
+    this._spectrum(t);
     this._tune(t, dir, lambda);
     return t;
   }
