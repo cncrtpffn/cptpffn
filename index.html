@@ -86,6 +86,10 @@
     </div>
 
     <div id="warnings"></div>
+    <div id="paused-chip" class="hidden">
+      <button id="btn-help-expand" title="Развернуть справку (H)">❚❚ Пауза</button>
+      <button id="btn-resume-chip" title="Продолжить (Space)" aria-label="Продолжить">▶</button>
+    </div>
     <button id="btn-fullscreen" class="ui-btn soft kbd-only btn-fullscreen"></button>
     <button id="btn-pause" class="ui-btn soft kbd-only" title="Пауза и справка (Space)" aria-label="Пауза и справка">❚❚</button>
     <div id="hint"><span class="hint-text">Камера: <b id="hud-camera">орбита</b><span class="kbd-only"> · <kbd>V</kbd> вид · <kbd>Space</kbd> пауза и справка · мышь — обзор, колесо — зум</span><span class="touch-only"> · палец — обзор, щипок — зум</span></span></div>
@@ -93,6 +97,7 @@
 
   <div id="help" class="overlay hidden">
     <div class="card">
+      <button class="close min" id="btn-help-min" title="Свернуть, оставаясь на паузе" aria-label="Свернуть">–</button>
       <button class="close" id="btn-help-close" aria-label="Закрыть">✕</button>
       <span class="badge">❚❚ Пауза</span>
       <h2>Кэтбот</h2>

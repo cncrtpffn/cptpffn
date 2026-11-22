@@ -114,16 +114,20 @@ createWeatherPanel({ wind, sea, waves, env, water, particles, actions, start: ST
 input.on('reef', (d) => boat.sail.reef(d));
 input.on('crew', (a) => { if (boat.crewPos) boat.crewPos = crewMove(boat.crewPos, a); });
 input.on('camera', () => followCam.nextMode());
-// пауза показывает справку; закрыть справку — продолжить
-const setPaused = (v) => { paused = v; hud.showHelp(v); };
+// пауза показывает справку; закрыть справку — продолжить, свернуть — остаться на паузе
+let helpMin = false;
+const setPaused = (v, min = false) => { paused = v; helpMin = v && min; hud.showHelp(paused, helpMin); };
 input.on('pause', () => setPaused(!paused));
-input.on('help', () => setPaused(!paused));
+input.on('help', () => (helpMin ? setPaused(true) : setPaused(!paused)));
 input.on('escape', () => setPaused(false));
 input.on('righten', actions.righten);
 document.getElementById('btn-righten').addEventListener('click', actions.righten);
 document.getElementById('btn-pause').addEventListener('click', () => input.trigger('pause'));
 document.getElementById('btn-resume').addEventListener('click', () => setPaused(false));
 document.getElementById('btn-help-close').addEventListener('click', () => setPaused(false));
+document.getElementById('btn-help-min').addEventListener('click', () => setPaused(true, true));
+document.getElementById('btn-help-expand').addEventListener('click', () => setPaused(true));
+document.getElementById('btn-resume-chip').addEventListener('click', () => setPaused(false));
 document.getElementById('help').addEventListener('click', (e) => { if (e.target.id === 'help') setPaused(false); });
 
 // тач-управление и сворачиваемые панели

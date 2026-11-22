@@ -44,7 +44,7 @@ export class Hud {
       rudder: $('bar-rudder'), sheet: $('bar-sheet'), board: $('bar-board'), crew: $('crew-marker'),
       lblSheet: $('lbl-sheet'), lblBoard: $('lbl-board'), reefs: [$('reef-0'), $('reef-1'), $('reef-2'), $('reef-3')],
       status: $('sail-status'), statusBox: $('sail-status').parentElement, warnings: $('warnings'),
-      camera: $('hud-camera'), help: $('help'), capsize: $('capsize'), capsizeText: $('capsize-text'),
+      camera: $('hud-camera'), help: $('help'), pausedChip: $('paused-chip'), root: $('hud'), capsize: $('capsize'), capsizeText: $('capsize-text'),
     };
     // большая картушка: риски через 10°, буквы на 90°, цифры через 30° (в десятках градусов, как на шлюпочном компасе)
     let s = '';
@@ -102,7 +102,12 @@ export class Hud {
     }
   }
 
-  showHelp(v) { this.el.help.classList.toggle('hidden', !v); }
+  // min — справка свёрнута в плашку, пауза остаётся
+  showHelp(v, min = false) {
+    this.el.help.classList.toggle('hidden', !v || min);
+    this.el.pausedChip.classList.toggle('hidden', !(v && min));
+    this.el.root.classList.toggle('paused-min', v && min);
+  }
 
   update({ boat, wind, cameraMode }) {
     const e = this.el;
