@@ -78,7 +78,8 @@ export function createWater(waves, { size = 440, segments = 176, shoreMap, shado
   };
   // shadowFade — метров от предмета до воды, за которые тень слабеет в e раз;
   // shadowBlur — на сколько метров растёт радиус размытия на метр от предмета
-  const settings = { color: '#2f86b5', shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08 };
+  // wireframe — показать сетку волн (каркас того же материала)
+  const settings = { color: '#2f86b5', shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08, wireframe: false };
 
   const WAVE_UNIFORMS = `
     uniform vec2 uWaveDir[${MAX_COMP}]; uniform float uWaveA[${MAX_COMP}]; uniform float uWaveK[${MAX_COMP}];
@@ -171,6 +172,7 @@ export function createWater(waves, { size = 440, segments = 176, shoreMap, shado
       uniforms.uWaveQ.value[i] = w.q[i];
     }
     mat.color.set(settings.color); farMat.color.copy(mat.color);
+    mat.wireframe = settings.wireframe;
     uniforms.uShadowColor.value.set(settings.shadowColor);
     uniforms.uShadowStrength.value = settings.shadowStrength;
     uniforms.uShadowFade.value = settings.shadowFade;

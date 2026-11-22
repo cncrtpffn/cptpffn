@@ -89,6 +89,7 @@ export function createWeatherPanel({ wind, sea, waves, env, water, particles, ac
   fwater.add(water.settings, 'shadowFade', 1, 30, 0.5).name('Затухание, м');
   // размытие растёт с расстоянием от предмета
   fwater.add(water.settings, 'shadowBlur', 0, 0.3, 0.01).name('Размытие');
+  fwater.add(water.settings, 'wireframe').name('Сетка волн');
 
   const fb = gui.addFolder('Брызги');
   fb.add(particles.settings, 'enabled').name('Брызги');
