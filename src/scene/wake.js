@@ -1,0 +1,173 @@
+import * as THREE from 'three';
+import { WAKE_POINTS, WAKE_GROUP, WAKE_CAPS } from './water-fx.js';
+import { BOAT } from '../config.js';
+
+const STERN = BOAT.length / 2 - 0.3; // от ЦТ до транца на ВЛ, м
+const MIN_SPEED = 0.3; // м/с: медленнее след не пишется
+// с, сглаживание скорости: от неё цвет участка (WAKE_GLSL), переход по длине ленты плавный
+const SPEED_LAG = 1.0;
+// м/с, порог светлой сердцевины ленты (~1.5 уз) с гистерезисом: на малом ходу лента только цветом контура
+const CORE_ON = 0.8, CORE_OFF = 0.7;
+// с, сглаживание сноса кормы (см. update): без него ширина дрожит от шага физики
+const SWEEP_LAG = 0.3;
+
+// Кильватерный след: точки у кормы через метр пути, на поворотах чаще, от новой к старой; передаётся в шейдер воды (WAKE_GLSL).
+// Когда точки кончаются, выбрасывается та, что меньше всех отходит от хорды соседей: прямые участки
+// прореживаются, изгибы остаются гладкими, а хвост живёт весь свой срок.
+// Точка — середина полосы, которую заметает корпус: на повороте корму заносит наружу, а корпус от кормы до
+// миделя идёт внутри её следа, поэтому лента шире и смещена к внутреннему борту (на дрейфе — к наветренному).
+// Светлая сердцевина — отдельные «пробеги» между переходами порога CORE_ON/CORE_OFF: у точки — расстояние вдоль
+// следа до ближайшей границы своего пробега (минус — вне сердцевины) и номер круга этого конца пробега.
+// Концы сердцевины — настоящие круги (caps: центр на оси следа в полуширине от границы, радиус — полуширина):
+// по расстоянию вдоль следа полукруг на изгибе широкой ленты искажался бы.
+// a — (x, z, одометр, возраст), b — (полуширина ленты, м; скорость, сглаженная, см. SPEED_LAG; до границы
+// сердцевины, м; номер круга конца, −1 — нет). Одометр — путь в метрах: продольная координата узора,
+// кружево приклеено к воде и не скользит за лодкой.
+export function createWake() {
+  const a = Array.from({ length: WAKE_POINTS }, () => new THREE.Vector4());
+  const b = Array.from({ length: WAKE_POINTS }, () => new THREE.Vector4());
+  // круги концов сердцевины (x, z, радиус): у пробега k начало — 2k, конец — 2k + 1
+  const caps = Array.from({ length: WAKE_CAPS }, () => new THREE.Vector3());
+  // габарит следа (minX, minZ, maxX, maxZ) с шириной ленты — шейдер воды за ним след не считает
+  const box = new THREE.Vector4();
+  // описанные круги групп по WAKE_GROUP сегментов (x, z, радиус²) с шириной ленты: шейдер проверяет сначала их
+  const groups = Array.from({ length: WAKE_POINTS / WAKE_GROUP }, () => new THREE.Vector3());
+  const points = []; // { x, z, odo, t0, s, psi, sweep, run }
+  // life — сколько секунд живёт лента; width — полуширина у кормы в долях полуширины лодки;
+  // spread — на сколько полуширин у кормы лента расширяется за секунду; holes — длина ячейки кружева, м;
+  // edge — толщина контура перемычек (0 — один тон); цвета — заливка ленты и контур (панель «Кильватер»);
+  // lace — дыры кружева (временно выключены: работаем с формой ленты)
+  const settings = { enabled: true, lace: false, life: 30, width: 1.1, spread: 0.12, holes: 2.6, edge: 0.1, color: '#9ad8e6', edgeColor: '#2f9cc8' };
+  const state = { a, b, caps, box, groups, count: 0, settings };
+  let odo = 0, px = null, pz = null, sm = 0, lastTime = null;
+  // корма в прошлом кадре и сглаженный снос: смещение миделя поперёк хода кормы, м (плюс — влево от хода)
+  let sx = null, sz = null, sweep = 0;
+  // текущий пробег сердцевины { start, end } по одометру; end = Infinity, пока идёт
+  let run = null;
+  const coreDist = (o, r) => (r ? Math.min(o - r.start, r.end - o) : -1);
+
+  // ширина от скорости не зависит: след всегда чуть шире лодки, начало — полуокружность (WAKE_GLSL);
+  // sweep — снос корпуса: полоса шире на его половину с каждой стороны
+  function halfWidth(age, sweep) {
+    return (BOAT.beam * 0.5 * settings.width + Math.abs(sweep) * 0.5) * (1 + settings.spread * age);
+  }
+
+  // точка на оси следа по одометру (за концами — продолжение крайнего сегмента) и полуширина там
+  function along(n, o, out) {
+    let i = 0;
+    while (i < n - 2 && a[i + 1].z > o) i++;
+    const A = a[i], B = a[i + 1], l = A.z - B.z || 1e-6, t = (A.z - o) / l;
+    out.set(A.x + (B.x - A.x) * t, A.y + (B.y - A.y) * t, b[i].x + (b[i + 1].x - b[i].x) * Math.min(1, Math.max(0, t)));
+    return out;
+  }
+
+  // круги концов сердцевины: центр в полуширине от границы пробега внутрь него, радиус — полуширина.
+  // Пробегов в ленте до WAKE_CAPS / 2 (самые новые), у остальных шейдер скругляет по расстоянию вдоль следа
+  const tmp = new THREE.Vector3();
+  function placeCaps(n, runs) {
+    if (n < 2) return;
+    const seen = [];
+    for (let i = 0; i < n; i++) {
+      const r = runs[i];
+      if (!r || b[i].z <= 0) continue;
+      let k = seen.indexOf(r);
+      if (k < 0) {
+        if (seen.length >= WAKE_CAPS / 2) continue;
+        k = seen.push(r) - 1;
+        const ws = along(n, r.start, tmp).z;
+        along(n, r.start + ws, caps[2 * k]).z = ws;
+        if (r.end < Infinity) { const we = along(n, r.end, tmp).z; along(n, r.end - we, caps[2 * k + 1]).z = we; }
+      }
+      // ближе к началу пробега — его круг, к концу — круг конца
+      b[i].w = a[i].z - r.start <= r.end - a[i].z ? 2 * k : 2 * k + 1;
+    }
+  }
+
+  // выбросить внутреннюю точку, меньше всех отходящую от хорды соседей (две новые и самую старую не трогаем)
+  function simplify() {
+    let best = -1, bestDev = Infinity;
+    for (let i = 2; i < points.length - 1; i++) {
+      const p = points[i - 1], q = points[i], r = points[i + 1];
+      const dx = r.x - p.x, dz = r.z - p.z, l = Math.hypot(dx, dz) || 1e-6;
+      const dev = Math.abs(dx * (q.z - p.z) - dz * (q.x - p.x)) / l;
+      if (dev < bestDev) { bestDev = dev; best = i; }
+    }
+    if (best > 0) points.splice(best, 1); else points.pop();
+  }
+
+  function update(time, boat) {
+    const dt = lastTime === null ? 0 : Math.max(0, time - lastTime);
+    lastTime = time;
+    // корма и направление её хода; hx, hz — курс (к носу)
+    const hx = Math.sin(boat.psi), hz = -Math.cos(boat.psi);
+    const kx = boat.x - hx * STERN, kz = boat.z - hz * STERN;
+    let nx = -hz, nz = hx; // поперёк хода кормы; пока стоим — поперёк курса
+    if (sx !== null && dt > 0) {
+      const vx = (kx - sx) / dt, vz = (kz - sz) / dt, v = Math.hypot(vx, vz);
+      if (v > MIN_SPEED) { nx = -vz / v; nz = vx / v; }
+      // мидель относительно кормы поперёк её хода: STERN·sin β, β — угол между курсом и ходом кормы
+      sweep += (STERN * (hx * nx + hz * nz) - sweep) * (1 - Math.exp(-dt / SWEEP_LAG));
+    }
+    sx = kx; sz = kz;
+    // середина заметаемой полосы — на полпути от кормы к миделю поперёк хода
+    const x = kx + nx * sweep * 0.5, z = kz + nz * sweep * 0.5;
+    if (px !== null) odo += Math.hypot(x - px, z - pz);
+    px = x; pz = z;
+    const u = Math.max(0, boat.u);
+    sm += (u - sm) * (1 - Math.exp(-dt / SPEED_LAG));
+    const s = sm;
+    // начало и конец пробега сердцевины; на границе ставим точку, чтобы скругление легло на место
+    let edgeOfRun = false;
+    if (!run && s > CORE_ON) { run = { start: odo, end: Infinity }; edgeOfRun = true; }
+    else if (run && s < CORE_OFF) { run.end = odo; run = null; edgeOfRun = true; }
+    const last = points[0];
+    // стоя на месте след не пишем; на повороте (курс ушёл на 3°) точка ставится раньше метра
+    if (u > MIN_SPEED) {
+      const dist = last ? odo - last.odo : Infinity;
+      const turn = last ? Math.abs(Math.atan2(Math.sin(boat.psi - last.psi), Math.cos(boat.psi - last.psi))) : 0;
+      if (dist > 1.0 || (dist > 0.3 && turn > 3 * Math.PI / 180) || (edgeOfRun && dist > 0.05)) {
+        points.unshift({ x, z, odo, t0: time, s, psi: boat.psi, sweep, run });
+      }
+    }
+    while (points.length && time - points[points.length - 1].t0 > settings.life) points.pop();
+    while (points.length > WAKE_POINTS - 1) simplify();
+    // точка 0 — текущая корма (если лодка идёт, есть хвост и корма успела отойти от последней точки)
+    let n = 0;
+    const runs = []; // пробег каждой точки в массиве
+    if (points.length && u > MIN_SPEED && odo - points[0].odo > 0.05) {
+      a[0].set(x, z, odo, 0); b[0].set(halfWidth(0, sweep), s, coreDist(odo, run), -1); runs.push(run); n = 1;
+    }
+    for (const p of points) {
+      const age = time - p.t0;
+      a[n].set(p.x, p.z, p.odo, age); b[n].set(halfWidth(age, p.sweep), p.s, coreDist(p.odo, p.run), -1);
+      runs.push(p.run); n++;
+    }
+    state.count = n;
+    placeCaps(n, runs);
+    box.set(Infinity, Infinity, -Infinity, -Infinity);
+    for (let i = 0; i < n; i++) {
+      // волнистый край — до +28% (WAKE_GLSL), с запасом
+      const r = b[i].x * 1.3 + 0.5;
+      box.x = Math.min(box.x, a[i].x - r); box.y = Math.min(box.y, a[i].y - r);
+      box.z = Math.max(box.z, a[i].x + r); box.w = Math.max(box.w, a[i].y + r);
+    }
+    for (let g = 0; g * WAKE_GROUP < n - 1; g++) {
+      const i0 = g * WAKE_GROUP, i1 = Math.min(i0 + WAKE_GROUP, n - 1);
+      let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity, w = 0;
+      for (let i = i0; i <= i1; i++) {
+        minX = Math.min(minX, a[i].x); maxX = Math.max(maxX, a[i].x);
+        minZ = Math.min(minZ, a[i].y); maxZ = Math.max(maxZ, a[i].y);
+        w = Math.max(w, b[i].x);
+      }
+      const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+      let r = 0;
+      for (let i = i0; i <= i1; i++) r = Math.max(r, Math.hypot(a[i].x - cx, a[i].y - cz));
+      r += w * 1.3 + 0.5;
+      groups[g].set(cx, cz, r * r);
+    }
+  }
+
+  function reset() { points.length = 0; state.count = 0; px = pz = sx = sz = lastTime = null; sm = 0; sweep = 0; run = null; }
+
+  return Object.assign(state, { update, reset });
+}

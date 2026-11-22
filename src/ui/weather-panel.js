@@ -23,7 +23,7 @@ const PRESET_CLOUDS = {
   'Шторм': 'Гроза',
 };
 
-export function createWeatherPanel({ wind, sea, waves, env, water, particles, actions, start, resolution, perfOverlay }) {
+export function createWeatherPanel({ wind, sea, waves, env, water, wake, particles, actions, start, resolution, perfOverlay }) {
   const gui = new GUI({ title: 'Погода и сцена', width: 270 });
   const state = { preset: start.weather.preset, timeOfDay: start.timeOfDay, clouds: start.weather.clouds };
 
@@ -99,6 +99,18 @@ export function createWeatherPanel({ wind, sea, waves, env, water, particles, ac
   fp.add(water.surf, 'enabled').name('Прибой');
   fp.add(water.surf, 'strength', 0, 2, 0.05).name('Сила');
   fp.add(water.surf, 'shallows').name('Мелководье');
+
+  const fk = gui.addFolder('Кильватер');
+  fk.add(wake.settings, 'enabled').name('Кильватер');
+  fk.add(wake.settings, 'lace').name('Дыры');
+  fk.addColor(wake.settings, 'color').name('Цвет');
+  fk.addColor(wake.settings, 'edgeColor').name('Цвет контура');
+  // 0 — без контура, один тон
+  fk.add(wake.settings, 'edge', 0, 0.2, 0.01).name('Контур');
+  fk.add(wake.settings, 'width', 0.5, 2.5, 0.05).name('Ширина');
+  fk.add(wake.settings, 'spread', 0, 0.4, 0.01).name('Расширение');
+  fk.add(wake.settings, 'life', 5, 60, 1).name('Длина, с');
+  fk.add(wake.settings, 'holes', 1, 5, 0.1).name('Ячейки, м');
 
   const fb = gui.addFolder('Брызги');
   fb.add(particles.settings, 'enabled').name('Брызги');

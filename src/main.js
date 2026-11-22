@@ -4,6 +4,7 @@ import { Wind } from './physics/wind.js';
 import { Waves } from './physics/waves.js';
 import { Boat, crewMove } from './physics/boat.js';
 import { createWater } from './scene/water.js';
+import { createWake } from './scene/wake.js';
 import { bakeShoreMap, shoreDamp } from './scene/shore-map.js';
 import { createBoatMesh } from './scene/boat-mesh.js';
 import { createParticles } from './scene/particles.js';
@@ -79,8 +80,9 @@ const shoreMap = bakeShoreMap([world.shore], { maxSize: isTouchDevice() ? 2048 :
 const bakeMs = performance.now() - bakeT0;
 // физика гасит волны у берега так же, как вершинный шейдер воды
 waves.damp = (x, z) => shoreDamp(shoreMap.depthAt(x, z));
+const wake = createWake();
 const water = createWater(waves, {
-  size: SCENE.waterSize, segments: SCENE.waterSegments, shoreMap,
+  size: SCENE.waterSize, segments: SCENE.waterSegments, shoreMap, wake,
   shadowCamera: env.sun.shadow.camera, shadowTaps: isTouchDevice() ? 8 : 12,
 });
 scene.add(water.mesh, water.far);
@@ -108,9 +110,9 @@ const hud = new Hud();
 let paused = false;
 const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
-  resetBoat: () => placeBoat(),
+  resetBoat: () => { placeBoat(); wake.reset(); },
 };
-createWeatherPanel({ wind, sea, waves, env, water, particles, actions, start: START, resolution, perfOverlay });
+createWeatherPanel({ wind, sea, waves, env, water, wake, particles, actions, start: START, resolution, perfOverlay });
 input.on('reef', (d) => boat.sail.reef(d));
 input.on('crew', (a) => { if (boat.crewPos) boat.crewPos = crewMove(boat.crewPos, a); });
 input.on('camera', () => followCam.nextMode());
@@ -229,6 +231,7 @@ function frame(now) {
     crestSpray.update(dt, waves, wind, camera);
   }
   particles.update(halted ? 0 : dt, { waves, wind, env, camera });
+  if (!halted) wake.update(simTime, boat);
   water.update(waves, boat.x, boat.z, wind.vector());
   env.update(halted ? 0 : dt, waves, wind, boat, camera);
   followCam.update(dt || 0.016, boat, boatMesh);
@@ -247,4 +250,4 @@ document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { world, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
+window.__sim = { world, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };

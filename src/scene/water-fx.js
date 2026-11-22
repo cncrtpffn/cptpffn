@@ -1,6 +1,12 @@
 import { SHORE_DAMP } from './shore-map.js';
 
-// GLSL-фрагменты: шум (небо, облака, прибой), гашение волн и прибой у берега (вода).
+// GLSL-фрагменты: шум (небо, облака, прибой), гашение волн и прибой у берега, кильватер (вода).
+
+export const WAKE_POINTS = 64;
+// сегменты следа группами: у группы описанный круг с шириной ленты, шейдер заходит только в близкие группы
+export const WAKE_GROUP = 8;
+// круги концов светлой сердцевины следа (по два на пробег)
+export const WAKE_CAPS = 8;
 
 export const NOISE_GLSL = `
   float hash12(vec2 p) {
@@ -102,5 +108,127 @@ export const SURF_GLSL = `
       foamLines = l * zone * smoothstep(0.0, 1.0, d) * sea * lines;
     }
     return clamp(max(max(edge, swash), foamLines * 0.9) * uSurf, 0.0, 1.0);
+  }
+`;
+
+// Кильватер «кружевом» (как в рисованных фильмах): светлая лента с дырами цвета воды, перемычки с контуром.
+// Точки uWakeA (x, z, одометр, возраст) и uWakeB (полуширина, скорость, до границы сердцевины, номер круга её конца) —
+// от кормы к хвосту, uWakeCap — круги концов сердцевины (x, z, радиус) (wake.js).
+// uWakeG — описанные круги групп по WAKE_GROUP сегментов (x, z, радиус²). Нужны NOISE_GLSL, uTime.
+// uWakeW: x — жизнь (с), y — длина ячейки (м).
+export const WAKE_GLSL = `
+  uniform vec4 uWakeA[${WAKE_POINTS}]; uniform vec4 uWakeB[${WAKE_POINTS}]; uniform vec3 uWakeCap[${WAKE_CAPS}]; uniform int uWakeCount;
+  uniform vec3 uWakeG[${WAKE_POINTS / WAKE_GROUP}];
+  uniform vec4 uWakeBox; uniform vec2 uWakeW; uniform float uWakeEdge; uniform float uWakeOn; uniform float uWakeLace;
+  // Дыры кружева — круги случайного радиуса вокруг узлов сетки ячеек (в q поперёк сжато — в мире овалы),
+  // соседние сливаются в волнистые. Возвращает расстояние до ближайшей дыры (минус — внутри).
+  // grow — во сколько раз дыры больше; узлы медленно гуляют — кружево живое
+  float wakeHoles(vec2 q, float grow) {
+    vec2 c = floor(q), f = fract(q);
+    float h = 8.0;
+    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+      vec2 g = vec2(float(i), float(j));
+      vec2 r = vec2(hash12(c + g), hash12(c + g + 19.7));
+      vec2 o = 0.5 + 0.3 * sin(uTime * 0.25 + 6.2831 * r);
+      h = min(h, length(g + o - f) - (0.22 + 0.16 * hash12(c + g + 41.3)) * grow);
+    }
+    return h;
+  }
+  // в последней четверти жизни хвост сужается до нуля: выброс старых точек не виден скачком
+  float wakeTaper(float age) { return 1.0 - smoothstep(0.75, 1.0, age / uWakeW.x); }
+  // x — заливка ленты, y — контур, z — бурун за кормой
+  vec3 wakeMask(vec2 p) {
+    if (uWakeOn <= 0.0 || uWakeCount < 2 || any(lessThan(p, uWakeBox.xy)) || any(greaterThan(p, uWakeBox.zw))) return vec3(0.0);
+    // ближайшее место на ломаной в долях ширины ленты (там, где лента перекрывает себя на повороте, выигрывает
+    // тот участок, что накрывает точку, — край без ступенек): поперёк со знаком, одометр, возраст, скорость.
+    // На стыках — расстояние до самой точки: на внешней стороне поворота лента без щелей
+    // волнистый край — шум в мировых координатах: непрерывен и на стыках сегментов, где одометр постоянен
+    // (внешняя сторона поворота). Лента с возрастом шире — край медленно плывёт по шуму
+    float wob = 1.0 + 0.2 * (vnoise(p * 0.3) * 2.0 - 1.0) + 0.08 * (vnoise(p * 0.9 + 3.1) * 2.0 - 1.0);
+    // поперёк ~2 ряда ячеек; расстояния до краёв — в единицах ячеек
+    float rows = 2.0;
+    float bv = 1.3, bu = 0.0, ba = 0.0, bs = 0.0;
+    // светлая сердцевина — по всем участкам, что накрывают точку (где лента наложилась сама на себя, светлее
+    // берётся верх, без шва): до её края, в единицах ячеек
+    float core = -10.0;
+    for (int g = 0; g < ${WAKE_POINTS / WAKE_GROUP}; g++) {
+      if (g * ${WAKE_GROUP} >= uWakeCount - 1) break;
+      vec2 gd = p - uWakeG[g].xy;
+      if (dot(gd, gd) > uWakeG[g].z) continue;
+      for (int j = 0; j < ${WAKE_GROUP}; j++) {
+        int i = g * ${WAKE_GROUP} + j;
+        if (i >= uWakeCount - 1) break;
+        vec4 A = uWakeA[i], B = uWakeA[i + 1];
+        vec4 wa = uWakeB[i], wb = uWakeB[i + 1];
+        vec2 ab = B.xy - A.xy, ap = p - A.xy;
+        // дальше длины сегмента (по одометру) и его ширины в долях уже найденного — мимо, без корней
+        float reach = (A.z - B.z) + abs(bv) * max(wa.x, wb.x);
+        if (dot(ap, ap) > reach * reach) continue;
+        float l2 = dot(ab, ab);
+        if (l2 < 1e-4) continue;
+        float cr = (ab.x * ap.y - ab.y * ap.x) / sqrt(l2);
+        float t = dot(ap, ab) / l2;
+        // за самой старой точкой — полуокружность: так лента начинается при разгоне
+        bool cap = t > 1.0 && i == uWakeCount - 2;
+        if (t > 1.0 && !cap) continue;
+        float a, u; vec4 w;
+        if (cap) { a = B.w; w = wb; u = B.z; cr = length(p - B.xy) * sign(cr + 1e-6); }
+        else if (t >= 0.0) {
+          a = mix(A.w, B.w, t); u = mix(A.z, B.z, t);
+          // номер круга не смешивается: берём у точки, что ближе к границе сердцевины
+          w = vec4(mix(wa.xyz, wb.xyz, t), wa.z < wb.z ? wa.w : wb.w);
+        }
+        else { a = A.w; w = wa; u = A.z; cr = length(ap) * sign(cr + 1e-6); }
+        float v = cr / max(w.x, 1e-3);
+        if (abs(v) >= 1.3 || a >= uWakeW.x) continue;
+        if (abs(v) < abs(bv)) { bv = v; bu = u; ba = a; bs = w.y; }
+        // сердцевина — только на пробегах выше ~1.5 уз (wake.js), внутри тонкого контура (uWakeEdge);
+        // концы пробега — круги радиусом в полуширину ленты (uWakeCap), без круга — по расстоянию вдоль следа
+        if (w.z > 0.0) {
+          float rim = wob * wakeTaper(a);
+          float cc = (rim - abs(v)) * rows - uWakeEdge;
+          if (w.w >= 0.0) {
+            vec3 C = uWakeCap[int(w.w + 0.5)];
+            if (w.z < C.z) cc = min(cc, (C.z * rim - length(p - C.xy)) / w.x * rows);
+          } else {
+            float c = clamp(1.0 - w.z / w.x, 0.0, 1.0);
+            cc = min(cc, (sqrt(1.0 - c * c) * rim - abs(v)) * rows);
+          }
+          core = max(core, cc);
+        }
+      }
+    }
+    float life = ba / uWakeW.x;
+    if (life >= 1.0 || abs(bv) >= 1.3) return vec3(0.0);
+    float v = bv;
+    float rimOut = wob * wakeTaper(ba);
+    // по центру ячейки крупнее; ячейки растягиваются вместе с лентой — дыры-овалы
+    vec2 q = vec2(bu / uWakeW.y, v * (0.6 + 0.4 * abs(v)) * rows);
+    float n = vnoise(q * 1.7 + 5.0);
+    // с возрастом дыры растут, перемычки и обод тоньше и рвутся на обрывки (у каждого куска свой срок)
+    float fade = 1.0 - life;
+    // без кружева (uWakeLace = 0) — сплошная лента с ободом
+    float gLace = uWakeLace > 0.0 ? wakeHoles(q, 1.0 + 0.5 * life) - 0.3 * life * (0.4 + n) : 10.0;
+    float e = (rimOut - abs(v)) * rows; // до внешнего края, в единицах ячеек
+    float rimW = 0.45 * fade * (0.5 + n);
+    float gRim = rimW - abs(e - rimW);
+    float g = min(max(gLace, gRim), e);
+    float aa = clamp(fwidth(g), 1e-4, 0.3);
+    float fill = smoothstep(-aa, aa, g);
+    // вне сердцевины участок весь цветом контура; контур есть и вокруг дыр. Белая пена на полном ходу — потом
+    float gc = min(g - uWakeEdge, core);
+    // на скачке между участками (сердцевина есть / нет) fwidth огромен — ограничиваем, иначе шов полупрозрачными точками
+    float ac = clamp(fwidth(gc), 1e-4, 0.3);
+    float edge = fill * (1.0 - smoothstep(-ac, ac, gc));
+    // вдали ячейки мельче пикселя — средняя заливка без мерцания
+    float far = smoothstep(0.25, 0.7, length(fwidth(q)));
+    float inside = step(0.0, e);
+    fill = mix(fill, (uWakeLace > 0.0 ? 0.45 * fade : 1.0) * inside, far);
+    edge = mix(edge, (core > 0.0 ? 0.0 : 1.0) * fill, far);
+    // бурун: рваная белая пена первые секунды за кормой, сильнее на ходу
+    float churn = (1.0 - smoothstep(0.4, 2.2, ba)) * (1.0 - smoothstep(0.35, 0.75, abs(v)));
+    churn *= smoothstep(0.42, 0.58, vnoise(p * 2.3 + uTime * 0.6) * 0.6 + vnoise(p * 5.1 - uTime * 0.9) * 0.4);
+    churn *= smoothstep(1.0, 3.5, bs);
+    return vec3(fill, edge, churn);
   }
 `;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MAX_COMP } from '../physics/waves.js';
-import { NOISE_GLSL, SHORE_DAMP_GLSL, SURF_GLSL } from './water-fx.js';
+import { NOISE_GLSL, SHORE_DAMP_GLSL, SURF_GLSL, WAKE_GLSL } from './water-fx.js';
 
 // Тень на воде по карте теней солнца (three r170: глубина упакована в RGBA, камера ортографическая —
 // глубина линейна, (z воды − z заслона) · uShadowDepth = метры от предмета до воды).
@@ -75,7 +75,8 @@ const WAVE_NORMAL_GLSL = `
 // shadowTaps — выборок карты на каждый из двух проходов (поиск заслона и размытие).
 // focus — шаг сетки в центре относительно равномерного (size / segments): у лодки сетка гуще,
 // к краю реже, число вершин то же.
-export function createWater(waves, { size = 440, segments = 176, focus = 0.35, shoreMap, shadowCamera, shadowTaps = 12 } = {}) {
+// wake — кильватерный след (wake.js): лента «кружевом» за кормой на ближней воде.
+export function createWater(waves, { size = 440, segments = 176, focus = 0.35, shoreMap, shadowCamera, shadowTaps = 12, wake } = {}) {
   const geo = new THREE.PlaneGeometry(size, size, segments, segments);
   geo.rotateX(-Math.PI / 2);
   const cell = size / segments;
@@ -121,6 +122,18 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uShadowBlur: { value: 0 },
     uShadowSpan: { value: shadowCamera.right - shadowCamera.left },
     uShadowDepth: { value: shadowCamera.far - shadowCamera.near },
+    uWakeA: { value: wake.a },
+    uWakeB: { value: wake.b },
+    uWakeG: { value: wake.groups },
+    uWakeCap: { value: wake.caps },
+    uWakeCount: { value: 0 },
+    uWakeBox: { value: wake.box },
+    uWakeW: { value: new THREE.Vector2() },
+    uWakeEdge: { value: 0 },
+    uWakeOn: { value: 1 },
+    uWakeLace: { value: 1 },
+    uWakeColor: { value: new THREE.Color() },
+    uWakeEdgeColor: { value: new THREE.Color() },
   };
   // shadowFade — метров от предмета до воды, за которые тень слабеет в e раз;
   // shadowBlur — на сколько метров растёт радиус размытия на метр от предмета
@@ -135,6 +148,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     varying vec2 vWaveP;`;
   // прибой: униформы карты берега даёт SHORE_DAMP_GLSL
   const SURF_PARS = `uniform float uTime; uniform vec2 uWindDir; ${NOISE_GLSL} ${SURF_GLSL}`;
+  const WAKE_PARS = `${WAKE_GLSL} uniform vec3 uWakeColor; uniform vec3 uWakeEdgeColor;`;
   const mat = new THREE.MeshLambertMaterial({ color: settings.color });
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -169,13 +183,18 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         vec3 transformed = vec3(position) + disp * edge;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-        ${WAVE_UNIFORMS} uniform vec2 uCenter; uniform float uRadius; ${SHORE_DAMP_GLSL} ${SURF_PARS}`)
+        ${WAVE_UNIFORMS} uniform vec2 uCenter; uniform float uRadius; ${SHORE_DAMP_GLSL} ${SURF_PARS} ${WAKE_PARS}`)
       // мелководье и пена прибоя; буруны гаснут к краю ближней воды — за ним дальняя вода рисует только кромку
       .replace('#include <color_fragment>', `#include <color_fragment>
         vec4 sh = shoreInfo(vWaveP);
         diffuseColor.rgb = mix(diffuseColor.rgb, uLagoon, shallowMix(sh));
         float surfLines = 1.0 - smoothstep(uRadius * 0.6, uRadius * 0.9, length(vWaveP - uCenter));
-        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, surfFoam(vWaveP, sh, surfLines));`)
+        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, surfFoam(vWaveP, sh, surfLines));
+        // кильватер: светлая лента с контуром перемычек, у кормы — белый бурун
+        vec3 wk = wakeMask(vWaveP);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uWakeColor, wk.x);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uWakeEdgeColor, wk.y);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, wk.z);`)
       .replace('#include <shadowmap_pars_fragment>', `#include <shadowmap_pars_fragment>
         ${WATER_SHADOW_GLSL(shadowTaps)}`)
       // нормаль по пикселю, а не по вершинам: сетка короче коротких компонент не передаёт,
@@ -254,6 +273,14 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uSurf.value = surf.enabled ? surf.strength : 0;
     uniforms.uShallows.value = surf.shallows ? 1 : 0;
     uniforms.uSurfAmp.value = w.maxAmplitude();
+    const ws = wake.settings;
+    uniforms.uWakeOn.value = ws.enabled ? 1 : 0;
+    uniforms.uWakeLace.value = ws.lace ? 1 : 0;
+    uniforms.uWakeCount.value = wake.count;
+    uniforms.uWakeW.value.set(ws.life, ws.holes);
+    uniforms.uWakeEdge.value = ws.edge;
+    uniforms.uWakeColor.value.set(ws.color);
+    uniforms.uWakeEdgeColor.value.set(ws.edgeColor);
   }
 
   return { mesh, far, update, uniforms, settings, surf };
