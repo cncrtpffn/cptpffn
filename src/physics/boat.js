@@ -59,7 +59,8 @@ export class Boat {
     this.u = 0; this.v = 0; this.r = 0;
     this.phi = 0; this.phiDot = 0;
     this.theta = 0; this.thetaDot = 0;
-    this.y = 0;
+    this.y = 0; this.yDot = 0;
+    this._wavePrev = { h: 0, theta: 0, phi: 0, ok: false }; // плоскость воды прошлого шага: её скорость — упреждение качки
     this.rudder = 0;
     this.board = 1;
     this.crewY = 0; this.crewTarget = 0;
@@ -188,16 +189,28 @@ export class Boat {
     // --- волны под корпусом ---
     const fwdX = Math.sin(this.psi), fwdZ = -Math.cos(this.psi);
     const stbX = Math.cos(this.psi), stbZ = Math.sin(this.psi);
-    const hb = waves.heightAt(this.x + fwdX * 2.0, this.z + fwdZ * 2.0);
-    const hs = waves.heightAt(this.x - fwdX * 2.0, this.z - fwdZ * 2.0);
-    const hp = waves.heightAt(this.x - stbX * 1.0, this.z - stbZ * 1.0);
-    const hst = waves.heightAt(this.x + stbX * 1.0, this.z + stbZ * 1.0);
-    const hc = waves.heightAt(this.x, this.z);
-    const slopeAlong = (hb - hs) / 4.0;
-    const slopeAcross = (hst - hp) / 2.0;
+    // плоскость воды под корпусом — МНК по точкам ватерлинии: пять вдоль ДП и две по бортам.
+    // Корпус усредняет волны короче себя, высота и уклоны не дёргаются от коротких компонент
+    const L = c.waveSpanX, B = c.waveSpanY;
+    let hSum = 0, hMom = 0;
+    for (let i = -2; i <= 2; i++) {
+      const s = i * L / 2;
+      const h = waves.heightAt(this.x + fwdX * s, this.z + fwdZ * s);
+      hSum += h; hMom += s * h;
+    }
+    const hp = waves.heightAt(this.x - stbX * B, this.z - stbZ * B);
+    const hst = waves.heightAt(this.x + stbX * B, this.z + stbZ * B);
+    const hc = (hSum + hp + hst) / 7;
+    const slopeAlong = hMom / (2.5 * L * L); // Σs² = 2.5·L²
+    const slopeAcross = (hst - hp) / (2 * B);
     const thetaWave = Math.atan(slopeAlong);
     const phiWave = -Math.atan(slopeAcross);
     this.waveTilt.phi = phiWave; this.waveTilt.theta = thetaWave; this.waveTilt.h = hc;
+    // скорость плоскости воды (разность шагов; после сброса — ноль)
+    const wp = this._wavePrev;
+    if (!wp.ok) { wp.h = hc; wp.theta = thetaWave; wp.phi = phiWave; wp.ok = true; }
+    const hcDot = (hc - wp.h) / dt, thetaWaveDot = (thetaWave - wp.theta) / dt, phiWaveDot = (phiWave - wp.phi) / dt;
+    wp.h = hc; wp.theta = thetaWave; wp.phi = phiWave;
     const m = this.totalMass;
     const surfFx = -m * G * slopeAlong * 0.6;
     const surfFy = -m * G * slopeAcross * 0.3;
@@ -220,7 +233,8 @@ export class Boat {
     const mHydro = -(bFy * c.boardDepth * ext + hFy * 0.25);
     const mCrew = c.crewMass * G * this.crewY * Math.cos(this.phi);
     const mRight = -m * G * this.gz(this.phi - phiWave);
-    const mDamp = -c.rollDamp * this.phiDot * (1 + 2 * Math.abs(Math.sin(this.phi)));
+    // демпфирование — относительно воды: на волне корпус тянет за её креном, а не только назад к нулю
+    const mDamp = -c.rollDamp * (this.phiDot - phiWaveDot) * (1 + 2 * Math.abs(Math.sin(this.phi)));
     let ddPhi = (mSail + mHydro + mCrew + mRight + mDamp) / c.Ixx;
     if (gybeImp && !cap) this.phiDot += gybeImp / c.Ixx;
     if (gybeImp && !cap) this.r += gybeImp / c.Izz * 0.4;
@@ -252,10 +266,13 @@ export class Boat {
 
     // дифферент и вертикальная качка
     const squat = -0.6 * DEG * fr * fr;
-    const ddTheta = c.pitchK * (thetaWave + squat - this.theta) - c.pitchC * this.thetaDot;
+    // пружина и демпфер к плоскости воды и к её скорости: без упреждения по скорости лодка отставала бы
+    // от волны на ~40° по фазе на частоте встречи
+    const ddTheta = c.pitchK * (thetaWave + squat - this.theta) + c.pitchC * (thetaWaveDot - this.thetaDot);
     this.thetaDot += ddTheta * dt;
     this.theta += this.thetaDot * dt;
-    this.y += (hc - this.y) * Math.min(1, dt / c.heaveLag);
+    this.yDot += (c.heaveK * (hc - this.y) + c.heaveC * (hcDot - this.yDot)) * dt;
+    this.y += this.yDot * dt;
 
     // заливание
     if (!cap) {
