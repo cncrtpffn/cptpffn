@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MAX_COMP } from '../physics/waves.js';
-import { SHORE_DAMP_GLSL } from './water-fx.js';
+import { NOISE_GLSL, SHORE_DAMP_GLSL, SURF_GLSL } from './water-fx.js';
 
 // Тень на воде по карте теней солнца (three r170: глубина упакована в RGBA, камера ортографическая —
 // глубина линейна, (z воды − z заслона) · uShadowDepth = метры от предмета до воды).
@@ -64,11 +64,11 @@ const WAVE_NORMAL_GLSL = `
     normal = normalize((viewMatrix * vec4(-nd.x, 1.0 - nd.y, -nd.z, 0.0)).xyz);
   }`;
 
-// Вода: один цвет, только рассеянный свет (Lambert, без бликов), без текстур, пены и отражений
-// (эксперимент, панель «Вода»).
+// Вода: один цвет, только рассеянный свет (Lambert, без бликов), без текстур и отражений
+// (эксперимент, панель «Вода»). У берегов — прибой и бирюза мелководья (SURF_GLSL, панель «Прибой»).
 // Вершинный шейдер Герстнера с теми же параметрами, что в физике: лодка качается на тех же волнах,
 // свет ложится по аналитическим нормалям, так что волны видны по затенению.
-// shoreMap — из bakeShoreMap: по глубине волны гаснут у берега.
+// shoreMap — из bakeShoreMap: по глубине волны гаснут у берега, по расстоянию до кромки — пена прибоя.
 // Тень на воде своя (встроенная выключена): цвет и сила задаются отдельно, у отбрасывающего предмета
 // тень плотная и чёткая, дальше от него — прозрачнее и мягче (PCSS по карте теней солнца).
 // shadowCamera — камера тени солнца (ортографическая): её размеры переводят карту в метры.
@@ -107,6 +107,14 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uShoreTex: { value: shoreMap.texture },
     uShoreBounds: { value: shoreMap.bounds },
     uShoreDepth: { value: shoreMap.maxDepth },
+    uShoreRange: { value: shoreMap.range },
+    uTime: { value: 0 },
+    uWindDir: { value: new THREE.Vector2(0, 1) },
+    uSurf: { value: 1 },
+    uSurfAmp: { value: 0.3 },
+    uShallows: { value: 1 },
+    uLagoon: { value: new THREE.Color(0x3fc4c0) },
+    uFoam: { value: new THREE.Color(0xf4fbff) },
     uShadowColor: { value: new THREE.Color() },
     uShadowStrength: { value: 0 },
     uShadowFade: { value: 1 },
@@ -118,11 +126,15 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   // shadowBlur — на сколько метров растёт радиус размытия на метр от предмета
   // wireframe — показать сетку волн (каркас того же материала)
   const settings = { color: '#2f86b5', shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08, wireframe: false };
+  // прибой у берегов и бирюза мелководья (панель «Прибой»)
+  const surf = { enabled: true, strength: 1, shallows: true };
 
   const WAVE_UNIFORMS = `
     uniform vec2 uWaveDir[${MAX_COMP}]; uniform float uWaveA[${MAX_COMP}]; uniform float uWaveK[${MAX_COMP}];
     uniform float uWavePhase[${MAX_COMP}]; uniform float uWaveQ[${MAX_COMP}]; uniform int uWaveCount;
     varying vec2 vWaveP;`;
+  // прибой: униформы карты берега даёт SHORE_DAMP_GLSL
+  const SURF_PARS = `uniform float uTime; uniform vec2 uWindDir; ${NOISE_GLSL} ${SURF_GLSL}`;
   const mat = new THREE.MeshLambertMaterial({ color: settings.color });
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -157,7 +169,13 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         vec3 transformed = vec3(position) + disp * edge;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-        ${WAVE_UNIFORMS} ${SHORE_DAMP_GLSL}`)
+        ${WAVE_UNIFORMS} uniform vec2 uCenter; uniform float uRadius; ${SHORE_DAMP_GLSL} ${SURF_PARS}`)
+      // мелководье и пена прибоя; буруны гаснут к краю ближней воды — за ним дальняя вода рисует только кромку
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        vec4 sh = shoreInfo(vWaveP);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uLagoon, shallowMix(sh));
+        float surfLines = 1.0 - smoothstep(uRadius * 0.6, uRadius * 0.9, length(vWaveP - uCenter));
+        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, surfFoam(vWaveP, sh, surfLines));`)
       .replace('#include <shadowmap_pars_fragment>', `#include <shadowmap_pars_fragment>
         ${WATER_SHADOW_GLSL(shadowTaps)}`)
       // нормаль по пикселю, а не по вершинам: сетка короче коротких компонент не передаёт,
@@ -194,7 +212,12 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         vWaveP = (modelMatrix * vec4(position, 1.0)).xz;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-        ${WAVE_UNIFORMS} ${SHORE_DAMP_GLSL}`)
+        ${WAVE_UNIFORMS} ${SHORE_DAMP_GLSL} ${SURF_PARS}`)
+      // мелководье и пена у кромки — как у ближней воды, без бурунов
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        vec4 sh = shoreInfo(vWaveP);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uLagoon, shallowMix(sh));
+        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, surfFoam(vWaveP, sh, 0.0));`)
       .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
         ${WAVE_NORMAL_GLSL}`);
   };
@@ -206,7 +229,8 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   far.position.y = -0.08;
   far.receiveShadow = false;
 
-  function update(w, cx, cz) {
+  // windDir — вектор ветра {x, z}: наветренный берег пенится сильнее
+  function update(w, cx, cz, windDir) {
     const sx = Math.round(cx / step) * step, sz = Math.round(cz / step) * step;
     mesh.position.set(sx, 0, sz);
     far.position.set(sx, -0.08, sz);
@@ -225,7 +249,12 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uShadowStrength.value = settings.shadowStrength;
     uniforms.uShadowFade.value = settings.shadowFade;
     uniforms.uShadowBlur.value = settings.shadowBlur;
+    uniforms.uTime.value = w.time;
+    if (Math.hypot(windDir.x, windDir.z) > 0.01) uniforms.uWindDir.value.set(windDir.x, windDir.z).normalize();
+    uniforms.uSurf.value = surf.enabled ? surf.strength : 0;
+    uniforms.uShallows.value = surf.shallows ? 1 : 0;
+    uniforms.uSurfAmp.value = w.maxAmplitude();
   }
 
-  return { mesh, far, update, uniforms, settings };
+  return { mesh, far, update, uniforms, settings, surf };
 }

@@ -95,6 +95,11 @@ export function createWeatherPanel({ wind, sea, waves, env, water, particles, ac
   fwater.add(water.settings, 'shadowBlur', 0, 0.3, 0.01).name('Размытие');
   fwater.add(water.settings, 'wireframe').name('Сетка волн');
 
+  const fp = gui.addFolder('Прибой');
+  fp.add(water.surf, 'enabled').name('Прибой');
+  fp.add(water.surf, 'strength', 0, 2, 0.05).name('Сила');
+  fp.add(water.surf, 'shallows').name('Мелководье');
+
   const fb = gui.addFolder('Брызги');
   fb.add(particles.settings, 'enabled').name('Брызги');
   fb.add(particles.settings, 'strength', 0, 2, 0.05).name('Сила');

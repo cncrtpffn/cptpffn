@@ -229,7 +229,7 @@ function frame(now) {
     crestSpray.update(dt, waves, wind, camera);
   }
   particles.update(halted ? 0 : dt, { waves, wind, env, camera });
-  water.update(waves, boat.x, boat.z);
+  water.update(waves, boat.x, boat.z, wind.vector());
   env.update(halted ? 0 : dt, waves, wind, boat, camera);
   followCam.update(dt || 0.016, boat, boatMesh);
   world.update(camera.position);
