@@ -276,6 +276,23 @@ function buildCockpit() {
   return geos;
 }
 
+// Невидимая крышка кокпита по верху комингса: пишет только глубину. Рисуется после лодки и до воды
+// (renderOrder 1, у воды 2), и вода внутри кокпита ниже комингса не проходит тест глубины — на высоких
+// волнах поверхность не видна сквозь пол. Снаружи кокпит закрыт стенками, так что крышка заслоняет
+// только то, что и так внутри; волна выше комингса остаётся видна. Цена — один маленький draw call.
+function buildWaterMask() {
+  const top = UPATH.map((p) => pt(p.x, p.top - 0.01, p.z));
+  const tris = THREE.ShapeUtils.triangulateShape(UPATH.map((p) => new THREE.Vector2(p.x, p.z)), []);
+  const pos = [];
+  for (const t of tris) for (const i of t) pos.push(top[i].x, top[i].y, top[i].z);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  const mask = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide }));
+  mask.renderOrder = 1;
+  mask.userData.dynamic = true; // не сливать: порядок отрисовки свой
+  return mask;
+}
+
 // Навесной руль «амбарная дверь» (14sh.jpg, deck_gear.gif): контур в СК оси руля, u — назад от оси, v — вверх от ВЛ.
 // Голова поднята над транцем, чтобы румпель прошёл над кормовым комингсом.
 const RUDDER = [[0, 1.0], [0.12, 1.0], [0.14, 0.62], [0.3, 0.47], [0.56, 0.27], [0.8, 0.04], [0.92, -0.14], [0.84, -0.36], [0, -0.36]];
@@ -376,6 +393,7 @@ export function createBoatMesh() {
   add(new THREE.Mesh(ck.floor, MAT.wood));
   add(new THREE.Mesh(ck.roof, MAT.deck));
   add(new THREE.Mesh(polyTube(capPoints(), 0.032, 5), MAT.darkWood));
+  group.add(buildWaterMask());
   // сходной люк в переборке и сдвижной люк на крыше
   const roofAtXc = edge(CK.xc, 1).top + CK.crown;
   add(new THREE.Mesh(new THREE.BoxGeometry(0.5, roofAtXc - CK.floorY - 0.32, 0.03), MAT.darkWood)).position.set(0, (roofAtXc + CK.floorY + 0.32) / 2, -CK.xc + 0.02);
