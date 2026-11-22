@@ -52,6 +52,12 @@ export function createWeatherPanel({ wind, sea, env, water, particles, actions, 
 
   const fwater = gui.addFolder('Вода');
   fwater.addColor(water.settings, 'color').name('Цвет');
+  fwater.addColor(water.settings, 'shadowColor').name('Цвет тени');
+  fwater.add(water.settings, 'shadowStrength', 0, 1, 0.02).name('Сила тени');
+  // за сколько метров от предмета до воды тень слабеет
+  fwater.add(water.settings, 'shadowFade', 1, 30, 0.5).name('Затухание, м');
+  // размытие растёт с расстоянием от предмета
+  fwater.add(water.settings, 'shadowBlur', 0, 0.3, 0.01).name('Размытие');
 
   const fb = gui.addFolder('Брызги');
   fb.add(particles.settings, 'enabled').name('Брызги');
