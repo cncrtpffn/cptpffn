@@ -1,13 +1,29 @@
 import { G, DEG, SEA } from '../config.js';
 import { wrapPi } from './wind.js';
 
-const N = 4;                 // компонент в одной системе волн
+const N = 8;                 // компонент в одной системе волн
 const MAX_TRAINS = 4;        // всего систем (одна из них может догасать при переполнении)
 const MAX_ACTIVE = 3;        // систем, которые затухают в обычном темпе
 export const MAX_COMP = N * MAX_TRAINS;
-const LAMBDA_FRAC = [1, 0.55, 0.3, 0.16];
-const AMP_FRAC = [0.55, 0.3, 0.18, 0.1];
-const DIR_OFFSET = [0, 25, -30, 50];
+// Спектр системы: длины лесенкой от λ до LAMBDA_MIN·λ, амплитуда ∝ длине (одинаковая крутизна),
+// Σ доль² = AMP_ENERGY — значимая высота та же, что у прежних 4 компонент. Направления разбросаны
+// вокруг ветра: длинные почти по ветру, короткие шире. Длины, углы и фазы с джиттером — у нескольких
+// ровных плоских волн под большими углами сумма периодична: шишки на гребнях рядами наискось.
+const LAMBDA_MIN = 0.15;
+const LAMBDA_JITTER = 0.08;
+const AMP_ENERGY = 0.4349;
+const SPREAD_LONG = 6;       // °, разброс направления у самой длинной компоненты
+const SPREAD_SHORT = 35;     // °, у самой короткой
+
+// детерминированный ГПСЧ (mulberry32): одно и то же море при каждом запуске
+function rng(seed) {
+  return () => {
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 const STEEPNESS = 0.62;
 const RETARGET_H = 0.02;     // м: систему ниже этой высоты можно перенастроить незаметно
 const FADE_TIME = 4;         // с: быстрое гашение лишней системы
@@ -31,6 +47,8 @@ export class Waves {
     this.stableLambda = 12;  // и длина волны
     this.stableT = 0;        // сколько секунд цель не менялась
     this.trains = [];
+    this._seed = 1;          // у каждой новой системы свой набор компонент
+    this.sharpness = 1;      // множитель q: 0 — синусоида, 1 — гребни Герстнера в полную силу (панель «Море»)
     this.manual = false;     // ручной режим: системы задаются из панели, высоты не меняются
     this._init = false;
     this.count = 0;
@@ -82,7 +100,22 @@ export class Waves {
   _makeTrain(dir, lambda, h) {
     const t = { dir, lambda, h, fading: false,
       dirX: new Float32Array(N), dirZ: new Float32Array(N), k: new Float32Array(N),
-      omega: new Float32Array(N), phase: new Float32Array(N) };
+      omega: new Float32Array(N), phase: new Float32Array(N),
+      lamFrac: new Float32Array(N), ampFrac: new Float32Array(N), dirOff: new Float32Array(N) };
+    const r = rng(this._seed++);
+    let e = 0;
+    for (let i = 0; i < N; i++) {
+      const u = i / (N - 1);
+      t.lamFrac[i] = LAMBDA_MIN ** u * (i ? 1 + LAMBDA_JITTER * (2 * r() - 1) : 1);
+      t.ampFrac[i] = t.lamFrac[i];
+      e += t.ampFrac[i] ** 2;
+      // главная — точно по ветру, остальные по очереди в разные стороны
+      const spread = SPREAD_LONG + (SPREAD_SHORT - SPREAD_LONG) * u;
+      t.dirOff[i] = i ? (i % 2 ? 1 : -1) * spread * (0.3 + 0.7 * r()) * DEG : 0;
+      t.phase[i] = 2 * Math.PI * r();
+    }
+    const norm = Math.sqrt(AMP_ENERGY / e);
+    for (let i = 0; i < N; i++) t.ampFrac[i] *= norm;
     this._tune(t, dir, lambda);
     return t;
   }
@@ -90,11 +123,11 @@ export class Waves {
   _tune(t, dir, lambda) {
     t.dir = dir; t.lambda = lambda;
     for (let i = 0; i < N; i++) {
-      const d = dir + DIR_OFFSET[i] * DEG;
+      const d = dir + t.dirOff[i];
       // волны бегут по ветру: вектор «куда»
       t.dirX[i] = -Math.sin(d);
       t.dirZ[i] = Math.cos(d);
-      t.k[i] = 2 * Math.PI / (lambda * LAMBDA_FRAC[i]);
+      t.k[i] = 2 * Math.PI / (lambda * t.lamFrac[i]);
       t.omega[i] = Math.sqrt(G * t.k[i]);
     }
   }
@@ -110,9 +143,9 @@ export class Waves {
       for (let i = 0; i < N; i++, j++) {
         this.dirX[j] = t.dirX[i]; this.dirZ[j] = t.dirZ[i];
         this.k[j] = t.k[i]; this.omega[j] = t.omega[i]; this.phase[j] = t.phase[i];
-        this.amp[j] = 0.5 * t.h * AMP_FRAC[i];
+        this.amp[j] = 0.5 * t.h * t.ampFrac[i];
         const ka = this.k[j] * this.amp[j];
-        this.q[j] = ka > 1e-6 ? Math.min(STEEPNESS * share / (ka * N), 1.0) : 0;
+        this.q[j] = ka > 1e-6 ? Math.min(STEEPNESS * share / (ka * N), 1.0) * this.sharpness : 0;
       }
     }
     this.count = j;

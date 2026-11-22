@@ -50,6 +50,8 @@ export function createWeatherPanel({ wind, sea, waves, env, water, particles, ac
   const fs = gui.addFolder('Море');
   const autoCtl = fs.add(sea, 'auto').name('Волнение от ветра');
   const stateCtl = fs.add(sea, 'state', 0, 1, 0.02).name('Волнение вручную');
+  // множитель q Герстнера: 0 — синусоида, 1 — гребни острее всего (общий с физикой)
+  fs.add(waves, 'sharpness', 0, 1, 0.02).name('Острота гребней');
 
   // ручные волны: две системы, меняются сразу, без нарастания и затухания
   // стартовые значения — как волнение от ветра (main.js, Waves.configure)
