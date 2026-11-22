@@ -1,39 +1,81 @@
 import * as THREE from 'three';
-import { makeIsland } from './island.js';
 import { createSky } from './sky.js';
 import { createClouds, CLOUD_TYPES } from './clouds.js';
 import { mergeStatic } from './merge-static.js';
 
 const flat = (color) => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.9 });
 
+// Буй: def.kind — навигационный знак (МАМС, регион A), без kind — регатный знак цвета def.color.
+//   lateral-red / lateral-green — левый (красный цилиндр) / правый (зелёный конус) край фарватера;
+//   cardinal-n|s|e|w — жёлто-чёрная веха с двумя конусами (с какой стороны от опасности проходить);
+//   isolated — отдельная опасность: чёрная веха с красным поясом и двумя чёрными шарами.
+const BLACK = 0x22262b, YELLOW = 0xf2c230, RED = 0xd23b2e, GREEN = 0x2f9e5b;
+// пояса кардинальных вех снизу вверх и конусы топовой фигуры (+1 — вершиной вверх)
+const CARDINAL = {
+  'cardinal-n': { bands: [YELLOW, BLACK], cones: [1, 1] },
+  'cardinal-s': { bands: [BLACK, YELLOW], cones: [-1, -1] },
+  'cardinal-e': { bands: [BLACK, YELLOW, BLACK], cones: [-1, 1] },
+  'cardinal-w': { bands: [YELLOW, BLACK, YELLOW], cones: [1, -1] },
+};
+const buoyMats = new Map();
+const buoyMat = (c) => buoyMats.get(c) ?? buoyMats.set(c, flat(c)).get(c);
 function makeBuoy(def) {
   const g = new THREE.Group();
-  const paint = flat(def.color);
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.55, 1.0, 8), paint);
-  body.position.y = 0.3;
-  const top = new THREE.Mesh(new THREE.ConeGeometry(0.45, 0.8, 8), paint);
-  top.position.y = 1.2;
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.6, 5), flat(0x6e4a2b));
-  pole.position.y = 2.2;
-  const flag = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.4, 0.6), flat(0xf4f1e8));
-  flag.position.set(0, 2.8, 0.3);
-  [body, top, pole, flag].forEach((m) => { m.castShadow = true; g.add(m); });
+  const add = (geo, color, y, rx = 0) => { const m = new THREE.Mesh(geo, buoyMat(color)); m.position.y = y; m.rotation.x = rx; m.castShadow = true; g.add(m); return m; };
+  const k = def.kind;
+  if (!k) {
+    add(new THREE.CylinderGeometry(0.45, 0.55, 1.0, 8), def.color, 0.3);
+    add(new THREE.ConeGeometry(0.45, 0.8, 8), def.color, 1.2);
+    add(new THREE.CylinderGeometry(0.04, 0.04, 1.6, 5), 0x6e4a2b, 2.2);
+    const flag = add(new THREE.BoxGeometry(0.02, 0.4, 0.6), 0xf4f1e8, 2.8);
+    flag.position.z = 0.3;
+  } else if (k === 'lateral-red' || k === 'lateral-green') {
+    const red = k === 'lateral-red', c = red ? RED : GREEN;
+    add(new THREE.CylinderGeometry(0.6, 0.7, 0.8, 10), c, 0.2);
+    add(red ? new THREE.CylinderGeometry(0.35, 0.35, 1.2, 8) : new THREE.ConeGeometry(0.55, 1.4, 8), c, red ? 1.2 : 1.3);
+    add(red ? new THREE.CylinderGeometry(0.22, 0.22, 0.4, 8) : new THREE.ConeGeometry(0.25, 0.4, 8), c, 2.3); // топовая фигура
+  } else if (CARDINAL[k]) {
+    const { bands, cones } = CARDINAL[k], hb = 2.2 / bands.length;
+    add(new THREE.CylinderGeometry(0.65, 0.75, 0.6, 10), bands[0], 0.1);
+    bands.forEach((c, n) => add(new THREE.CylinderGeometry(0.3, 0.38, hb, 8), c, 0.4 + hb * (n + 0.5)));
+    cones.forEach((d, n) => add(new THREE.ConeGeometry(0.28, 0.4, 8), BLACK, 2.95 + n * 0.5, d > 0 ? 0 : Math.PI));
+  } else if (k === 'isolated') {
+    add(new THREE.CylinderGeometry(0.65, 0.75, 0.6, 10), BLACK, 0.1);
+    add(new THREE.CylinderGeometry(0.3, 0.38, 0.8, 8), BLACK, 0.8);
+    add(new THREE.CylinderGeometry(0.3, 0.3, 0.6, 8), RED, 1.5);
+    add(new THREE.CylinderGeometry(0.28, 0.3, 0.6, 8), BLACK, 2.1);
+    for (const y of [2.7, 3.25]) add(new THREE.SphereGeometry(0.2, 8, 6), BLACK, y);
+  }
   g.position.set(def.x, 0, def.z);
-  mergeStatic(g); // корпус и конус одним мешем
+  mergeStatic(g); // детали одного цвета — одним мешем
   return g;
 }
 
-function mulberry32(a) {
-  return function () {
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+// Коробка тени ±range вокруг (cx, cz): солнце на расстоянии depth по sunDir. Центр квантуется по текселю
+// в плоскости света (базис камеры тени: x = up × sunDir, y = sunDir × x) — при движении тень не дрожит.
+const _u = new THREE.Vector3(), _v = new THREE.Vector3(), _c = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+export function fitShadow(sun, sunDir, cx, cz, range, depth = 400) {
+  const sc = sun.shadow.camera;
+  if (sc.right !== range || sc.far !== 2 * depth) {
+    sc.left = -range; sc.right = range; sc.top = range; sc.bottom = -range; sc.near = 1; sc.far = 2 * depth;
+    sc.updateProjectionMatrix();
+  }
+  const texel = 2 * range / sun.shadow.mapSize.x;
+  _u.crossVectors(_up, sunDir);
+  if (_u.lengthSq() < 1e-8) _u.set(1, 0, 0);
+  _u.normalize();
+  _v.crossVectors(sunDir, _u);
+  _c.set(cx, 0, cz);
+  const a = Math.round(_c.dot(_u) / texel) * texel, b = Math.round(_c.dot(_v) / texel) * texel, w = _c.dot(sunDir);
+  _c.copy(_u).multiplyScalar(a).addScaledVector(_v, b).addScaledVector(sunDir, w);
+  sun.target.position.copy(_c);
+  sun.position.copy(_c).addScaledVector(sunDir, depth);
+  return texel;
 }
 
+// cfg.shadowRange — тень вокруг камеры ±shadowRange м (по умолчанию 120); cfg.buoys — буи карты
 export function createEnvironment(scene, cfg) {
-  const rng = mulberry32(7);
+  const shadowRange = cfg.shadowRange ?? 120;
 
   const sky = createSky();
   scene.add(sky.mesh);
@@ -53,8 +95,7 @@ export function createEnvironment(scene, cfg) {
 
   scene.fog = new THREE.Fog(0xdcecf5, 140, 1100);
 
-  const islands = cfg.islands.map((d) => { const g = makeIsland(d, rng); scene.add(g); return g; });
-  const buoys = cfg.buoys.map((d) => { const g = makeBuoy(d); scene.add(g); return { g, d }; });
+  const buoys = (cfg.buoys ?? []).map((d) => { const g = makeBuoy(d); scene.add(g); return { g, d }; });
 
   const sunDir = new THREE.Vector3(0.4, 0.8, 0.3);
 
@@ -85,10 +126,15 @@ export function createEnvironment(scene, cfg) {
   }
 
   const tmp = new THREE.Vector3();
-  function update(dt, waves, wind, boat) {
-    // солнце и тени следуют за лодкой
-    sun.target.position.set(boat.x, 0, boat.z);
-    sun.position.copy(tmp.copy(sunDir).multiplyScalar(120).add(sun.target.position));
+  function update(dt, waves, wind, boat, camera) {
+    // тень вокруг камеры: центр сдвинут от лодки туда, куда смотрит камера, на полокна — лодка всегда в тени
+    let cx = boat.x, cz = boat.z;
+    if (camera) {
+      camera.getWorldDirection(tmp);
+      const l = Math.hypot(tmp.x, tmp.z);
+      if (l > 1e-3) { cx += tmp.x / l * shadowRange * 0.5; cz += tmp.z / l * shadowRange * 0.5; }
+    }
+    sun.shadow.normalBias = fitShadow(sun, sunDir, cx, cz, shadowRange);
     sky.update(boat.x, boat.z, waves.time);
     for (const { g, d } of buoys) {
       const s = waves.sample(d.x, d.z);
@@ -101,5 +147,5 @@ export function createEnvironment(scene, cfg) {
 
   setTimeOfDay(cfg.timeOfDay ?? 0.5);
   const setCloudType = (name, instant) => { clouds.setType(name, instant); if (instant) applyLighting(); };
-  return { update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, hemi, sunDir, islands, buoys: buoys.map((b) => b.g), sky, clouds };
+  return { update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, hemi, sunDir, buoys: buoys.map((b) => b.g), sky, clouds };
 }

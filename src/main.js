@@ -11,6 +11,8 @@ import { createBowSpray } from './scene/spray.js';
 import { createShoreSpray } from './scene/shore-spray.js';
 import { createCrestSpray } from './scene/crest-spray.js';
 import { createEnvironment } from './scene/environment.js';
+import { buildWorld } from './scene/terrain/world.js';
+import { MAPS } from './maps/index.js';
 import { FollowCamera } from './scene/camera.js';
 import { Input } from './input.js';
 import { Hud } from './ui/hud.js';
@@ -20,11 +22,22 @@ import { makeCollapsible } from './ui/collapse.js';
 import { setupFullscreen } from './ui/fullscreen.js';
 import { applyIcons } from './ui/icons.js';
 import { createPerf, createAdaptiveResolution, createPerfOverlay } from './perf.js';
+import { readParams } from './params.js';
 import './debug/polar.js';
 
 const STEP = 1 / 120;
 // стартовый сетап: время суток, погода, положение лодки
 const START = await (await fetch('start.json')).json();
+// URL-параметры — реестр src/params.js (он же таблица на tools.html).
+// ?map=<id> — карта по полю высот (src/maps/index.js), без него — демо; ?pos=x,z[,курс°] — старт лодки
+// (без него — старт карты map.start, иначе start.json); туда же возвращает «Вернуть лодку»
+const P = readParams();
+const MAP = MAPS[P.map] ?? MAPS.demo;
+const startBoat = { ...START.boat, ...MAP.start };
+if (P.pos) {
+  const [x, z, h] = P.pos;
+  Object.assign(startBoat, { x, z }, Number.isFinite(h) && { headingDeg: h });
+}
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -44,7 +57,7 @@ const wind = new Wind(START.weather.wind);
 const waves = new Waves();
 const boat = new Boat(BOAT);
 function placeBoat() {
-  const b = START.boat;
+  const b = startBoat;
   boat.reset(b.x, b.z, b.headingDeg * DEG);
   boat.sail.setReef(b.reefs);
   boat.board = b.board;
@@ -53,9 +66,16 @@ placeBoat();
 const sea = { ...SEA, ...START.weather.sea };
 
 // --- сцена ---
-const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 2048 });
+// мир — до окружения: буи берутся из него (ручные из описания карты и навигационные знаки плана);
+// тень — окном вокруг камеры (на таче меньше и грубее)
+const world = buildWorld(MAP, { density: P.veg ?? 1 });
+const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 4096,
+  buoys: world.buoys, shadowRange: isTouchDevice() ? 70 : 120 });
+scene.add(world.group);
+console.log(world.summary());
 const bakeT0 = performance.now();
-const shoreMap = bakeShoreMap(env.islands.map((g) => g.userData.shore));
+// карта берега — на весь мир: тексель ≈0.4 м у демо 1.5 км, ≈0.75 м у карты 3 км (на таче вдвое крупнее)
+const shoreMap = bakeShoreMap([world.shore], { maxSize: isTouchDevice() ? 2048 : 4096 });
 const bakeMs = performance.now() - bakeT0;
 // физика гасит волны у берега так же, как вершинный шейдер воды
 waves.damp = (x, z) => shoreDamp(shoreMap.depthAt(x, z));
@@ -74,11 +94,10 @@ const followCam = new FollowCamera(camera, canvas);
 // --- замеры и разрешение ---
 // вода — самое дорогое на GPU, и цена растёт с числом пикселей: на таче потолок DPR 1.5,
 // дальше разрешение подстраивается под бюджет GPU (?dpr=1.5 — зафиксировать вручную)
-const urlParams = new URLSearchParams(location.search);
 const perf = createPerf(renderer);
 const resolution = createAdaptiveResolution(renderer, perf, { max: Math.min(window.devicePixelRatio, isTouchDevice() ? 1.5 : 2) });
-if (urlParams.has('dpr')) { resolution.state.auto = false; resolution.state.ratio = parseFloat(urlParams.get('dpr')); }
-const perfOverlay = createPerfOverlay(perf, resolution, renderer, { visible: urlParams.has('perf') });
+if ('dpr' in P) { resolution.state.auto = false; resolution.state.ratio = P.dpr; }
+const perfOverlay = createPerfOverlay(perf, resolution, renderer, { visible: !!P.perf });
 
 // --- UI ---
 const input = new Input();
@@ -132,27 +151,20 @@ window.addEventListener('resize', () => {
 });
 
 // --- отладка через URL: ?t=30&twa=60&wind=8&cam=chase&auto=1 ---
-const params = new URLSearchParams(location.search);
 let simTime = 0;
-const debugAuto = params.has('auto') || params.has('t');
-// pos — первым: reset() сбрасывает шверт и рифы, заданные ниже
-if (params.has('pos')) {
-  // pos=x,z[,курс°] — поставить лодку в точку
-  const [x, z, h = 0] = params.get('pos').split(',').map(Number);
-  boat.reset(x, z, h * DEG);
-}
-if (params.has('wind')) wind.baseSpeed = parseFloat(params.get('wind'));
-if (params.has('winddir')) wind.baseDirDeg = parseFloat(params.get('winddir'));
-if (params.has('cam')) followCam.mode = params.get('cam');
-if (params.has('camaz')) followCam.azimuth = parseFloat(params.get('camaz')) * DEG;
-if (params.has('campolar')) followCam.polar = parseFloat(params.get('campolar'));
-if (params.has('camdist')) followCam.distance = parseFloat(params.get('camdist'));
-const camPitch = parseFloat(params.get('campitch') || '0') * DEG;
-if (params.has('reefs')) boat.sail.setReef(parseInt(params.get('reefs'), 10));
-if (params.has('board')) boat.board = parseFloat(params.get('board'));
-if (params.has('tod')) env.setTimeOfDay(parseFloat(params.get('tod')));
-if (params.has('clouds')) env.setCloudType(params.get('clouds'), true);
-const autoTwa = parseFloat(params.get('twa') || '60') * DEG;
+const debugAuto = !!P.auto || 't' in P;
+if ('wind' in P) wind.baseSpeed = P.wind;
+if ('winddir' in P) wind.baseDirDeg = P.winddir;
+if ('cam' in P) followCam.mode = P.cam;
+if ('camaz' in P) followCam.azimuth = P.camaz * DEG;
+if ('campolar' in P) followCam.polar = P.campolar;
+if ('camdist' in P) followCam.distance = P.camdist;
+const camPitch = (P.campitch || 0) * DEG;
+if ('reefs' in P) boat.sail.setReef(Math.trunc(P.reefs));
+if ('board' in P) boat.board = P.board;
+if ('tod' in P) env.setTimeOfDay(P.tod);
+if ('clouds' in P) env.setCloudType(P.clouds, true);
+const autoTwa = (P.twa || 60) * DEG;
 function autopilotControls() {
   const targetPsi = wind.dir - autoTwa;
   let err = targetPsi - boat.psi;
@@ -161,8 +173,8 @@ function autopilotControls() {
   const sheetAngle = Math.abs(boat.aw.awa) - 24 * DEG;
   return { rudderAngle, sheetAngle, crewPos: 2 * Math.sign(boat.aw.twa || 1), board: 0, rudder: 0, sheet: 0 };
 }
-if (params.has('t')) {
-  const secs = parseFloat(params.get('t'));
+if ('t' in P) {
+  const secs = P.t;
   for (let i = 0; i < secs / STEP; i++) {
     wind.update(STEP);
     waves.configure(Math.min(1, 0.006 * wind.baseSpeed * wind.baseSpeed) * SEA.maxHeight, wind.baseDirDeg * DEG, wind.baseSpeed);
@@ -174,7 +186,7 @@ if (params.has('t')) {
   boatMesh.update(boat, 0);
   followCam.update(100, boat, boatMesh);
 }
-const debugLog = params.has('log');
+const debugLog = !!P.log;
 if (debugLog) console.log(`[shore] ${shoreMap.width}×${shoreMap.height}, точек берега ${shoreMap.sites.count} за ${bakeMs.toFixed(0)} мс`);
 
 // --- цикл ---
@@ -183,7 +195,8 @@ let acc = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   perf.begin(now);
-  let dt = Math.min(0.1, (now - last) / 1000);
+  // метка rAF бывает раньше last (долгая загрузка, компиляция шейдеров) — отрицательный dt разгоняет сглаживание камеры
+  let dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
   last = now;
   const halted = paused || (touch && phoneLandscape.matches);
   if (!halted) {
@@ -210,8 +223,9 @@ function frame(now) {
   }
   particles.update(halted ? 0 : dt, { waves, wind, env, camera });
   water.update(waves, boat.x, boat.z);
-  env.update(halted ? 0 : dt, waves, wind, boat);
+  env.update(halted ? 0 : dt, waves, wind, boat, camera);
   followCam.update(dt || 0.016, boat, boatMesh);
+  world.update(camera.position);
   if (camPitch) camera.rotateX(camPitch);
   hud.update({ boat, wind, cameraMode: followCam.mode });
   renderer.render(scene, camera);
@@ -226,4 +240,4 @@ document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
+window.__sim = { world, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };

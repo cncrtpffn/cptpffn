@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Кэтбот — как ходить под парусом</title>
+  <!-- Учебник для новичка. Проза живёт здесь; перевод — копия страницы (manual.en.html, manual.pt.html).
+       Глоссарий строится из src/ui/glossary.js, термины в тексте — <a class="term" href="#g-<id>">.
+       Цифры только из нашей физики: src/config.js и src/debug/run-polar.mjs. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <style>
+    /* токены как в tools.html + тёмная тема и цвета для схем */
+    :root {
+      --bg: #9fd3ec;
+      --ink: #2c3440;
+      --ink-soft: #5c6675;
+      --card: rgba(255, 250, 240, 0.86);
+      --card-border: rgba(80, 60, 30, 0.12);
+      --accent: #e9553b;
+      --true: #2f7fd1;
+      --code: rgba(44, 52, 64, 0.07);
+      --game: rgba(47, 127, 209, 0.10);
+      /* схемы */
+      --sea: #7cc3e6;
+      --hull: #f4ead6;
+      --wood: #a8743f;
+      --sailc: #fffaf0;
+      --wind: #2f7fd1;
+      --force: #e9553b;
+      --line: #2c3440;
+      --app: #e08a1e;
+      font-family: 'Nunito', system-ui, sans-serif;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0f1a24; --ink: #e6edf3; --ink-soft: #9aa7b4; --card: rgba(28, 38, 50, 0.92);
+        --card-border: rgba(255, 255, 255, 0.08); --accent: #ff7a5c; --true: #6fb3ff; --code: rgba(255, 255, 255, 0.07);
+        --game: rgba(111, 179, 255, 0.10);
+        --sea: #1d4a66; --hull: #c9bda6; --wood: #b98552; --sailc: #e8e2d4; --wind: #6fb3ff; --force: #ff7a5c; --line: #e6edf3; --app: #f5a742;
+        color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #0f1a24; --ink: #e6edf3; --ink-soft: #9aa7b4; --card: rgba(28, 38, 50, 0.92);
+      --card-border: rgba(255, 255, 255, 0.08); --accent: #ff7a5c; --true: #6fb3ff; --code: rgba(255, 255, 255, 0.07);
+      --game: rgba(111, 179, 255, 0.10);
+      --sea: #1d4a66; --hull: #c9bda6; --wood: #b98552; --sailc: #e8e2d4; --wind: #6fb3ff; --force: #ff7a5c; --line: #e6edf3; --app: #f5a742;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+    body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.55; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; }
+    h1 { font-size: 30px; font-weight: 800; margin: 0 0 4px; line-height: 1.2; }
+    h2 { font-size: 22px; font-weight: 800; margin: 0 0 10px; line-height: 1.25; }
+    h3 { font-size: 16px; font-weight: 800; margin: 14px 0 6px; }
+    p { margin: 0 0 10px; }
+    .lead { color: var(--ink-soft); margin-bottom: 18px; }
+    a { color: var(--true); }
+    kbd { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; background: var(--code); border: 1px solid var(--card-border); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
+    .card {
+      background: var(--card); border: 1px solid var(--card-border); border-radius: 16px;
+      box-shadow: 0 6px 24px rgba(40, 30, 10, 0.12); padding: 16px 18px; min-width: 0; margin-bottom: 16px;
+    }
+    /* оглавление */
+    nav.toc { position: sticky; top: 16px; align-self: start; font-size: 14px; }
+    nav.toc summary { font-weight: 800; cursor: pointer; list-style: none; }
+    nav.toc summary::-webkit-details-marker { display: none; }
+    nav.toc ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 3px; }
+    nav.toc a { text-decoration: none; color: var(--ink); }
+    nav.toc a:hover { color: var(--true); }
+    /* термины глоссария в тексте */
+    a.term { color: inherit; text-decoration: underline dotted var(--true); text-underline-offset: 3px; }
+    a.term:hover { color: var(--true); }
+    /* блок «В игре» */
+    .ingame { background: var(--game); border-radius: 12px; padding: 10px 14px; margin-top: 12px; font-size: 14.5px; }
+    .ingame > b:first-child { display: block; margin-bottom: 4px; }
+    .ingame ul { margin: 0; padding-left: 18px; }
+    .ico { display: inline-block; width: 16px; height: 16px; vertical-align: -3px; }
+    .ico svg { width: 100%; height: 100%; }
+    /* схемы */
+    figure { margin: 12px 0; }
+    figure svg { display: block; width: 100%; height: auto; max-width: 640px; margin: 0 auto; }
+    /* схемы: цвета только из токенов, чтобы работали обе темы */
+    svg.d { font-family: 'Nunito', system-ui, sans-serif; font-size: 16px; font-weight: 700; }
+    svg.d text { fill: var(--ink); }
+    svg.d .soft { fill: var(--ink-soft); font-weight: 600; }
+    svg.d .on-sail { fill: #2c3440; }
+    svg.d .b { font-weight: 800; }
+    svg.d .w { fill: var(--wind); font-weight: 800; }
+    svg.d .a { fill: var(--app); font-weight: 800; }
+    svg.d .f { fill: var(--force); font-weight: 800; }
+    svg.d .num { fill: var(--accent); font-weight: 800; }
+    svg.d .sea { fill: var(--sea); opacity: 0.55; }
+    svg.d .hull { fill: var(--hull); stroke: var(--line); stroke-width: 1.5; }
+    svg.d .cockpit { fill: var(--wood); opacity: 0.35; }
+    svg.d .bench { fill: var(--wood); opacity: 0.8; }
+    svg.d .board { fill: var(--wood); stroke: var(--line); stroke-width: 1.2; }
+    svg.d .sail { fill: var(--sailc); stroke: var(--line); stroke-width: 1.2; }
+    svg.d .sail-top { fill: none; stroke: var(--line); stroke-width: 1.6; }
+    svg.d .sail-top.big { stroke-width: 3; }
+    svg.d .sail-luff { fill: none; stroke: var(--line); stroke-width: 1.4; stroke-dasharray: 3 2; }
+    svg.d .spar { stroke: var(--wood); stroke-width: 5; stroke-linecap: round; }
+    svg.d .spar.thin { stroke-width: 2.2; }
+    svg.d .mast { fill: var(--wood); stroke: var(--line); stroke-width: 0.8; }
+    svg.d .crew { fill: var(--accent); }
+    svg.d .crew-line { stroke: var(--accent); stroke-width: 4; stroke-linecap: round; }
+    svg.d .rope { stroke: var(--ink-soft); stroke-width: 1.2; fill: none; }
+    svg.d .lead { stroke: var(--ink-soft); stroke-width: 1; }
+    svg.d .wl { stroke: var(--wind); stroke-width: 1.2; stroke-dasharray: 6 4; }
+    svg.d .dp { stroke: var(--ink-soft); stroke-width: 1; stroke-dasharray: 2 4; }
+    svg.d .ring { fill: none; stroke: var(--card-border); stroke-width: 1.5; }
+    svg.d .zone-dead { fill: var(--force); opacity: 0.22; }
+    svg.d .zone-close { fill: var(--wind); opacity: 0.10; }
+    svg.d .zone-run { fill: var(--wind); opacity: 0.06; }
+    svg.d .real { stroke: var(--force); stroke-width: 1.5; stroke-dasharray: 5 4; }
+    svg.d .polar { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linejoin: round; }
+    svg.d .polar-dot { fill: var(--accent); }
+    svg.d .vmg { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; }
+    svg.d .track { fill: none; stroke: var(--ink-soft); stroke-width: 1.5; stroke-dasharray: 6 5; }
+    svg.d .ce { fill: var(--force); stroke: var(--line); stroke-width: 1; }
+    svg.d .clr { fill: var(--wind); stroke: var(--line); stroke-width: 1; }
+    svg.d line.wind, svg.d line.app, svg.d line.induced, svg.d line.force, svg.d line.force-soft, svg.d line.force-dash, svg.d line.line { stroke-linecap: round; }
+    svg.d .wind { stroke: var(--wind); stroke-width: 3; marker-end: url(#ah-wind); }
+    svg.d .app { stroke: var(--app); stroke-width: 3.5; marker-end: url(#ah-app); }
+    svg.d .induced { stroke: var(--ink-soft); stroke-width: 2.5; stroke-dasharray: 6 4; marker-end: url(#ah-soft); }
+    svg.d .force { stroke: var(--force); stroke-width: 3.5; marker-end: url(#ah-force); }
+    svg.d .force-soft { stroke: var(--force); stroke-width: 1.8; opacity: 0.6; marker-end: url(#ah-force); }
+    svg.d .force-dash { stroke: var(--force); stroke-width: 2; stroke-dasharray: 5 4; marker-end: url(#ah-force); }
+    svg.d .line { stroke: var(--ink-soft); stroke-width: 2.5; marker-end: url(#ah-soft); }
+    svg.d .turn { fill: none; stroke: var(--accent); stroke-width: 2.5; marker-end: url(#ah-accent); }
+    svg.d .turn.big { stroke-width: 4; }
+    svg.d .angle-a { fill: none; stroke: var(--app); stroke-width: 1.5; }
+    svg.d .angle-t { fill: none; stroke: var(--wind); stroke-width: 1.5; }
+    .mk-wind { fill: var(--wind); } .mk-app { fill: var(--app); } .mk-force { fill: var(--force); }
+    .mk-soft { fill: var(--ink-soft); } .mk-accent { fill: var(--accent); }
+    figcaption { font-size: 13.5px; color: var(--ink-soft); text-align: center; margin-top: 4px; }
+    /* сноска «игровая условность» */
+    .note { border-left: 3px solid var(--accent); background: var(--code); border-radius: 0 10px 10px 0; padding: 8px 12px; margin: 10px 0; font-size: 14px; }
+    .note > b:first-child { color: var(--accent); }
+    sup a { text-decoration: none; font-weight: 800; color: var(--accent); }
+    .todo { border: 2px dashed var(--card-border); border-radius: 12px; padding: 18px; text-align: center; color: var(--ink-soft); font-size: 14px; }
+    /* глоссарий */
+    dl.glossary { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
+    dl.glossary dt { font-weight: 800; }
+    dl.glossary dt small { display: block; font-weight: 500; color: var(--ink-soft); font-size: 12.5px; }
+    dl.glossary dd { margin: 0; }
+    dl.glossary dd .see { font-size: 13px; color: var(--ink-soft); }
+    dl.glossary dt:target, dl.glossary dt:target + dd { background: var(--game); }
+    dl.glossary dt:target { border-radius: 6px 0 0 6px; }
+    dl.glossary dt:target + dd { border-radius: 0 6px 6px 0; }
+    /* «назад к тексту» после перехода по термину в глоссарий */
+    .back { position: fixed; right: 16px; bottom: 16px; z-index: 10; font: inherit; font-weight: 800; font-size: 14px;
+      background: var(--true); color: #fff; border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); }
+    .back[hidden] { display: none; }
+    a.term.flash { background: var(--game); outline: 2px solid var(--true); border-radius: 4px; transition: outline-color 1.2s; }
+    .theme { float: right; font: inherit; font-size: 13px; background: var(--code); color: var(--ink); border: 1px solid var(--card-border); border-radius: 999px; padding: 3px 10px; cursor: pointer; }
+    @media (max-width: 760px) {
+      .wrap { grid-template-columns: 1fr; gap: 0; }
+      nav.toc { position: static; }
+      h1 { font-size: 24px; }
+      h2 { font-size: 19px; }
+      .card { padding: 14px; }
+      dl.glossary { grid-template-columns: 1fr; gap: 2px; }
+      dl.glossary dd { margin-bottom: 8px; }
+    }
+  </style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <marker id="ah-wind" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-wind"/></marker>
+  <marker id="ah-app" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-app"/></marker>
+  <marker id="ah-force" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="13" markerHeight="13" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-force"/></marker>
+  <marker id="ah-soft" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-soft"/></marker>
+  <marker id="ah-accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="mk-accent"/></marker>
+</defs></svg>
+<div class="wrap">
+  <nav class="toc card">
+    <details id="toc" open>
+      <summary>Содержание</summary>
+      <ol>
+        <li><a href="#boat">Лодка</a></li>
+        <li><a href="#wind">Ветер</a></li>
+        <li><a href="#courses">Курсы к ветру</a></li>
+        <li><a href="#upwind">Против ветра</a></li>
+        <li><a href="#trim">Шкот и угол атаки</a></li>
+        <li><a href="#foils">Руль и шверт</a></li>
+        <li><a href="#balance">Баланс и приведение</a></li>
+        <li><a href="#heel">Крен, откренка, рифы</a></li>
+        <li><a href="#turns">Повороты</a></li>
+        <li><a href="#safety">Безопасность</a></li>
+        <li><a href="#glossary">Глоссарий</a></li>
+      </ol>
+    </details>
+  </nav>
+
+  <main>
+    <header class="card">
+      <button class="theme" id="theme" type="button">Тема</button>
+      <h1>Как ходить под парусом</h1>
+      <p class="lead">Учебник для новичка: из чего состоит кэтбот, как работают ветер, парус, руль и шверт,
+        как ходить против ветра и поворачивать. В каждом разделе — как это сделать в игре.
+        <a href="index.html">Открыть игру</a>.</p>
+    </header>
+
+    <section class="card" id="boat">
+      <h2>1. Лодка</h2>
+      <p>Наша лодка — <a class="term" href="#g-catboat">кэтбот</a>, традиционный парусник Новой Англии. Длина 6 м, ширина
+        2,8 м: корпус широкий и устойчивый, как плоскодонка-переросток. <a class="term" href="#g-mast">Мачта</a> стоит
+        в самом <a class="term" href="#g-bow">носу</a>, на ней один большой парус — <a class="term" href="#g-grot">грот</a>
+        площадью 21,5 м². Других парусов нет, поэтому управлять кэтботом проще, чем лодкой с двумя парусами:
+        вся работа с парусом — это один <a class="term" href="#g-sheet">шкот</a>.</p>
+      <figure><svg viewBox="0 0 480 440" class="d" role="img" aria-label="Кэтбот сбоку: мачта, гафель, грот, гик, шкот, кокпит, руль, шверт" style="max-width:576px"><rect x="0" y="300" width="480" height="140" class="sea"/><path d="M286,318 L318,318 L304,398 L292,396 Z" class="board"/><path d="M44,262 L66,262 L66,344 Q44,350 30,336 L30,276 Z" class="board"/><path d="M66,262 L420,250 Q430,262 424,288 Q400,318 330,322 L120,322 Q80,320 66,306 Z" class="hull"/><line x1="60" y1="300" x2="430" y2="300" class="wl"/><path d="M110,262 L250,257 L250,272 L110,276 Z" class="cockpit"/><line x1="56" y1="262" x2="140" y2="270" class="spar thin"/><path d="M386,240 L386,92 L196,40 Q150,150 92,238 Z" class="sail"/><line x1="388" y1="252" x2="388" y2="46" class="spar"/><line x1="386" y1="94" x2="192" y2="38" class="spar"/><line x1="388" y1="240" x2="84" y2="240" class="spar"/><path d="M120,240 L112,262" class="rope"/><path d="M150,240 L118,262" class="rope"/><line x1="388" y1="50" x2="426" y2="252" class="rope"/><line x1="388" y1="46" x2="430" y2="34" class="lead"/><text x="430" y="30" text-anchor="start" class="">мачта</text><line x1="290" y1="66" x2="300" y2="26" class="lead"/><text x="300" y="22" text-anchor="middle" class="">гафель</text><text x="280" y="160" text-anchor="middle" class="on-sail">грот</text><line x1="200" y1="240" x2="210" y2="226" class="lead"/><text x="210" y="222" text-anchor="middle" class="on-sail">гик</text><line x1="116" y1="250" x2="70" y2="204" class="lead"/><text x="70" y="200" text-anchor="middle" class="">шкот</text><line x1="408" y1="150" x2="452" y2="154" class="lead"/><text x="452" y="150" text-anchor="middle" class="">штаг</text><line x1="200" y1="266" x2="230" y2="347" class="lead"/><text x="230" y="352" text-anchor="middle" class="">кокпит</text><line x1="100" y1="268" x2="110" y2="347" class="lead"/><text x="110" y="352" text-anchor="middle" class="">румпель</text><line x1="40" y1="320" x2="30" y2="415" class="lead"/><text x="30" y="420" text-anchor="start" class="">руль</text><line x1="300" y1="380" x2="352" y2="415" class="lead"/><text x="352" y="420" text-anchor="start" class="">шверт</text><line x1="424" y1="270" x2="452" y2="234" class="lead"/><text x="452" y="230" text-anchor="middle" class="">нос</text><line x1="70" y1="270" x2="40" y2="250" class="lead"/><text x="40" y="246" text-anchor="middle" class="">корма</text><line x1="440" y1="300" x2="470" y2="329" class="lead"/><text x="470" y="334" text-anchor="end" class="">ватерлиния</text></svg><figcaption>Кэтбот сбоку. Мачта в самом носу, один гафельный грот, шверт под днищем, руль на транце.</figcaption></figure>
+      <figure><svg viewBox="0 0 480 330" class="d" role="img" aria-label="Кэтбот сверху: нос, корма, правый и левый борт, ДП, банки" style="max-width:576px"><line x1="240" y1="10" x2="240" y2="330" class="dp"/><text x="246" y="20" text-anchor="start" class="soft">ДП</text><g transform="translate(240,170) scale(6.0)"><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull" style="stroke-width:0.25"/><path d="M-5.5,-2 L5.5,-2 L5.5,15 L-5.5,15 Z" class="cockpit" style="stroke-width:0.16666666666666666"/><rect x="-5.5" y="-2" width="2" height="17" class="bench"/><rect x="3.5" y="-2" width="2" height="17" class="bench"/><circle cx="0" cy="-14" r="1.6" class="mast" style="stroke-width:0.13333333333333333"/></g><line x1="240" y1="86" x2="176.6" y2="221.9" class="spar"/><text x="170.6" y="239.9" text-anchor="end" class="">гик</text><text x="240" y="38" text-anchor="middle" class="b">нос</text><text x="240" y="312" text-anchor="middle" class="b">корма</text><text x="320" y="170" text-anchor="start" class="">правый борт</text><text x="160" y="200" text-anchor="end" class="">левый борт</text><line x1="272" y1="220" x2="316" y2="230" class="lead"/><text x="320" y="235" text-anchor="start" class="">банка</text><line x1="240" y1="86" x2="300" y2="70" class="lead"/><text x="304" y="74" text-anchor="start" class="">мачта</text></svg><figcaption>Вид сверху: борта считают, глядя с кормы на нос.</figcaption></figure>
+      <h3>Рангоут и парус</h3>
+      <p><a class="term" href="#g-rangout">Рангоут</a> — деревянные детали, на которых держится парус. Грот у кэтбота
+        четырёхугольный: передней кромкой он крепится к мачте, нижней — к <a class="term" href="#g-boom">гику</a>, верхней —
+        к <a class="term" href="#g-gaff">гафелю</a>, который поднимают вдоль мачты под углом. Гик поворачивается вокруг мачты,
+        и вместе с ним поворачивается весь парус.</p>
+      <h3>Снасти</h3>
+      <p><a class="term" href="#g-takelazh">Такелаж</a> — верёвки и тросы. Главная снасть для рулевого — грота-шкот: он идёт
+        от гика к корме. Выбираешь шкот — гик подтягивается к середине лодки; травишь — гик уходит за борт. У кэтбота
+        мачта стоит без вант — тросов к бортам, поэтому гик можно потравить почти поперёк лодки: в игре от 12° до 88° от
+        <a class="term" href="#g-dp">диаметральной плоскости</a>.</p>
+      <h3>Корпус, шверт и руль</h3>
+      <p>Задняя часть лодки — <a class="term" href="#g-stern">корма</a>, плоская кормовая стенка — <a class="term" href="#g-transom">транец</a>.
+        Правый и левый <a class="term" href="#g-bort">борт</a> считаются, если смотреть с кормы на нос. Посередине —
+        <a class="term" href="#g-cockpit">кокпит</a>, открытая «ванна» с <a class="term" href="#g-banka">банками</a>-скамейками;
+        от воды его отделяет невысокий бортик — <a class="term" href="#g-coaming">комингс</a>.</p>
+      <p>Под днищем — <a class="term" href="#g-shvert">шверт</a>, подъёмное перо, которое опускают через колодец в корпусе.
+        Опущенный, он уходит на 1,4 м вглубь. На транце висит <a class="term" href="#g-rudder">руль</a> — широкий,
+        за форму его зовут «амбарной дверью». Рулём ворочают <a class="term" href="#g-tiller">румпелем</a>, длинным рычагом.</p>
+      <div class="ingame"><b>В игре</b>
+        <ul>
+          <li>Стенд <a href="src/debug/boat-viewer.html?views=detail">«Лодка»</a> показывает модель крупно с разных сторон.</li>
+          <li>На компасе в HUD лодка нарисована сверху: кружок у носа — мачта, линия от неё — гик, короткая линия на корме — руль.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" id="wind">
+      <h2>2. Ветер: истинный и вымпельный</h2>
+      <p><a class="term" href="#g-true-wind">Истинный ветер</a> — тот, что дует над водой, пока лодка стоит. Как только лодка
+        поехала, на ней появляется ещё и встречный поток от собственного хода — как ветер в лицо на велосипеде в безветрие.
+        Эти два потока складываются, и на лодке чувствуется третий ветер — <a class="term" href="#g-apparent-wind">вымпельный</a>.
+        Парус «видит» только его, поэтому настраивают парус по вымпельному ветру.</p>
+      <figure><svg viewBox="0 0 400 380" class="d" role="img" aria-label="Треугольник ветров: истинный ветер плюс встречный поток от хода дают вымпельный" style="max-width:480px"><g transform="translate(110,306) rotate(0) scale(2.2)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><path d="M0,-14 Q-9.7,-1.5 -10,14.3" class="sail-top"/><line x1="0" y1="-14" x2="-10" y2="14.3" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><line x1="110" y1="360" x2="110" y2="70" class="dp"/><text x="104" y="80" text-anchor="end" class="soft">курс лодки</text><line x1="267.6" y1="134.1" x2="267.6" y2="209" class="induced"/><line x1="267.6" y1="209" x2="115.2" y2="297" class="wind"/><line x1="267.6" y1="134.1" x2="112.8" y2="297.1" class="app"/><text x="277.6" y="205" text-anchor="start" class="w">истинный</text><text x="277.6" y="223" text-anchor="start" class="w">7 м/с, 60°</text><text x="277.6" y="176.6" text-anchor="start" class="soft">от хода 2,9 м/с</text><text x="277.6" y="112.1" text-anchor="start" class="a">вымпельный</text><text x="277.6" y="130.1" text-anchor="start" class="a">8,8 м/с, 44°</text><path d="M110,230 A70,70 0 0,1 158.2,249.3" class="angle-a"/><path d="M110,208 A92,92 0 0,1 189.7,254" class="angle-t"/></svg><figcaption>Курс 60° к ветру 7 м/с, лодка идёт 5,6 уз. Вымпельный ветер сильнее истинного (8,8 м/с) и дует ближе к носу — под 44°.</figcaption></figure>
+      <p>Как они различаются:</p>
+      <ul>
+        <li><b>Против ветра и поперёк</b> вымпельный ветер сильнее истинного и заходит ближе к носу. При 7 м/с на курсе
+          35° к истинному ветру вымпельный дует уже под 27°, а на курсе 90° — под 67°.</li>
+        <li><b>По ветру</b> вымпельный слабее: лодка убегает от ветра. При 7 м/с прямо по ветру лодка идёт около 4,8 узла
+          (≈ 2,5 м/с), и на ней дует всего ≈ 4,5 м/с. Поэтому по ветру кажется, что стало тише, а на развороте против ветра — что ветер вдруг усилился.</li>
+      </ul>
+      <p>Скорость ветра в игре — в метрах в секунду и в <a class="term" href="#g-beaufort">баллах Бофорта</a>. Лодки считают
+        скорость в <a class="term" href="#g-knot">узлах</a>: 1 узел — одна морская миля в час, ≈ 0,51 м/с.</p>
+      <div class="ingame"><b>В игре</b>
+        <ul>
+          <li>На компасе две стрелки ветра: истинный и вымпельный. Те же цвета у точек в строках «Истинный» и «Вымпельный» —
+            там скорость в м/с и угол к носу лодки.</li>
+          <li>Под ними — баллы Бофорта и порывы, если они включены. Скорость лодки — крупная цифра в узлах.</li>
+          <li>Ветер в мире видно и по воде: рябь и волны бегут по ветру.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" id="courses">
+      <h2>3. Курсы относительно ветра</h2>
+      <p><a class="term" href="#g-kurs">Курс относительно ветра</a> — угол между направлением, куда идёт лодка, и направлением,
+        откуда дует истинный ветер. У каждого сектора своё название, и от курса зависят положение гика, шверта и рулевого.</p>
+      <figure><svg viewBox="0 0 480 450" class="d" role="img" aria-label="Роза курсов: мёртвый угол, бейдевинд, галфвинд, бакштаг, фордевинд на обоих галсах" style="max-width:576px"><circle cx="240" cy="262" r="142" class="ring"/><path d="M240,262 L191.4,128.6 A142,142 0 0,1 288.6,128.6 Z" class="zone-dead"/><path d="M240,262 L288.6,128.6 A142,142 0 0,1 363,191 Z" class="zone-close"/><path d="M240,262 L117,191 A142,142 0 0,1 191.4,128.6 Z" class="zone-close"/><path d="M240,262 L288.6,395.4 A142,142 0 0,1 191.4,395.4 Z" class="zone-run"/><line x1="240" y1="262" x2="139.6" y2="161.6" class="real"/><line x1="240" y1="262" x2="340.4" y2="161.6" class="real"/><text x="346.7" y="153.3" text-anchor="start" class="f" style="font-size:13px">45°*</text><line x1="240" y1="6" x2="240" y2="40" class="wind"/><text x="250" y="22" text-anchor="start" class="w">ветер</text><g transform="translate(324,116.5) rotate(30) scale(1.0)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><path d="M0,-14 Q8,-0.4 6.2,15.3" class="sail-top"/><line x1="0" y1="-14" x2="6.2" y2="15.3" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(156,116.5) rotate(-30) scale(1.0)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><path d="M0,-14 Q-8,-0.4 -6.2,15.3" class="sail-top"/><line x1="0" y1="-14" x2="-6.2" y2="15.3" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(385.5,178) rotate(60) scale(1.0)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><path d="M0,-14 Q9.6,-1.4 9.8,14.4" class="sail-top"/><line x1="0" y1="-14" x2="9.8" y2="14.4" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(94.5,178) rotate(-60) scale(1.0)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><path d="M0,-14 Q-9.6,-1.4 -9.8,14.4" class="sail-top"/><line x1="0" y1="-14" x2="-9.8" y2="14.4" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(408,262) rotate(90) scale(1.0)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><path d="M0,-14 Q14,-6.7 20.8,7.6" class="sail-top"/><line x1="0" y1="-14" x2="20.8" y2="7.6" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(72,262) rotate(-90) scale(1.0)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><path d="M0,-14 Q-14,-6.7 -20.8,7.6" class="sail-top"/><line x1="0" y1="-14" x2="-20.8" y2="7.6" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(358.8,380.8) rotate(135) scale(1.0)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><path d="M0,-14 Q15.2,-18.5 30,-13" class="sail-top"/><line x1="0" y1="-14" x2="30" y2="-13" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(121.2,380.8) rotate(-135) scale(1.0)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><path d="M0,-14 Q-15.2,-18.5 -30,-13" class="sail-top"/><line x1="0" y1="-14" x2="-30" y2="-13" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(240,430) rotate(180) scale(1.0)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><path d="M0,-14 Q15.2,-18.5 30,-13" class="sail-top"/><line x1="0" y1="-14" x2="30" y2="-13" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(240,100) rotate(0) scale(1.0)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><path d="M0,-14 Q-4,-6.5 0,1 T0,16" class="sail-luff"/><line x1="0" y1="-14" x2="0" y2="16" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><text x="240" y="228" text-anchor="middle" class="b">мёртвый угол</text><text x="240" y="244" text-anchor="middle" class="soft" style="font-size:13px">±20°</text><text x="316.4" y="185.6" text-anchor="middle" class="b">бейдевинд</text><text x="316.4" y="201.6" text-anchor="middle" class="soft" style="font-size:13px">25–60°</text><text x="344" y="262" text-anchor="middle" class="b">галфвинд</text><text x="344" y="278" text-anchor="middle" class="soft" style="font-size:13px">90°</text><text x="313.5" y="335.5" text-anchor="middle" class="b">бакштаг</text><text x="313.5" y="351.5" text-anchor="middle" class="soft" style="font-size:13px">110–160°</text><text x="240" y="362" text-anchor="middle" class="b">фордевинд</text><text x="240" y="378" text-anchor="middle" class="soft" style="font-size:13px">180°</text><text x="163.6" y="185.6" text-anchor="middle" class="b">бейдевинд</text><text x="136" y="262" text-anchor="middle" class="b">галфвинд</text><text x="166.5" y="335.5" text-anchor="middle" class="b">бакштаг</text><text x="10" y="444" text-anchor="start" class="soft" style="font-size:13px">правый галс</text><text x="470" y="444" text-anchor="end" class="soft" style="font-size:13px">левый галс</text></svg><figcaption>Курсы на обоих галсах и положение гика на каждом. Красный сектор — мёртвый угол в игре, пунктир — у настоящего кэтбота.</figcaption></figure>
+      <ul>
+        <li><a class="term" href="#g-dead-zone">Мёртвый угол</a> (левентик) — прямо против ветра. Парус полощет, хода нет.
+          В игре он узкий: при 7 м/с на 15° к ветру парус уже полощет, на 20° лодка ползёт около 3 узлов.<sup><a href="#note-angle">*</a></sup></li>
+        <li><a class="term" href="#g-close-hauled">Бейдевинд</a>, 25–60°: острый курс, шкот выбран, шверт опущен. Лучше всего
+          лодка продвигается к ветру на 30–40°: около 4,5–5 узлов при 7 м/с.<sup><a href="#note-angle">*</a></sup></li>
+        <li><a class="term" href="#g-beam-reach">Галфвинд</a>, около 90°: ветер в борт. Самый быстрый курс нашей лодки —
+          5,7 узла при 7 м/с, шкот потравлен наполовину.</li>
+        <li><a class="term" href="#g-broad-reach">Бакштаг</a>, 110–160°: ветер сзади-сбоку. Шкот потравлен почти полностью,
+          лодка идёт чуть медленнее галфвинда.</li>
+        <li><a class="term" href="#g-run">Фордевинд</a>, около 180°: ветер прямо в корму, гик потравлен до упора. Медленнее,
+          чем кажется: при 7 м/с около 4,8 узла.</li>
+      </ul>
+      <aside class="note" id="note-angle"><b>* Игровая условность.</b> Настоящий кэтбот идёт не острее 40–45° к истинному
+        ветру, а мёртвый угол у него — по 40–45° в каждую сторону от ветра, всего около 90°. В игре острые курсы
+        сделаны щедрее, чтобы лавировать было не так долго и скучно, а новичку легче было уйти от ветра. Все цифры в
+        мануале — игровые: так лодка ведёт себя на экране. На настоящей лодке держите бейдевинд около 45° к ветру.</aside>
+      <p><a class="term" href="#g-tack-side">Галс</a> называют по борту, в который дует ветер: ветер справа — правый галс,
+        гик при этом слева. Сменить галс — значит повернуть так, чтобы ветер дул в другой борт
+        (<a href="#turns">раздел 9</a>).</p>
+      <h3>Поляра — скорость на каждом курсе</h3>
+      <p><a class="term" href="#g-polar">Поляра</a> — график, где по кругу отложен курс к ветру, а по радиусу — скорость
+        лодки. Наша лодка посчитана той же физикой, что и в игре, с автопилотом и лучшей настройкой шкота.</p>
+      <figure><svg viewBox="0 0 410 470" class="d" role="img" aria-label="Поляра скоростей кэтбота при ветре 7 м/с" style="max-width:492px"><path d="M70,159 A66,66 0 0,1 70,291" class="ring"/><text x="64" y="164" text-anchor="end" class="soft" style="font-size:13px">2 уз</text><path d="M70,93 A132,132 0 0,1 70,357" class="ring"/><text x="64" y="98" text-anchor="end" class="soft" style="font-size:13px">4 уз</text><path d="M70,27 A198,198 0 0,1 70,423" class="ring"/><text x="64" y="32" text-anchor="end" class="soft" style="font-size:13px">6 уз</text><line x1="70" y1="225" x2="70" y2="7.2" class="ring"/><text x="70" y="-4.3" text-anchor="middle" class="soft" style="font-size:13px">0°</text><line x1="70" y1="225" x2="178.9" y2="36.4" class="ring"/><text x="187.1" y="27.1" text-anchor="middle" class="soft" style="font-size:13px">30°</text><line x1="70" y1="225" x2="258.6" y2="116.1" class="ring"/><text x="272.9" y="112.8" text-anchor="middle" class="soft" style="font-size:13px">60°</text><line x1="70" y1="225" x2="287.8" y2="225" class="ring"/><text x="304.3" y="230" text-anchor="middle" class="soft" style="font-size:13px">90°</text><line x1="70" y1="225" x2="258.6" y2="333.9" class="ring"/><text x="272.9" y="347.1" text-anchor="middle" class="soft" style="font-size:13px">120°</text><line x1="70" y1="225" x2="178.9" y2="413.6" class="ring"/><text x="187.1" y="432.9" text-anchor="middle" class="soft" style="font-size:13px">150°</text><line x1="70" y1="225" x2="70" y2="442.8" class="ring"/><text x="70" y="464.3" text-anchor="middle" class="soft" style="font-size:13px">180°</text><path d="M70,225 L70,7.2 A217.79999999999998,217.79999999999998 0 0,1 144.5,20.3 Z" class="zone-dead"/><path d="M103.9,132 L123,111.3 L142.6,99.3 L162.7,92.5 L178.2,96.1 L193.7,101.3 L206.5,110.5 L230,132.6 L251.7,176.3 L258.1,225 L243.7,288.2 L191.3,346.3 L150.8,365 L111,378 L70,383.4" class="polar"/><circle cx="103.9" cy="132" r="2.6" class="polar-dot"/><circle cx="123" cy="111.3" r="2.6" class="polar-dot"/><circle cx="142.6" cy="99.3" r="2.6" class="polar-dot"/><circle cx="162.7" cy="92.5" r="2.6" class="polar-dot"/><circle cx="178.2" cy="96.1" r="2.6" class="polar-dot"/><circle cx="193.7" cy="101.3" r="2.6" class="polar-dot"/><circle cx="206.5" cy="110.5" r="2.6" class="polar-dot"/><circle cx="230" cy="132.6" r="2.6" class="polar-dot"/><circle cx="251.7" cy="176.3" r="2.6" class="polar-dot"/><circle cx="258.1" cy="225" r="2.6" class="polar-dot"/><circle cx="243.7" cy="288.2" r="2.6" class="polar-dot"/><circle cx="191.3" cy="346.3" r="2.6" class="polar-dot"/><circle cx="150.8" cy="365" r="2.6" class="polar-dot"/><circle cx="111" cy="378" r="2.6" class="polar-dot"/><circle cx="70" cy="383.4" r="2.6" class="polar-dot"/><line x1="162.7" y1="92.5" x2="70" y2="92.5" class="vmg"/><text x="170.7" y="86.5" text-anchor="start" class="b" style="font-size:14px">лучшая VMG: 35°, 4,9 уз</text><text x="254.1" y="259" text-anchor="end" class="b" style="font-size:14px">максимум 5,7 уз</text><text x="80" y="401.4" text-anchor="start" class="soft" style="font-size:13px">4,8 уз</text><line x1="340" y1="10" x2="340" y2="44" class="wind"/><text x="330" y="22" text-anchor="end" class="w">ветер 7 м/с</text></svg><figcaption>Скорость нашей лодки на разных курсах при ветре 7 м/с (прогон физики игры). Пунктир — продвижение к ветру на лучшем курсе.</figcaption></figure>
+      <div class="ingame"><b>В игре</b>
+        <ul>
+          <li>Угол к истинному ветру — строка «Истинный» в HUD, второе число. 30–40° — бейдевинд, 90° — галфвинд, 180° — фордевинд.</li>
+          <li>Подпись под органами управления подсказывает, что делать со шкотом: «Парус полощет — выберите шкот»,
+            «Парус тянет», «Полный курс — тяга от сопротивления».</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" id="upwind">
+      <h2>4. Почему лодка идёт против ветра</h2>
+      <p>По ветру всё понятно: ветер давит в парус и толкает лодку. Но парусник умеет идти и под острым углом к ветру,
+        и это не фокус, а аэродинамика.</p>
+      <h3>Парус — это крыло</h3>
+      <p>Выгнутый парус, поставленный к ветру под небольшим <a class="term" href="#g-attack">углом атаки</a>, работает как
+        крыло самолёта, поставленное вертикально. Поток обтекает его с двух сторон, и появляется
+        <a class="term" href="#g-lift">подъёмная сила</a> — поперёк вымпельного ветра, в подветренную сторону. Она гораздо
+        больше простого «давления» ветра. Лучше всего парус тянет при угле атаки 15–30°.</p>
+      <figure><svg viewBox="0 0 480 400" class="d" role="img" aria-label="Силы на бейдевинде: подъёмная сила паруса раскладывается на тягу и боковую силу, шверт гасит боковую силу" style="max-width:576px"><g transform="translate(250,230) scale(5.2)"><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull" style="stroke-width:0.28846153846153844"/></g><path d="M250,157.2 Q217.8,231.5 217.6,309.8" class="sail-top big"/><line x1="250" y1="157.2" x2="217.6" y2="309.8" class="spar"/><circle cx="250" cy="157.2" r="5" class="mast"/><line x1="311.5" y1="14.9" x2="270.6" y2="95.1" class="app"/><line x1="338.2" y1="28.6" x2="297.3" y2="108.8" class="app"/><line x1="364.9" y1="42.2" x2="324.1" y2="122.4" class="app"/><text x="348.2" y="14.6" text-anchor="middle" class="a">вымпельный ветер</text><line x1="227.8" y1="233.5" x2="129.1" y2="183.2" class="force-soft"/><text x="123.1" y="171.2" text-anchor="end" class="f" style="font-size:14px">подъёмная сила</text><line x1="227.8" y1="233.5" x2="121.7" y2="197.9" class="force"/><text x="113.7" y="219.9" text-anchor="end" class="f">сила паруса</text><line x1="227.8" y1="233.5" x2="227.8" y2="197.9" class="force-dash"/><text x="235.8" y="203.9" text-anchor="start" class="f">тяга</text><line x1="227.8" y1="233.5" x2="121.7" y2="233.5" class="force-dash"/><text x="125.7" y="255.5" text-anchor="middle" class="f" style="font-size:14px">боковая сила</text><rect x="247" y="227.6" width="6" height="36" rx="3" class="board"/><line x1="254" y1="245.6" x2="360.1" y2="245.6" class="force"/><text x="368.1" y="250.6" text-anchor="start" class="f">сила шверта</text><line x1="250" y1="263.6" x2="290" y2="305.6" class="lead"/><text x="294" y="311.6" text-anchor="start" class="">шверт</text><line x1="250" y1="350" x2="250" y2="40" class="dp"/><line x1="250" y1="340" x2="208.2" y2="42.9" class="track"/><text x="204.2" y="44.9" text-anchor="end" class="soft" style="font-size:13px">путь</text><text x="256" y="52" text-anchor="start" class="soft" style="font-size:13px">курс (ДП)</text><text x="260" y="364" text-anchor="start" class="soft" style="font-size:13px">дрейф 3° (на схеме увеличен)</text></svg><figcaption>Бейдевинд, вид сверху. Сила паруса направлена почти вбок; шверт гасит боковую часть, остаётся тяга.</figcaption></figure>
+      <h3>Тяга и дрейф</h3>
+      <p>Сила паруса на остром курсе направлена почти вбок и лишь немного вперёд. Её раскладывают на две части:
+        небольшую <b>тягу</b> вперёд и большую боковую силу, которая толкает лодку вбок и кренит её.
+        Если бы лодке нечем было сопротивляться, её просто сносило бы под ветер.</p>
+      <h3>Шверт против сноса</h3>
+      <p>Тут работает <a class="term" href="#g-shvert">шверт</a>. Лодка идёт чуть-чуть боком — на угол
+        <a class="term" href="#g-drift">дрейфа</a>, — и шверт, как второе крыло, но в воде, даёт свою подъёмную силу
+        против сноса. Вода в 800 раз плотнее воздуха, поэтому небольшому шверту хватает 3–4° дрейфа, чтобы уравновесить
+        большой парус. Боковые силы паруса и шверта гасят друг друга, остаётся тяга вперёд.</p>
+      <p>Если шверт поднять, на остром курсе лодку понесёт боком: при 7 м/с на 40° к ветру дрейф вырастает с 3° до 29°,
+        скорость падает вдвое, а руль приходится держать на пределе.</p>
+      <h3>Лавировка</h3>
+      <p>Прямо против ветра не пройти: там <a class="term" href="#g-dead-zone">мёртвый угол</a>. Поэтому к цели на ветре
+        идут зигзагом — <a class="term" href="#g-lavirovka">лавировкой</a>: несколько отрезков бейдевиндом то правым, то левым
+        галсом с поворотами <a class="term" href="#g-tacking">оверштаг</a> между ними. Важна не скорость, а то, как
+        быстро лодка приближается к ветру, — <a class="term" href="#g-vmg">VMG</a>. У нашей лодки она лучше всего на
+        30–40° к ветру<sup><a href="#note-angle">*</a></sup>. Острее — лодка теряет ход, полнее — быстро идёт, но больше вбок.</p>
+      <div class="ingame"><b>В игре</b>
+        <ul>
+          <li>Строка «Дрейф» в HUD — угол дрейфа. С опущенным швертом на остром курсе — 3–4°. Если больше — проверьте шверт.</li>
+          <li>Шверт: <kbd>Q</kbd> — поднять, <kbd>E</kbd> — опустить; на телефоне — кнопки <i class="ico" data-icon="board"></i> ▲ ▼.
+            В HUD у шкалы «Шверт» написано «опущен», «поднят» или процент.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" id="trim">
+      <h2>5. Шкот и угол атаки</h2>
+      <p>Шкотом задают <a class="term" href="#g-attack">угол атаки</a> — угол между парусом и вымпельным ветром. Правило
+        простое: шкот подбирают под курс. Чем острее к ветру, тем сильнее выбран шкот; чем полнее курс, тем больше потравлен.</p>
+      <ul>
+        <li><b>Полощет.</b> Угол атаки меньше 6°: парус <a class="term" href="#g-luffing">полощет</a>, как флаг, тяги нет.
+          Выберите шкот или увалитесь.</li>
+        <li><b>Тянет.</b> Парус наполнен и ровно обтекается. Хороший приём: травить шкот, пока парус не начнёт полоскать
+          у мачты, потом чуть выбрать обратно.</li>
+        <li><b>Перебран.</b> Угол атаки больше ~38°: поток <a class="term" href="#g-stall">срывается</a> с подветренной стороны,
+          парус уже не крыло, а тормоз — много крена, мало хода. Потравите шкот.</li>
+      </ul>
+      <p>На <a class="term" href="#g-run">фордевинде</a> и полном <a class="term" href="#g-broad-reach">бакштаге</a> парус
+        работает иначе: ветер просто давит в полотнище. Тогда гик травят до упора, почти поперёк лодки.</p>
+      <div class="ingame"><b>В игре</b>
+        <ul>
+          <li>Шкот: <kbd>↑</kbd> / <kbd>W</kbd> — выбрать, <kbd>↓</kbd> / <kbd>S</kbd> — потравить; на телефоне — слайдер «шкот»
+            вверх / вниз. У шкалы «Грота-шкот» виден угол гика.</li>
+          <li>Подпись под органами управления: «Парус полощет — выберите шкот», «Парус тянет», «Шкот перебран — потравите»,
+            «Полный курс — тяга от сопротивления».</li>
+          <li>На компасе видно, как стоит гик относительно стрелки вымпельного ветра.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" id="foils">
+      <h2>6. Руль и шверт</h2>
+      <h3>Руль</h3>
+      <p><a class="term" href="#g-rudder">Руль</a> работает, только когда лодка движется: поток воды давит на переложенное
+        перо и уводит корму в сторону, а нос поворачивает в другую. Без хода руль бесполезен. На настоящей лодке
+        <a class="term" href="#g-tiller">румпель</a> кладут в сторону, противоположную повороту: румпель влево — нос вправо.
+        Сильно перекладывать руль не стоит: переложенное перо тормозит, а на большом угле поток с него срывается. В игре руль кладётся до 35°.</p>
+      <p>Два направления поворота получили свои названия: <a class="term" href="#g-luff-up">приводиться</a> — поворачивать
+        нос к ветру, <a class="term" href="#g-bear-away">уваливаться</a> — от ветра.</p>
+      <h3>Шверт</h3>
+      <p><a class="term" href="#g-shvert">Шверт</a> держит лодку против бокового сноса (<a href="#upwind">раздел 4</a>).
+        Когда его поднимать:</p>
+      <ul>
+        <li><b>Острые курсы и галфвинд</b> — шверт опущен полностью.</li>
+        <li><b>Бакштаг и фордевинд</b> — боковой силы почти нет, шверт можно поднять: меньше сопротивления, лодка чуть быстрее.</li>
+        <li><b>Мелководье</b> — с опущенным швертом осадка 1,4 м. Задевает дно — поднимайте.</li>
+      </ul>
+      <div class="ingame"><b>В игре</b>
+        <ul>
+          <li>Руль: <kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd> — клавиша сразу показывает, куда пойдёт нос (как
+            штурвал, а не румпель). Отпустите — руль сам вернётся в ДП. На телефоне — слайдер «руль»: чем дальше палец,
+            тем быстрее перекладка.</li>
+          <li>Шверт: <kbd>Q</kbd> / <kbd>E</kbd> или <i class="ico" data-icon="board"></i> ▲ ▼. Предупреждение «Шверт задевает дно —
+            поднимите шверт» — пора поднять.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" id="balance">
+      <h2>7. Баланс: почему кэтбот приводится</h2>
+      <p>У паруса есть <a class="term" href="#g-ce">центр парусности</a> (ЦП) — точка, где как будто приложена вся сила ветра.
+        У подводной части — <a class="term" href="#g-clr">центр бокового сопротивления</a> (ЦБС), точка, где приложено
+        сопротивление воды сносу. Лодка поворачивается вокруг ЦБС, как флюгер вокруг оси.</p>
+      <figure><svg viewBox="0 0 480 395" class="d" role="img" aria-label="ЦП уходит за подветренный борт при крене, пара сил тяги и сопротивления приводит лодку к ветру" style="max-width:576px"><line x1="460" y1="30" x2="420" y2="70" class="wind"/><text x="468" y="24" text-anchor="end" class="w">ветер</text><g transform="translate(130,200) scale(4.0)"><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull" style="stroke-width:0.375"/></g><line x1="130" y1="144" x2="89" y2="256.8" class="spar"/><circle cx="130" cy="144" r="4" class="mast"/><line x1="130" y1="70" x2="130" y2="320" class="dp"/><line x1="124" y1="188" x2="124" y2="118" class="force"/><text x="118" y="134" text-anchor="end" class="f" style="font-size:14px">тяга</text><line x1="130" y1="204" x2="130" y2="264" class="line"/><text x="138" y="260" text-anchor="start" class="soft" style="font-size:13px">сопротивление</text><circle cx="124" cy="188" r="6" class="ce"/><path d="M130,197 L136,204 L130,211 L124,204 Z" class="clr"/><path d="M115.0,80 A60,60 0 0,1 160,87.5" class="turn"/><text x="130" y="350" text-anchor="middle" class="b">без крена</text><g transform="translate(350,200) scale(4.0)"><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull" style="stroke-width:0.375"/></g><line x1="350" y1="144" x2="281.2" y2="242.3" class="spar"/><circle cx="350" cy="144" r="4" class="mast"/><line x1="350" y1="70" x2="350" y2="320" class="dp"/><line x1="312" y1="188" x2="312" y2="118" class="force"/><text x="306" y="134" text-anchor="end" class="f" style="font-size:14px">тяга</text><line x1="350" y1="204" x2="350" y2="264" class="line"/><text x="358" y="260" text-anchor="start" class="soft" style="font-size:13px">сопротивление</text><circle cx="312" cy="188" r="6" class="ce"/><path d="M350,197 L356,204 L350,211 L344,204 Z" class="clr"/><path d="M327.0,80 A92,92 0 0,1 396,91.5" class="turn big"/><text x="350" y="350" text-anchor="middle" class="b">крен, гик за бортом</text><text x="240" y="384" text-anchor="middle" class="soft" style="font-size:13px">● ЦП  ◆ ЦБС  — стрелка у носа: лодка приводится</text></svg><figcaption>Тяга приложена в ЦП, сопротивление воды — в ЦБС на ДП. Чем дальше ЦП за бортом, тем сильнее лодку разворачивает к ветру.</figcaption></figure>
+      <ul>
+        <li>Если ЦП позади ЦБС, ветер отталкивает корму, и лодка <a class="term" href="#g-luff-up">приводится</a> — сама
+          поворачивает к ветру.</li>
+        <li>Если ЦП впереди — лодка <a class="term" href="#g-bear-away">уваливается</a>.</li>
+      </ul>
+      <p>Кэтбот славится сильным приведением, особенно при <a class="term" href="#g-heel">крене</a>. Когда лодка кренится, парус
+        вместе со своим ЦП уходит далеко за подветренный борт, и тяга паруса оказывается приложена сбоку от корпуса. Она
+        разворачивает лодку носом к ветру. Чем больше крен, тем сильнее. На полных курсах то же делает гик, вынесенный за борт.</p>
+      <p>Небольшое приведение — это хорошо: отпусти руль, и лодка сама встанет против ветра и остановится. Но при сильном
+        крене руль приходится держать постоянно, а он тормозит. Лучшее лекарство — убрать крен:
+        <a href="#heel">раздел 8</a>.</p>
+      <div class="ingame"><b>В игре</b>
+        <ul>
+          <li>На компасе: кружок — ЦП, ромб — ЦБС. Стрелка у носа показывает, куда пойдёт лодка, если отпустить руль:
+            «приводится» или «уваливается».</li>
+          <li>Посмотрите, как стрелка растёт, когда лодка кренится в порыве.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" id="heel">
+      <h2>8. Крен, откренка, рифы</h2>
+      <p>Боковая сила паруса приложена высоко над водой, а сопротивление воды — внизу. Вместе они кренят лодку — дают
+        <a class="term" href="#g-heel">крен</a>. Широкий корпус кэтбота сопротивляется крену сам, но в свежий ветер
+        ему нужна помощь.</p>
+      <figure><svg viewBox="0 0 480 380" class="d" role="img" aria-label="Вид с кормы: боковая сила паруса и шверта кренят лодку, вес экипажа на наветренном борту выпрямляет" style="max-width:576px"><rect x="0" y="250" width="480" height="130" class="sea"/><g transform="rotate(-18 240 250)"><path d="M160,228 L320,228 Q322,280 240,286 Q158,280 160,228 Z" class="hull"/><path d="M234,284 L246,284 L244,360 L236,360 Z" class="board"/><line x1="240" y1="228" x2="240" y2="20" class="spar"/><path d="M238,210 L238,30 Q210,120 238,210 Z" class="sail"/><circle cx="332" cy="198" r="9" class="crew"/><path d="M320,228 L332,206" class="crew-line"/></g><line x1="190.3" y1="129.5" x2="80.3" y2="129.5" class="force"/><text x="78.3" y="151.5" text-anchor="start" class="f" style="font-size:14px">боковая сила паруса</text><line x1="264.7" y1="326.1" x2="364.7" y2="326.1" class="force"/><text x="368.7" y="331.1" text-anchor="start" class="f" style="font-size:14px">сила шверта</text><line x1="311.4" y1="182.1" x2="311.4" y2="252.1" class="line"/><text x="321.4" y="176.1" text-anchor="start" class="b" style="font-size:14px">вес экипажа</text><text x="321.4" y="192.1" text-anchor="start" class="soft" style="font-size:13px">на наветренном борту</text><line x1="470" y1="120" x2="400" y2="120" class="wind"/><text x="470" y="108" text-anchor="end" class="w">ветер</text><line x1="240" y1="250" x2="240" y2="35" class="dp"/><path d="M240,50 A200,200 0 0,0 178.2,59.8" class="turn"/><text x="248" y="44" text-anchor="start" class="b">крен</text><text x="240" y="372" text-anchor="middle" class="soft" style="font-size:13px">вид с кормы</text></svg><figcaption>Парус и шверт кренят лодку, вес рулевого на наветренном борту выпрямляет её.</figcaption></figure>
+      <h3>Откренка</h3>
+      <p>Вес экипажа на <a class="term" href="#g-windward">наветренном</a> борту уменьшает крен.
+        <a class="term" href="#g-hiking">Откренка</a> — рулевой не просто сидит на наветренной банке, а пересаживается
+        на борт и отклоняется наружу. После поворота экипаж пересаживается на новый наветренный борт.</p>
+      <h3>Шкот в порывах</h3>
+      <p>Самый быстрый способ снять крен — потравить шкот: парус перестанет тянуть, крен уйдёт за секунды. Можно и
+        привестись чуть острее. Порыв прошёл — снова выбрать шкот.</p>
+      <h3>Рифы</h3>
+      <p>Если крен большой всё время, парус слишком велик для этого ветра — пора брать <a class="term" href="#g-reef">риф</a>:
+        часть паруса подвязывают к гику. Первый риф оставляет 70 % площади, второй — 45 %. Центр парусности становится
+        ниже, крен заметно меньше. Пример из нашей физики: при 13 м/с на курсе 45–60° лодка без рифов переворачивается,
+        с одним рифом идёт с креном ~30–35°, с двумя — ~14–18° и почти не теряет скорость.</p>
+      <p>Когда ветер стихнет, рифы отдают — возвращают площадь. После второго рифа парус можно спустить совсем.</p>
+      <div class="ingame"><b>В игре</b>
+        <ul>
+          <li>Строка «Крен» в HUD. Больше 32° — «Сильный крен», больше 45° — «Крен критический — травите шкот».</li>
+          <li>Рулевой: <kbd>Z</kbd> — на шаг к левому борту, <kbd>X</kbd> — на другой борт, <kbd>C</kbd> — на шаг к правому борту
+            (откренка ← банка ⇄ банка → откренка). На телефоне — кнопки <i class="ico" data-icon="crew"></i> ◀ ⇄ ▶.
+            В HUD у шкалы «Экипаж» видно, где сидит рулевой.</li>
+          <li>Рифы: <kbd>R</kbd> — взять риф, <kbd>F</kbd> — отдать; после двух рифов <kbd>R</kbd> спускает парус. На телефоне —
+            <i class="ico" data-icon="reef"></i> + −. В HUD: «полный», «1 риф», «2 рифа», «спущен».</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" id="turns">
+      <h2>9. Повороты оверштаг и фордевинд</h2>
+      <p>Сменить <a class="term" href="#g-tack-side">галс</a> можно двумя способами: носом через линию ветра —
+        <a class="term" href="#g-tacking">оверштаг</a>, или кормой — <a class="term" href="#g-gybe">фордевинд</a>.</p>
+      <h3>Поворот оверштаг</h3>
+      <figure><svg viewBox="0 0 480 405" class="d" role="img" aria-label="Поворот оверштаг: лодка проходит носом через линию ветра" style="max-width:576px"><line x1="240" y1="4" x2="240" y2="40" class="wind"/><text x="250" y="22" text-anchor="start" class="w">ветер</text><path d="M60,380 L130,280 Q180,190 202,152 Q220,130 250,168 L350,90" class="track"/><g transform="translate(90,330) rotate(35) scale(1.5)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><circle cx="-7" cy="8" r="2.6" class="crew"/><path d="M0,-14 Q8,-0.4 6.2,15.3" class="sail-top"/><line x1="0" y1="-14" x2="6.2" y2="15.3" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(165,220) rotate(20) scale(1.5)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><circle cx="-7" cy="8" r="2.6" class="crew"/><path d="M0,-14 Q8,-0.4 6.2,15.3" class="sail-top"/><line x1="0" y1="-14" x2="6.2" y2="15.3" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(200,150) rotate(0) scale(1.5)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><circle cx="0" cy="8" r="2.6" class="crew"/><path d="M0,-14 Q-4,-6.5 0,1 T0,16" class="sail-luff"/><line x1="0" y1="-14" x2="0" y2="16" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(250,170) rotate(-30) scale(1.5)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><circle cx="7" cy="8" r="2.6" class="crew"/><path d="M0,-14 Q-8,-0.4 -6.2,15.3" class="sail-top"/><line x1="0" y1="-14" x2="-6.2" y2="15.3" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(320,120) rotate(-35) scale(1.5)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><circle cx="7" cy="8" r="2.6" class="crew"/><path d="M0,-14 Q-8,-0.4 -6.2,15.3" class="sail-top"/><line x1="0" y1="-14" x2="-6.2" y2="15.3" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><text x="110" y="340" text-anchor="start" class="" style="font-size:14px"><tspan class="num">1</tspan> ход на бейдевинде</text><text x="189" y="230" text-anchor="start" class="" style="font-size:14px"><tspan class="num">2</tspan> приводимся</text><text x="200" y="112" text-anchor="middle" class="" style="font-size:14px">нос через ветер, парус полощет</text><text x="276" y="192" text-anchor="start" class="" style="font-size:14px"><tspan class="num">3</tspan> экипаж на другой борт</text><text x="320" y="84" text-anchor="middle" class="" style="font-size:14px"><tspan class="num">4</tspan> разгон на новом галсе</text><text x="20" y="395" text-anchor="start" class="soft" style="font-size:13px">левый галс</text><text x="470" y="70" text-anchor="end" class="soft" style="font-size:13px">правый галс</text></svg><figcaption>Поворот оверштаг: номера соответствуют шагам в списке.</figcaption></figure>
+      <ol>
+        <li>Наберите ход на <a class="term" href="#g-close-hauled">бейдевинде</a>: без скорости руль не провернёт лодку через ветер.</li>
+        <li>Плавно, но решительно приводитесь. Нос проходит через <a class="term" href="#g-dead-zone">мёртвый угол</a>,
+          парус полощет, гик переходит на другой борт.</li>
+        <li>Пересадите экипаж на новый наветренный борт.</li>
+        <li>Выйдите на бейдевинд нового галса и дайте лодке разогнаться, а потом острее.</li>
+      </ol>
+      <h3>Застряли в левентике: выход задним ходом</h3>
+      <p>Самая частая ошибка новичка: поворот начат без хода или слишком медленно, лодка остановилась носом к ветру
+        и стоит «в <a class="term" href="#g-dead-zone">левентике</a>». Парус полощет, руль вперёд не работает, а сама лодка
+        из этого положения не выйдет — ветер держит её носом к себе. Зато ветер давит на парус и корпус, и лодка
+        <b>пятится</b> — идёт кормой вперёд. На заднем ходу руль работает, но <b>наоборот</b>: вода набегает на перо с другой
+        стороны, и корма уходит туда же, куда переложено перо.</p>
+      <ol>
+        <li><b>Потравите шкот.</b> Иначе парус наполнится раньше времени и снова потянет нос к ветру.</li>
+        <li><b>Переложите руль «наоборот» и держите.</b> Хотите увести нос вправо — рулите так, будто поворачиваете
+          влево. Лодка пятится, корма уходит в сторону, нос отходит от ветра.</li>
+        <li><b>Ждите,</b> пока нос отойдёт на 40–50° от ветра. Это небыстро: при 7 м/с около 25 секунд, при 12 м/с —
+          около 15, в слабый ветер — до 45 секунд.</li>
+        <li><b>Руль прямо, выберите шкот.</b> Парус наполнится, лодка остановится и поедет вперёд. Дайте ей разогнаться
+          и только потом приводитесь.</li>
+      </ol>
+      <p>Лучше вообще не попадать в левентик: перед оверштагом наберите полный ход и поворачивайте уверенно, не бросая руль
+        посередине поворота.</p>
+      <h3>Поворот фордевинд</h3>
+      <figure><svg viewBox="0 0 480 400" class="d" role="img" aria-label="Поворот фордевинд: лодка проходит кормой через линию ветра, гик перелетает" style="max-width:576px"><line x1="240" y1="4" x2="240" y2="40" class="wind"/><text x="250" y="22" text-anchor="start" class="w">ветер</text><path d="M70,70 Q150,170 190,230 Q220,290 310,360" class="track"/><g transform="translate(90,100) rotate(150) scale(1.5)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><circle cx="-7" cy="8" r="2.6" class="crew"/><path d="M0,-14 Q15.6,-16.3 29.5,-8.8" class="sail-top"/><line x1="0" y1="-14" x2="29.5" y2="-8.8" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(160,180) rotate(170) scale(1.5)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><circle cx="-7" cy="8" r="2.6" class="crew"/><path d="M0,-14 Q11.8,-3.5 15,12" class="sail-top"/><line x1="0" y1="-14" x2="15" y2="12" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(200,255) rotate(200) scale(1.5)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><circle cx="7" cy="8" r="2.6" class="crew"/><path d="M0,-14 Q-11.8,-3.5 -15,12" class="sail-top"/><line x1="0" y1="-14" x2="-15" y2="12" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><g transform="translate(280,335) rotate(215) scale(1.5)" class=""><path d="M0,-20 C6,-17 9,-8 9,2 C9,10 8,16 7.5,20 L-7.5,20 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-20 Z" class="hull"/><circle cx="7" cy="8" r="2.6" class="crew"/><path d="M0,-14 Q-15.6,-16.3 -29.5,-8.8" class="sail-top"/><line x1="0" y1="-14" x2="-29.5" y2="-8.8" class="spar thin"/><circle cx="0" cy="-14" r="2.2" class="mast"/></g><text x="115" y="108" text-anchor="start" class="" style="font-size:14px"><tspan class="num">1</tspan> бакштаг, гик справа</text><text x="185" y="186" text-anchor="start" class="" style="font-size:14px"><tspan class="num">2</tspan> выбираем шкот</text><text x="236" y="254" text-anchor="start" class="" style="font-size:14px"><tspan class="num">3</tspan> ветер за кормой — гик перелетел</text><text x="250" y="345" text-anchor="end" class="" style="font-size:14px"><tspan class="num">4</tspan> травим шкот,</text><text x="250" y="363" text-anchor="end" class="" style="font-size:14px">экипаж на другой борт</text></svg><figcaption>Поворот фордевинд: номера соответствуют шагам в списке.</figcaption></figure>
+      <p>Здесь гик переходит на другой борт не через ветер, а по ветру — резко, со всей силой паруса. Неконтролируемый
+        фордевинд — удар гика и сильный бросок на крен. Поэтому:</p>
+      <ol>
+        <li>Уваливайтесь до фордевинда.</li>
+        <li>Выберите шкот, чтобы гик был ближе к середине лодки: перелёт будет короче и мягче.</li>
+        <li>Продолжайте поворот. Гик перелетит, когда ветер зайдёт за корму на другую сторону.</li>
+        <li>Пересадите экипаж и потравите шкот под новый курс.</li>
+      </ol>
+      <p>Опасно идти прямо по ветру с потравленным шкотом: лёгкий заход ветра или волна — и случится самопроизвольный фордевинд.
+        Держите курс чуть острее фордевинда.</p>
+      <div class="ingame"><b>В игре</b>
+        <ul>
+          <li>Оверштаг: рулите к ветру <kbd>←</kbd>/<kbd>→</kbd> до смены галса, потом <kbd>X</kbd> — экипаж на другой борт.</li>
+          <li>Левентик: скорость в HUD около нуля, подпись «Парус полощет — выберите шкот». Выход: <kbd>↓</kbd> — потравить шкот,
+            затем держите <kbd>←</kbd>, чтобы увести нос <b>вправо</b>, или <kbd>→</kbd>, чтобы увести <b>влево</b>. Руль сам
+            возвращается в ДП, поэтому клавишу надо держать всё время. Когда «Истинный» покажет 40–50° — отпустите руль и
+            выберите шкот <kbd>↑</kbd>.</li>
+          <li>Фордевинд: в игре гик перелетает, когда ветер зайдёт за корму больше чем на 15°. Подпись «Поворот фордевинд — гик идёт!»
+            и предупреждение «Фордевинд! Гик перелетел» — то самое. Чем сильнее ветер и чем больше потравлен шкот, тем сильнее бросок на крен.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" id="safety">
+      <h2>10. Безопасность</h2>
+      <h3>Заливание</h3>
+      <p>Когда крен доходит до ~48°, вода начинает переливаться через <a class="term" href="#g-coaming">комингс</a> в кокпит.
+        Лодка тяжелеет, хуже держится на ровном киле, и следующий порыв кренит её ещё сильнее —
+        <a class="term" href="#g-swamping">заливание</a> разгоняется само. Выход один: немедленно снять крен —
+        потравить шкот, откренить, привестись. Когда крен меньше 25°, вода постепенно уходит.</p>
+      <h3>Переворот</h3>
+      <p>Если крен перевалил за 100° или лодка полна воды и легла больше 70°, она
+        <a class="term" href="#g-capsize">переворачивается</a>. Обычно к этому ведут три ошибки разом: полный парус
+        в свежий ветер, выбранный шкот в порыв и экипаж не на том борту.</p>
+      <h3>Чек-лист перед свежим ветром</h3>
+      <ul>
+        <li>Ветер 5 баллов («свежий», от 8 м/с) и сильнее — возьмите риф заранее, а не когда уже кренит. При 10 м/с без рифов
+          лодка на остром курсе идёт с креном 27–37°.</li>
+        <li>Держите руку на шкоте: порыв — потравить.</li>
+        <li>Не идите прямо по ветру с полностью потравленным шкотом — риск случайного фордевинда.</li>
+        <li>Держитесь подальше от берега и мелей.</li>
+      </ul>
+      <div class="ingame"><b>В игре</b>
+        <ul>
+          <li>Предупреждение «Вода в кокпите: N%» — пора снимать крен.</li>
+          <li>После переворота — <kbd>Enter</kbd>, лодка встанет обратно, вода уйдёт.</li>
+          <li>«Мель! Отойдите от берега» — лодка коснулась дна корпусом.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" id="glossary">
+      <h2>Глоссарий</h2>
+      <dl class="glossary" id="glossary-list"></dl>
+    </section>
+  </main>
+</div>
+<button class="back" id="back" type="button" hidden>← К тексту</button>
+<script type="module">
+import { GLOSSARY } from './src/ui/glossary.js';
+import { applyIcons } from './src/ui/icons.js';
+
+const LANG = document.documentElement.lang;
+const byId = new Map(GLOSSARY.map((g) => [g.id, g]));
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+
+// глоссарий по алфавиту текущего языка
+const dl = document.getElementById('glossary-list');
+const items = GLOSSARY.filter((g) => g[LANG]).sort((a, b) => a[LANG].term.localeCompare(b[LANG].term, LANG));
+for (const g of items) {
+  const t = g[LANG];
+  const dt = el('dt', '', t.term);
+  dt.id = `g-${g.id}`;
+  if (t.alt) dt.append(el('small', '', t.alt));
+  const dd = el('dd', '', t.def);
+  const see = (g.see || []).filter((id) => byId.get(id)?.[LANG]);
+  if (see.length) {
+    const s = el('div', 'see', 'См.: ');
+    see.forEach((id, i) => {
+      const a = el('a', '', byId.get(id)[LANG].term);
+      a.href = `#g-${id}`;
+      s.append(i ? ', ' : '', a);
+    });
+    dd.append(s);
+  }
+  dl.append(dt, dd);
+}
+
+// у каждой ссылки на термин должен быть термин
+for (const a of document.querySelectorAll('a[href^="#g-"]')) {
+  const id = a.getAttribute('href').slice(3);
+  if (!byId.get(id)?.[LANG]) console.error(`manual: нет термина «${id}» в glossary.js`);
+  if (a.classList.contains('term') && !a.title && byId.get(id)?.[LANG]) a.title = byId.get(id)[LANG].def;
+}
+
+// переход по термину в глоссарий: запоминаем место в тексте и показываем кнопку «← К тексту»
+const back = document.getElementById('back');
+const glossary = document.getElementById('glossary');
+let origin = null;
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a.term');
+  if (a && !glossary.contains(a)) { origin = a; back.hidden = false; }
+});
+back.addEventListener('click', () => {
+  if (!origin) return;
+  origin.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  origin.classList.add('flash');
+  const o = origin;
+  setTimeout(() => o.classList.remove('flash'), 1500);
+  origin = null;
+  back.hidden = true;
+});
+// ушли из глоссария сами — кнопка больше не нужна
+new IntersectionObserver(([en]) => {
+  if (!en.isIntersecting && origin && !back.hidden && performance.now() - lastJump > 1500) { origin = null; back.hidden = true; }
+}).observe(glossary);
+let lastJump = 0;
+document.addEventListener('click', (e) => { if (e.target.closest('a.term')) lastJump = performance.now(); }, true);
+
+applyIcons();
+
+// тема: системная по умолчанию, кнопка переключает и запоминает
+const root = document.documentElement;
+try { const t = localStorage.getItem('manual-theme'); if (t) root.dataset.theme = t; } catch {}
+const qTheme = new URLSearchParams(location.search).get('theme'); // ?theme=dark|light — для скриншотов
+if (qTheme === 'dark' || qTheme === 'light') root.dataset.theme = qTheme;
+document.getElementById('theme').addEventListener('click', () => {
+  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  root.dataset.theme = dark ? 'light' : 'dark';
+  try { localStorage.setItem('manual-theme', root.dataset.theme); } catch {}
+});
+
+// на телефоне оглавление свёрнуто
+if (matchMedia('(max-width: 760px)').matches) document.getElementById('toc').open = false;
+</script>
+</body>
+</html>

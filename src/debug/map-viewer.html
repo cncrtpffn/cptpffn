@@ -1,0 +1,785 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Map viewer</title>
+  <!-- Стенд карты мира: рельеф, объекты, буи и карта берега тем же кодом, что в игре. Открывать с корня проекта: /src/debug/map-viewer.html
+       Управление: ЛКМ — тащить карту, WASD — двигаться (Shift — быстрее), Ctrl + мышь — угол к горизонту (Y) и курс (X),
+       колесо — высота камеры.
+       Параметры URL: map (карта из src/maps/index.js: demo — по умолчанию, archipelago — 3×3 км),
+       layers (через запятую: terrain,height,biome,zones,regions,plan,veg,build,lod,depth,dist,normal,sites,grid,labels;
+       по умолчанию terrain,grid,labels,veg,build,lod), autoregions=1 (пересчитать области биомов по правилам
+       map.biomeRules, показать их и код для вставки в map.biomeRegions; ручные области сохраняются),
+       veg (множитель плотности растительности, по умолчанию 1), bench (секунды: сразу запустить бенч),
+       tstep (шаг меша рельефа, м, кратен 2; по умолчанию 4), cam (x,z,h,pitch,yaw — точка камеры, высота м, угол к горизонту °, курс ° от севера по часовой) -->
+  <style>html, body { margin: 0; height: 100%; background: #2d5f80; overflow: hidden; font: 12px sans-serif; } canvas { display: block; }
+    #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+    .lbl { position: absolute; transform: translate(-50%, -50%); color: #fff; background: #0008; padding: 2px 6px; border-radius: 3px; white-space: nowrap; }
+    .lbl.island { font-size: 13px; font-weight: bold; transform: translate(-50%, -130%); }
+    .lbl.site { font-size: 11px; background: #0006; transform: translate(-50%, -50%); }
+    .lbl.site.port { background: #1d4f8ccc; }
+    .lbl.site.lighthouse { background: #8c5a12cc; transform: translate(-50%, -150%); }
+    .lbl.water { background: none; padding: 0; color: #e4f6ff; font-style: italic; font-size: 12px; text-shadow: 0 0 3px #0369, 0 0 2px #036; }
+    .lbl.coord { background: none; color: #fffc; text-shadow: 0 0 3px #000; padding: 0; }
+    .buoy { position: absolute; width: 9px; height: 9px; border: 2px solid #fff; border-radius: 50%; transform: translate(-50%, -50%); }
+    #panel { position: absolute; top: 8px; left: 8px; color: #fff; background: #000a; padding: 6px 10px; border-radius: 4px; user-select: none; }
+    #panel label { display: block; line-height: 20px; cursor: pointer; }
+    #status { position: absolute; left: 8px; bottom: 8px; color: #fff; background: #000a; padding: 4px 8px; border-radius: 4px; font-family: ui-monospace, monospace; white-space: pre; }
+    #right { position: absolute; top: 8px; right: 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; pointer-events: none; }
+    #right > * { pointer-events: auto; }
+    #compass { width: 72px; height: 72px; cursor: pointer; filter: drop-shadow(0 1px 2px #0008); }
+    #legend, #planLegend { color: #fff; background: #000a; padding: 6px 10px; border-radius: 4px; line-height: 18px; }
+    #legend i, #planLegend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border-radius: 2px; }
+    #planLegend summary { cursor: pointer; font-weight: bold; user-select: none; }
+    #planLegend h4 { margin: 6px 0 0; font-size: 11px; font-weight: normal; color: #fff9; }
+    #planLegend i.ln { width: 22px; height: 4px; border-radius: 0; vertical-align: 3px; }
+    #planLegend i.rc { background: none !important; border: 2px solid; width: 10px; height: 8px; }
+    #planLegend i.dot { border-radius: 50%; border: 2px solid #fff; width: 8px; height: 8px; }
+    #tool { position: absolute; right: 8px; bottom: 44px; width: 560px; max-width: calc(100% - 16px); color: #fff; background: #000c; padding: 6px 10px; border-radius: 4px; }
+    #tool textarea { width: 100%; height: 160px; box-sizing: border-box; font: 11px ui-monospace, monospace; background: #111; color: #cfe; border: 0; }
+    #panel button { margin-top: 4px; font: inherit; cursor: pointer; }
+    #help { position: absolute; right: 8px; bottom: 8px; color: #fffc; background: #000a; padding: 4px 8px; border-radius: 4px; }</style>
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+  </script>
+</head>
+<body>
+<div id="labels"></div>
+<div id="panel"></div>
+<div id="status"></div>
+<div id="right">
+  <svg id="compass" viewBox="-50 -50 100 100"><title>Компас — щелчок: курс на север</title>
+    <circle r="46" fill="#000a" stroke="#fff6" stroke-width="2"/>
+    <g id="rose">
+      <path d="M0,-38 L8,0 L0,6 L-8,0 Z" fill="#e5483b"/><path d="M0,38 L8,0 L0,-6 L-8,0 Z" fill="#eee"/>
+      <path d="M-30,0 L0,-4 L0,4 Z M30,0 L0,-4 L0,4 Z" fill="#fff8"/>
+      <g font-size="11" font-weight="bold" text-anchor="middle" dominant-baseline="central" fill="#fff">
+        <text id="cN" y="-40" fill="#ff8a7f">С</text><text id="cS" y="40">Ю</text><text id="cE" x="40">В</text><text id="cW" x="-40">З</text>
+      </g>
+    </g>
+  </svg>
+  <div id="legend" hidden></div>
+  <details id="planLegend" open hidden><summary>план поселений</summary></details>
+</div>
+<div id="tool" hidden></div>
+<div id="help">ЛКМ — тащить · WASD — ход · Q/E — поворот · R/F — выше/ниже (Shift — быстрее) · Ctrl+мышь — наклон и курс · колесо — высота</div>
+<script type="module">
+import * as THREE from 'three';
+import { DEG } from '../config.js';
+import { createEnvironment, fitShadow } from '../scene/environment.js';
+import { bakeShoreMap } from '../scene/shore-map.js';
+import { classifyBiomes, ZONES, ZONE_NAMES, BIOME_IDS, BIOME_NAMES } from '../scene/terrain/biomes.js';
+import { regionsFromRules, regionsToCode } from '../scene/terrain/biome-rules.js';
+import { buildHeightfield } from '../scene/terrain/heightfield.js';
+import { buildWorld } from '../scene/terrain/world.js';
+import { MAPS } from '../maps/index.js';
+import { STRUCTURES } from '../scene/structures/index.js';
+import { PLAN_ZONES } from '../scene/terrain/settlement-plan.js';
+
+const q = new URLSearchParams(location.search);
+const MAP = MAPS[q.get('map')] ?? MAPS.demo;
+const START = await (await fetch('../../start.json')).json();
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+document.body.appendChild(renderer.domElement);
+
+// мир — тем же кодом и с тем же сидом, что в игре; небо, облака и туман не нужны
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2d5f80);
+// мир по полю высот; для карты берега — один «берег» на весь мир
+const frameInfo = { calls: 0, tris: 0 }; // за последний кадр, с проходом теней
+// инструмент: области по правилам вместо сохранённых auto, ручные — как есть (поле высот для правил — отдельный проход)
+let autoRegions = null, regions;
+if (q.get('autoregions') === '1') {
+  const t = performance.now();
+  autoRegions = regionsFromRules(buildHeightfield(MAP), MAP);
+  console.log(`области по правилам: ${autoRegions.length} шт., ${(performance.now() - t).toFixed(0)} мс`);
+  regions = [...(MAP.biomeRegions ?? []).filter((r) => !r.auto), ...autoRegions];
+}
+const world = buildWorld(MAP, { regions, tstep: q.has('tstep') ? +q.get('tstep') : 0, density: q.has('veg') ? +q.get('veg') : 1 });
+const { hf, bio, plan, terrain, settle, veg } = world;
+const env = createEnvironment(scene, { timeOfDay: 0.5, shadowSize: 4096, buoys: world.buoys });
+env.sky.mesh.visible = false;
+env.clouds.group.visible = false;
+scene.fog = null;
+scene.add(world.group);
+console.log(world.summary());
+console.log('постройки:', JSON.stringify(settle.counts));
+console.log('растительность:', JSON.stringify(veg.counts), 'треуг. full/low:', JSON.stringify(veg.protoTris));
+const t1 = performance.now();
+const shoreMap = bakeShoreMap([world.shore]);
+console.log(`карта берега ${(performance.now() - t1).toFixed(0)} мс`);
+const [bx, bz, bw, bh] = shoreMap.bounds.toArray();
+
+// тень — окном вокруг точки взгляда, размер по высоте камеры
+const sun = env.sun;
+const shadowAt = new THREE.Vector3();
+function placeShadow() {
+  const range = Math.min(MAP.size / 2 + 50, Math.max(60, view.h * 0.9));
+  const p = groundAt(0, 0, shadowAt) ?? shadowAt.set(view.x, 0, view.z);
+  sun.shadow.normalBias = fitShadow(sun, env.sunDir, p.x, p.z, range, Math.max(400, range * 1.5));
+}
+
+// поле высот текстурой: тон и прозрачность воды по настоящей глубине
+const hfTex = new THREE.DataTexture(hf.heights, hf.size, hf.size, THREE.RedFormat, THREE.FloatType);
+hfTex.magFilter = hfTex.minFilter = THREE.LinearFilter;
+hfTex.needsUpdate = true;
+
+// вода и оверлеи карты берега; каналы декодируются как shoreInfo в water-fx.js
+const sea = new THREE.Mesh(new THREE.PlaneGeometry(3 * MAP.size, 3 * MAP.size).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false,
+  uniforms: {
+    uHf: { value: hfTex },
+    uHfBounds: { value: new THREE.Vector4(hf.bounds[0] - hf.step / 2, hf.bounds[1] - hf.step / 2, hf.size * hf.step, hf.size * hf.step) },
+    uShoreTex: { value: shoreMap.texture }, uShoreBounds: { value: shoreMap.bounds },
+    uShoreRange: { value: shoreMap.range }, uShoreDepth: { value: shoreMap.maxDepth },
+    uDepth: { value: 0 }, uDist: { value: 0 }, uNormal: { value: 0 },
+  },
+  vertexShader: `
+    varying vec2 vXZ;
+    void main() {
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      vXZ = wp.xz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }`,
+  fragmentShader: `
+    uniform sampler2D uShoreTex; uniform vec4 uShoreBounds; uniform float uShoreRange, uShoreDepth;
+    uniform float uDepth, uDist, uNormal;
+    uniform sampler2D uHf; uniform vec4 uHfBounds;
+    varying vec2 vXZ;
+    vec3 ramp(float t) { // мелко — бирюза, глубоко — синий
+      return mix(mix(vec3(0.95, 0.9, 0.55), vec3(0.2, 0.85, 0.75), smoothstep(0.0, 0.35, t)), vec3(0.05, 0.15, 0.55), smoothstep(0.35, 1.0, t));
+    }
+    void main() {
+      vec2 uv = (vXZ - uShoreBounds.xy) / uShoreBounds.zw;
+      bool inMap = all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)));
+      vec4 t = inMap ? texture2D(uShoreTex, uv) : vec4(1.0, 1.0, 0.5, 0.5);
+      float dist = (t.r * 2.0 - 1.0) * uShoreRange, depth = t.g * uShoreDepth;
+      float k = depth / uShoreDepth;
+      vec3 col = mix(vec3(0.42, 0.72, 0.78), vec3(0.17, 0.37, 0.5), sqrt(k));
+      float alpha = 1.0;
+      if (uDepth + uDist + uNormal < 0.5) {
+        // вода полупрозрачная, сквозь мель видно дно; глубже — синее и плотнее
+        vec2 hv = clamp((vXZ - uHfBounds.xy) / uHfBounds.zw, 0.0, 1.0);
+        float d = max(0.0, -texture2D(uHf, hv).r);
+        col = mix(vec3(0.35, 0.78, 0.8), vec3(0.08, 0.25, 0.45), smoothstep(0.0, 25.0, d));
+        alpha = mix(0.25, 0.95, smoothstep(0.0, 10.0, d));
+      }
+      if (uDepth > 0.5) col = ramp(k);
+      if (uNormal > 0.5) col = mix(col, vec3(t.b, 0.5, t.a), inMap ? 0.85 : 0.0);
+      if (uDist > 0.5) {
+        // знак: вода — тёплый оттенок не трогаем, суша — затемнение; изолинии через 2 м, кромка жирнее
+        if (dist < 0.0) col *= 0.55;
+        float d = abs(dist) / 2.0, w = fwidth(d);
+        float line = 1.0 - smoothstep(0.0, w * 1.2, min(fract(d), 1.0 - fract(d)));
+        if (abs(dist) < uShoreRange - 0.5) col = mix(col, vec3(1.0), line * 0.6);
+        float edge = 1.0 - smoothstep(0.0, fwidth(dist) * 2.0, abs(dist));
+        col = mix(col, vec3(1.0, 0.25, 0.2), edge);
+      }
+      gl_FragColor = vec4(col, alpha);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+}));
+sea.receiveShadow = false;
+scene.add(sea);
+
+// гипсометрия для слоя height: дно — голубой → синий, суша — зелёный → охра → бурый → светло-серый;
+// горизонтали и изобаты через 5 м, через 25 м жирнее, нулевая — красная
+const hypso = new THREE.ShaderMaterial({
+  uniforms: { uSun: { value: env.sunDir } },
+  vertexShader: `
+    varying vec3 vW;
+    void main() { vec4 wp = modelMatrix * vec4(position, 1.0); vW = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
+  fragmentShader: `
+    uniform vec3 uSun; varying vec3 vW;
+    vec3 hyp(float h) {
+      if (h < 0.0) return mix(vec3(0.62, 0.88, 0.95), vec3(0.08, 0.2, 0.5), sqrt(clamp(-h / 45.0, 0.0, 1.0)));
+      vec3 c = mix(vec3(0.33, 0.6, 0.3), vec3(0.78, 0.76, 0.42), smoothstep(0.0, 40.0, h));
+      c = mix(c, vec3(0.58, 0.4, 0.26), smoothstep(40.0, 100.0, h));
+      return mix(c, vec3(0.92, 0.9, 0.88), smoothstep(110.0, 160.0, h));
+    }
+    float iso(float v) { float w = fwidth(v); return 1.0 - smoothstep(0.0, w * 1.2, abs(fract(v + 0.5) - 0.5)); }
+    void main() {
+      vec3 n = normalize(cross(dFdx(vW), dFdy(vW)));
+      if (n.y < 0.0) n = -n;
+      vec3 col = hyp(vW.y) * (0.55 + 0.45 * max(dot(n, normalize(uSun)), 0.0));
+      col = mix(col, vec3(0.1), iso(vW.y / 5.0) * 0.3);
+      col = mix(col, vec3(0.05), iso(vW.y / 25.0) * 0.5);
+      col = mix(col, vec3(1.0, 0.2, 0.15), 1.0 - smoothstep(0.0, fwidth(vW.y) * 1.5, abs(vW.y)));
+      gl_FragColor = vec4(col, 1.0);
+      #include <colorspace_fragment>
+    }`,
+});
+const terrainMat = terrain?.children[0]?.material;
+
+// слои biome и zones: категории из сеток биомов и зон (текстура R — зона, G — биом), освещение как у гипсометрии
+const ZONE_COLORS = { deep: 0x1f3b73, seabed: 0xe8d9a0, weed: 0x3f8f6a, reefRock: 0x7a3b2e, beach: 0xfff2b0, dune: 0xd4c36a,
+  meadow: 0xb6e06a, forest: 0x2e7d32, scrub: 0x9e8a3a, rock: 0x8d6e63, peak: 0xe8e8e8, settle: 0xe53935 };
+const BIOME_COLORS = { none: 0x5b7fa6, south: 0xe07a3f, north: 0x7b6fd0, atlantic: 0x3fae8a };
+// G — биом, выбранный так же, как будет выбираться для растительности (pickBiome: рощами, по весам) — видно смешение
+let catCache = null;
+const catMat = () => catCache ??= (() => {
+  const W = hf.size, data = new Uint8Array(W * W * 4), [x0, z0] = hf.bounds;
+  for (let j = 0; j < W; j++) {
+    for (let i = 0; i < W; i++) {
+      const k = j * W + i, u = ((Math.imul(k, 2654435761) >>> 0) % 1000) / 1000;
+      data[k * 4] = bio.zone[k];
+      data[k * 4 + 1] = BIOME_IDS.indexOf(bio.pickBiome(x0 + i * hf.step, z0 + j * hf.step, u));
+    }
+  }
+  const tex = new THREE.DataTexture(data, W, W, THREE.RGBAFormat, THREE.UnsignedByteType);
+  tex.magFilter = tex.minFilter = THREE.NearestFilter; tex.needsUpdate = true;
+  const cols = (ids, c) => ids.map((id) => new THREE.Color(c[id]));
+  const make = (mode) => new THREE.ShaderMaterial({
+    uniforms: { uSun: { value: env.sunDir }, uCat: { value: tex }, uBounds: { value: sea.material.uniforms.uHfBounds.value },
+      uZone: { value: cols(ZONES, ZONE_COLORS) }, uBiome: { value: cols(BIOME_IDS, BIOME_COLORS) }, uMode: { value: mode } },
+    vertexShader: hypso.vertexShader,
+    fragmentShader: `
+      uniform vec3 uSun; uniform sampler2D uCat; uniform vec4 uBounds; uniform vec3 uZone[${ZONES.length}]; uniform vec3 uBiome[4]; uniform int uMode;
+      varying vec3 vW;
+      void main() {
+        vec4 t = texture2D(uCat, (vW.xz - uBounds.xy) / uBounds.zw);
+        int zi = int(t.r * 255.0 + 0.5), bi = int(t.g * 255.0 + 0.5);
+        vec3 col = vec3(0.0);
+        for (int i = 0; i < ${ZONES.length}; i++) if (i == zi) col = uZone[i];
+        if (uMode == 1) { for (int i = 0; i < 4; i++) if (i == bi) col = uBiome[i]; if (vW.y < 0.0) col *= 0.6; }
+        vec3 n = normalize(cross(dFdx(vW), dFdy(vW)));
+        if (n.y < 0.0) n = -n;
+        col *= 0.6 + 0.4 * max(dot(n, normalize(uSun)), 0.0);
+        col = mix(col, vec3(1.0, 0.2, 0.15), 1.0 - smoothstep(0.0, fwidth(vW.y) * 1.5, abs(vW.y)));
+        gl_FragColor = vec4(col, 1.0);
+        #include <colorspace_fragment>
+      }`,
+  });
+  return { biome: make(1), zones: make(2) };
+})();
+// легенда активного слоя категорий
+const legendEl = document.getElementById('legend');
+function showLegend(names, colors) {
+  legendEl.hidden = !names;
+  if (names) legendEl.innerHTML = Object.entries(names).map(([id, n]) => `<div><i style="background:#${colors[id].toString(16).padStart(6, '0')}"></i>${n}</div>`).join('');
+}
+// материал рельефа по включённым слоям: высоты > зоны > биомы > обычный
+function syncTerrain() {
+  const m = layerOn.has('height') ? hypso : layerOn.has('zones') ? catMat().zones : layerOn.has('biome') ? catMat().biome : terrainMat;
+  terrain.children.forEach((c) => { c.material = m; });
+  sea.visible = m === terrainMat;
+  terrain.visible = m !== terrainMat || layerOn.has('terrain');
+  if (m === catCache?.zones) showLegend(ZONE_NAMES, ZONE_COLORS);
+  else if (m === catCache?.biome) showLegend(BIOME_NAMES, BIOME_COLORS);
+  else showLegend(null);
+}
+
+// точки прибоя: цвет по круче, скалы белые
+const sites = (() => {
+  const s = shoreMap.sites, pos = new Float32Array(s.count * 3), col = new Float32Array(s.count * 3);
+  const c = new THREE.Color(), lo = new THREE.Color(0x40c8ff), hi = new THREE.Color(0xff3020);
+  for (let n = 0; n < s.count; n++) {
+    pos.set([s.x[n], 0.3, s.z[n]], n * 3);
+    if (s.rock[n]) c.set(0xffffff); else c.copy(lo).lerp(hi, s.steep[n]);
+    col.set([c.r, c.g, c.b], n * 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return new THREE.Points(g, new THREE.PointsMaterial({ size: 5, sizeAttenuation: false, vertexColors: true }));
+})();
+sites.renderOrder = 2;
+scene.add(sites);
+
+// сетка 50 м у карт до 2 км, иначе 100 м (каждая вторая линия ярче) и рамка карты берега
+const GRID = MAP.size > 2000 ? 100 : 50, GRID_EXT = MAP.size / 2;
+const grid = new THREE.Group();
+function lines(pts, color, opacity) {
+  const g = new THREE.BufferGeometry().setFromPoints(pts);
+  return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false }));
+}
+{
+  const minor = [], major = [];
+  for (let v = -GRID_EXT; v <= GRID_EXT; v += GRID) {
+    const list = v % (2 * GRID) === 0 ? major : minor;
+    list.push(new THREE.Vector3(v, 0.2, -GRID_EXT), new THREE.Vector3(v, 0.2, GRID_EXT));
+    list.push(new THREE.Vector3(-GRID_EXT, 0.2, v), new THREE.Vector3(GRID_EXT, 0.2, v));
+  }
+  grid.add(lines(minor, 0xffffff, 0.12), lines(major, 0xffffff, 0.3));
+  const y = 0.25, c = [[bx, bz], [bx + bw, bz], [bx + bw, bz + bh], [bx, bz + bh]].map(([x, z]) => new THREE.Vector3(x, y, z));
+  grid.add(lines([c[0], c[1], c[1], c[2], c[2], c[3], c[3], c[0]], 0xffd040, 0.8));
+}
+scene.add(grid);
+
+// подписи: острова, площадки, вода, буи, старт лодки
+const labelsEl = document.getElementById('labels');
+const marks = []; // { el, p: Vector3, layer? — слой, к которому привязана подпись (иначе labels) }
+function mark(cls, text, p) {
+  const el = document.createElement('div');
+  el.className = cls;
+  if (text) el.textContent = text;
+  labelsEl.appendChild(el);
+  marks.push({ el, p });
+  return el;
+}
+const labels = new THREE.Group();
+let startArrow;
+{
+  // имена островов, площадки посёлков и маяков (⚓ порт, ● город, · деревня, ✦ маяк); курсивом — бухты, банки, рифы
+  for (const d of MAP.islands) if (d.name) { const [x, z] = d.label ?? d.lobes[0]; mark('lbl island', d.name, new THREE.Vector3(x, Math.max(0, hf.sample(x, z)) + 5, z)); }
+  const ICON = { port: '⚓', town: '●', village: '·', lighthouse: '✦', landing: '⊥' };
+  for (const s of hf.sites) mark(`lbl site ${s.type}`, `${ICON[s.type]} ${s.name}`, new THREE.Vector3(s.x, s.h, s.z));
+  const water = (name, x, z) => name && mark('lbl water', name, new THREE.Vector3(x, 0, z));
+  for (const b of MAP.bays ?? []) water(b.name, (b.mouth[0] + b.head[0]) / 2, (b.mouth[1] + b.head[1]) / 2);
+  for (const s of MAP.shoals ?? []) water(s.name, s.x, s.z);
+  for (const r of MAP.reefs ?? []) { const [x, z] = r.pts ? r.pts[r.pts.length >> 1] : [r.x, r.z]; water(r.name, x, z); }
+  for (const b of MAP.beaches ?? []) { const [x, z] = b.pts[b.pts.length >> 1]; water(b.name, x, z); }
+  (MAP.buoys ?? []).forEach((d) => { mark('buoy', '', new THREE.Vector3(d.x, 1, d.z)).style.background = '#' + d.color.toString(16).padStart(6, '0'); });
+  // навигационные знаки плана — на слое plan
+  // старт лодки
+  const b = { ...START.boat, ...MAP.start };
+  mark('lbl', 'старт', new THREE.Vector3(b.x, 6, b.z)).style.transform = 'translate(-50%, -160%)';
+  const arrow = new THREE.Mesh(new THREE.ConeGeometry(2.5, 9, 3).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd040, depthTest: false }));
+  arrow.position.set(b.x, 1, b.z);
+  arrow.rotation.y = -b.headingDeg * DEG;
+  startArrow = arrow;
+  arrow.renderOrder = 3;
+  labels.add(arrow);
+}
+scene.add(labels);
+
+// подписи координат сетки у нижнего и левого края кадра
+const coordEls = [];
+function coordLabel(i) {
+  if (!coordEls[i]) { const el = document.createElement('div'); el.className = 'lbl coord'; labelsEl.appendChild(el); coordEls[i] = el; }
+  return coordEls[i];
+}
+
+// камера: точка (x, z), высота h, угол к горизонту pitch (90° — вниз), курс yaw (0 — север, −z, по часовой)
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.5, 20000);
+camera.rotation.order = 'YXZ';
+const view = (() => {
+  const [x0, z0] = hf.bounds, x1 = x0 + hf.bounds[2], z1 = z0 + hf.bounds[3];
+  const tan = Math.tan(camera.fov / 2 * DEG);
+  const h = 1.1 * Math.max((z1 - z0) / 2 / tan, (x1 - x0) / 2 / (tan * camera.aspect));
+  return { x: (x0 + x1) / 2, z: (z0 + z1) / 2, h, pitch: 90, yaw: 0 };
+})();
+if (q.has('cam')) {
+  const [x, z, h, pitch, yaw] = q.get('cam').split(',').map(Number);
+  Object.assign(view, Object.fromEntries(Object.entries({ x, z, h, pitch, yaw }).filter(([, v]) => Number.isFinite(v))));
+}
+const H_MIN = 5, H_MAX = 2 * MAP.size, PITCH_MIN = 10, PITCH_MAX = 90;
+function applyView() {
+  view.h = Math.min(H_MAX, Math.max(H_MIN, view.h));
+  view.pitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, view.pitch));
+  view.yaw = ((view.yaw % 360) + 540) % 360 - 180;
+  camera.position.set(view.x, view.h, view.z);
+  camera.rotation.set(-view.pitch * DEG, -view.yaw * DEG, 0);
+  camera.near = Math.max(0.2, view.h * 0.01);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld();
+}
+
+// точка плоскости y = 0 под точкой экрана (NDC), null — луч уходит выше горизонта
+const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+function groundAt(nx, ny, out = new THREE.Vector3()) {
+  ray.setFromCamera({ x: nx, y: ny }, camera);
+  return ray.ray.intersectPlane(plane, out);
+}
+const ndc = (e) => ({ x: (e.clientX / innerWidth) * 2 - 1, y: -(e.clientY / innerHeight) * 2 + 1 });
+
+// слой regions: контуры областей биомов (сплошной — граница, пунктир — края мягкой полосы ±feather/2), подписи;
+// области инструмента (auto) — пунктиром целиком
+const regionsGroup = new THREE.Group(), regionMarks = [];
+{
+  for (const r of bio.regions) {
+    const key = typeof r.biome === 'string' ? r.biome : Object.keys(r.biome)[0];
+    const color = BIOME_COLORS[key] ?? 0xffffff, f = r.feather ?? 80;
+    const ring = (grow) => {
+      if (r.shape === 'polygon') return grow ? null : [...r.pts, r.pts[0]].map(([x, z]) => new THREE.Vector3(x, 2, z));
+      const c = Math.cos((r.rot ?? 0) * DEG), sn = Math.sin((r.rot ?? 0) * DEG);
+      return Array.from({ length: 65 }, (_, n) => {
+        const t = n / 64 * Math.PI * 2, lx = (r.a + grow) * Math.cos(t), lz = (r.b + grow) * Math.sin(t);
+        return new THREE.Vector3(r.x + lx * c - lz * sn, 2, r.z + lx * sn + lz * c);
+      });
+    };
+    for (const [grow, dashed] of [[0, !!r.auto], [f / 2, true], [-f / 2, true]]) {
+      const pts = ring(grow);
+      if (!pts) continue;
+      const mat = dashed ? new THREE.LineDashedMaterial({ color, dashSize: 12, gapSize: 8, depthTest: false, transparent: true, opacity: grow ? 0.5 : 1 })
+        : new THREE.LineBasicMaterial({ color, depthTest: false });
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
+      line.computeLineDistances();
+      line.renderOrder = 4;
+      regionsGroup.add(line);
+    }
+    const [cx, cz] = r.shape === 'polygon' ? r.pts.reduce(([a, b], [x, z]) => [a + x / r.pts.length, b + z / r.pts.length], [0, 0]) : [r.x, r.z];
+    const el = mark('lbl water', r.name, new THREE.Vector3(cx, 2, cz));
+    el.style.color = '#' + color.toString(16).padStart(6, '0');
+    regionMarks.push(el);
+    marks[marks.length - 1].layer = 'regions';
+  }
+  scene.add(regionsGroup);
+}
+// панель инструмента: код областей по правилам для вставки в описание карты
+if (autoRegions) {
+  const tool = document.getElementById('tool');
+  tool.hidden = false;
+  tool.innerHTML = `<div>Области по правилам: ${autoRegions.length}. Заменить ими записи с <code>auto</code> в <code>biomeRegions</code>:</div>`;
+  const ta = document.createElement('textarea');
+  ta.readOnly = true;
+  ta.value = regionsToCode(autoRegions);
+  const copy = document.createElement('button');
+  copy.textContent = 'копировать';
+  copy.onclick = () => { ta.select(); navigator.clipboard?.writeText(ta.value); };
+  tool.append(ta, copy);
+}
+
+// слой plan: план поселений — зоны точками (сетка 4 м), контуры границ, улицы по классам (лестницы и тропы — пунктиром),
+// площадь и резервы — прямоугольники, причалы — штрихи к воде, дороги, навигационные знаки
+const planGroup = new THREE.Group(), planMarks = [];
+const PLAN_COLORS = {
+  zone: { core: 0xff6f61, residential: 0xffc857, waterfront: 0x4fc3f7, outskirts: 0x9ccc65, fields: 0xe6ee9c },
+  street: { quay: 0x29b6f6, main: 0xffffff, street: 0xffe082, lane: 0xffa726, ramp: 0xb388ff, ring: 0x26c6da, track: 0xd7b98e, path: 0xefebe9, stairs: 0xef5350 },
+  junction: { T: 0x66bb6a, X: 0xffee58, right: 0xff1744 },
+  road: { 'road-dirt': 0xbcaaa4, track: 0xd7b98e, path: 0xefebe9 },
+  mark: { 'lateral-red': '#d23b2e', 'lateral-green': '#2f9e5b', isolated: '#22262b', cardinal: '#f2c230' },
+};
+{
+  const hAt = (x, z) => Math.max(0, hf.sample(x, z)) + 1.2;
+  // лента шириной w м поверх рельефа (линии WebGL — 1 пиксель, на retina их не видно); dashed — штрихи по 3 м через 2
+  const mats = new Map();
+  const line3 = (pts, color, dashed = false, w = 1) => {
+    const pos = [], idx = [];
+    let L = 0;
+    for (let n = 0; n < pts.length; n++) {
+      const [x, z] = pts[n], [ax, az] = pts[Math.max(0, n - 1)], [bx, bz] = pts[Math.min(pts.length - 1, n + 1)];
+      let tx = bx - ax, tz = bz - az; const l = Math.hypot(tx, tz) || 1; tx /= l; tz /= l;
+      if (n) L += Math.hypot(x - pts[n - 1][0], z - pts[n - 1][1]);
+      const y = hAt(x, z), on = !dashed || L % 5 < 3;
+      pos.push(x - tz * w / 2, y, z + tx * w / 2, x + tz * w / 2, y, z - tx * w / 2);
+      if (n && on) idx.push(2 * n - 2, 2 * n - 1, 2 * n, 2 * n - 1, 2 * n + 1, 2 * n);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    const m = mats.get(color) ?? mats.set(color, new THREE.MeshBasicMaterial({ color, depthTest: false, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })).get(color);
+    const mesh = new THREE.Mesh(g, m);
+    mesh.renderOrder = 6;
+    planGroup.add(mesh);
+  };
+  const dense = (pts, step = 2) => pts.flatMap((p, n) => {
+    if (!n) return [p];
+    const [ax, az] = pts[n - 1], k = Math.max(1, Math.ceil(Math.hypot(p[0] - ax, p[1] - az) / step));
+    return Array.from({ length: k }, (_, i) => [ax + (p[0] - ax) * (i + 1) / k, az + (p[1] - az) * (i + 1) / k]);
+  });
+  const rect = (r, color) => {
+    const c = Math.cos(r.rot), sn = Math.sin(r.rot), pts = [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]].map(([a, b]) => {
+      const lx = a * r.w / 2, lz = b * r.d / 2;
+      return [r.x + lx * c + lz * sn, r.z - lx * sn + lz * c];
+    });
+    line3(dense(pts), color, false, 1);
+  };
+  // зоны
+  const pos = [], col = [], tc = new THREE.Color();
+  for (let j = 0; j < hf.size; j += 2) for (let i = 0; i < hf.size; i += 2) {
+    const k = j * hf.size + i, z = plan.zone[k];
+    if (!z) continue;
+    const x = hf.bounds[0] + i * hf.step, zz = hf.bounds[1] + j * hf.step;
+    pos.push(x, hAt(x, zz) - 0.6, zz);
+    tc.setHex(PLAN_COLORS.zone[PLAN_ZONES[z]]); col.push(tc.r, tc.g, tc.b);
+  }
+  const pg = new THREE.BufferGeometry();
+  pg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  pg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const pts = new THREE.Points(pg, new THREE.PointsMaterial({ size: 3.5, vertexColors: true, transparent: true, opacity: 0.8, depthWrite: false, depthTest: false }));
+  planGroup.add(pts);
+  for (const p of plan.sites) {
+    for (const o of p.outline ?? []) line3(dense(o), 0xffffff, true, 0.8);
+    const WIDE = new Set(['quay', 'main', 'street']), DASH = new Set(['stairs', 'track', 'path']);
+    for (const l of p.streets) line3(dense(l.pts), PLAN_COLORS.street[l.cls] ?? 0xffffff, DASH.has(l.cls), WIDE.has(l.cls) ? 4 : l.cls === 'track' || l.cls === 'path' ? 1.5 : 2.5);
+    // перекрёстки: T, косой X, прямой угол (от 80°)
+    for (const j of p.junctions ?? []) {
+      const r = 2.2, c = j.angle >= 80 ? PLAN_COLORS.junction.right : PLAN_COLORS.junction[j.type];
+      line3(dense(Array.from({ length: 13 }, (_, i) => [j.x + r * Math.cos(i / 6 * Math.PI), j.z + r * Math.sin(i / 6 * Math.PI)]), 1), c, false, 1.6);
+    }
+    if (p.plaza) rect(p.plaza, 0xff5252);
+    for (const r of p.reserves) {
+      rect(r, 0xce93d8);
+      const el = mark('lbl water', STRUCTURES[r.id].name, new THREE.Vector3(r.x, hAt(r.x, r.z), r.z));
+      el.style.fontSize = '10px';
+      planMarks.push(el); marks[marks.length - 1].layer = 'plan';
+    }
+    for (const b of p.berths) line3(dense([[b.x, b.z], [b.x + b.nx * 14, b.z + b.nz * 14]]), 0x00e5ff, false, 2);
+  }
+  // дороги вне посёлков: грунтовая — сплошной, полевая и тропа — пунктиром; участки троп и полевых — по классу (лестницы)
+  const RW = { 'road-dirt': 3, track: 2, path: 1.5, stairs: 2.5 };
+  for (const r of plan.roads) for (const q of r.segs ?? [{ cls: r.kind, pts: r.pts }]) {
+    const cls = q.cls === 'road-dirt' ? 'road-dirt' : q.cls;
+    line3(dense(q.pts), PLAN_COLORS.road[cls] ?? PLAN_COLORS.street[cls] ?? 0xffffff, cls !== 'road-dirt', RW[cls] ?? 2);
+  }
+  for (const m of plan.marks) {
+    const el = mark('buoy', '', new THREE.Vector3(m.x, 1, m.z));
+    el.style.background = PLAN_COLORS.mark[m.kind.startsWith('cardinal') ? 'cardinal' : m.kind];
+    el.title = `${m.kind} — ${m.name}`;
+    planMarks.push(el); marks[marks.length - 1].layer = 'plan';
+  }
+  scene.add(planGroup);
+}
+// легенда слоя plan (сворачивается щелчком по заголовку)
+const planLegendEl = document.getElementById('planLegend');
+{
+  const hex = (c) => typeof c === 'string' ? c : '#' + c.toString(16).padStart(6, '0');
+  const dash = (c) => `background: repeating-linear-gradient(90deg, ${hex(c)} 0 6px, transparent 6px 9px)`;
+  const row = (cls, style, text) => `<div><i class="${cls}" style="${style}"></i>${text}</div>`;
+  const C = PLAN_COLORS;
+  planLegendEl.insertAdjacentHTML('beforeend', [
+    '<h4>зоны</h4>',
+    ...Object.entries({ core: 'центр', residential: 'жилая', waterfront: 'у воды', outskirts: 'окраина, хутора', fields: 'поля, луга' })
+      .map(([k, n]) => row('', `background:${hex(C.zone[k])}`, n)),
+    '<h4>улицы</h4>',
+    ...Object.entries({ quay: 'набережная', main: 'главная', street: 'продольная', lane: 'переулок', ring: 'периметр зоны', ramp: 'серпантин (не круче 15 %)' })
+      .map(([k, n]) => row('ln', `background:${hex(C.street[k])}`, n)),
+    row('ln', dash(C.street.track), 'полевая дорога (край окраин и полей)'),
+    row('ln', dash(C.street.path), 'тропа (до 25 %)'),
+    row('ln', dash(C.street.stairs), 'лестница (круче 15 % у улиц, 25 % у троп)'),
+    row('ln', dash(0xffffff), 'граница посёлка'),
+    '<h4>перекрёстки</h4>',
+    row('dot', `background:${hex(C.junction.T)}`, 'T-образный'),
+    row('dot', `background:${hex(C.junction.X)}`, 'косой X'),
+    row('dot', `background:${hex(C.junction.right)}`, 'прямой угол (от 80°)'),
+    '<h4>места</h4>',
+    row('rc', 'border-color:#ff5252', 'площадь'),
+    row('rc', 'border-color:#ce93d8', 'резерв общественного здания'),
+    row('ln', 'background:#00e5ff', 'причал (к воде)'),
+    '<h4>дороги</h4>',
+    row('ln', `background:${hex(C.road['road-dirt'])}`, 'грунтовая между посёлками'),
+    row('ln', dash(C.road.track), 'полевая — запасная связь, к местам'),
+    row('ln', dash(C.road.path), 'тропа — к маяку, пляжам, местам'),
+    '<h4>навигационные знаки (МАМС-A)</h4>',
+    row('dot', `background:${C.mark['lateral-red']}`, 'левый край фарватера'),
+    row('dot', `background:${C.mark['lateral-green']}`, 'правый край фарватера'),
+    row('dot', `background:${C.mark.cardinal}`, 'кардинальный — обходить с этой стороны'),
+    row('dot', `background:${C.mark.isolated}`, 'отдельная опасность'),
+  ].join(''));
+}
+
+// слои
+const LAYERS = {
+  terrain: (on) => { syncTerrain(); env.buoys.forEach((g) => { g.visible = on; }); },
+  height: syncTerrain, biome: syncTerrain, zones: syncTerrain,
+  regions: (on) => { regionsGroup.visible = on; regionMarks.forEach((el) => { el.hidden = !on; }); },
+  plan: (on) => { planGroup.visible = on; planMarks.forEach((el) => { el.hidden = !on; }); planLegendEl.hidden = !on; },
+  veg: (on) => { veg.group.visible = on; }, build: (on) => { settle.group.visible = on; }, lod: () => {},
+  depth: (on) => { sea.material.uniforms.uDepth.value = +on; },
+  dist: (on) => { sea.material.uniforms.uDist.value = +on; },
+  normal: (on) => { sea.material.uniforms.uNormal.value = +on; },
+  sites: (on) => { sites.visible = on; },
+  grid: (on) => { grid.visible = on; coordEls.forEach((el) => { el.style.display = on ? '' : 'none'; }); },
+  labels: (on) => { labels.visible = on; marks.forEach((m) => { if (!m.layer) m.el.hidden = !on; }); },
+};
+const NAMES = { terrain: 'рельеф', height: 'высоты и изобаты 5 м', biome: 'биомы (выбор для растительности)', zones: 'зоны', regions: 'области биомов', plan: 'план поселений', veg: 'растительность', build: 'постройки и дороги', lod: 'LOD растительности', depth: 'глубина', dist: 'до берега', normal: 'нормаль берега', sites: 'точки прибоя', grid: `сетка ${GRID} м`, labels: 'подписи' };
+const layerOn = new Set((q.get('layers') ?? 'terrain,grid,labels,veg,build,lod').split(',').map((s) => s.trim()));
+const panel = document.getElementById('panel');
+for (const name of Object.keys(LAYERS)) {
+  const lab = document.createElement('label');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = layerOn.has(name);
+  cb.addEventListener('change', () => { cb.checked ? layerOn.add(name) : layerOn.delete(name); LAYERS[name](cb.checked); render(); });
+  lab.append(cb, ' ' + NAMES[name]);
+  panel.appendChild(lab);
+  LAYERS[name](cb.checked);
+}
+{
+  // кнопка инструмента: перезагрузка с autoregions=1 (или обратно)
+  const btn = document.createElement('button');
+  const on = q.get('autoregions') === '1';
+  btn.textContent = on ? 'области из карты' : 'области по правилам';
+  btn.onclick = () => { const u = new URL(location); on ? u.searchParams.delete('autoregions') : u.searchParams.set('autoregions', '1'); location = u; };
+  panel.appendChild(btn);
+  // бенч: прогрев (компиляция шейдеров), затем непрерывный рендер; fps упирается в vsync,
+  // поэтому ещё время кадра render() + gl.finish() (CPU и GPU) — среднее и худшее
+  const bb = document.createElement('button');
+  bb.textContent = 'бенч 5 с';
+  bb.style.display = 'block';
+  bb.onclick = () => runBench(5000);
+  panel.appendChild(bb);
+}
+let bench = null;
+function runBench(ms) {
+  render(); render();
+  let t0 = 0, n = 0, prev = 0, worst = 0, cpu = 0, cpuWorst = 0;
+  const step = (now) => {
+    if (!t0) { t0 = prev = now; } else { worst = Math.max(worst, now - prev); prev = now; n++; }
+    const c0 = performance.now();
+    render();
+    renderer.getContext().finish(); // ждём GPU: в замер попадает и отрисовка, не только отправка команд
+    const c = performance.now() - c0;
+    if (n) { cpu += c; cpuWorst = Math.max(cpuWorst, c); }
+    if (now - t0 < ms || !n) requestAnimationFrame(step);
+    else {
+      bench = { fps: n / ((now - t0) / 1000), worst, cpu: cpu / n, cpuWorst };
+      updateStatus();
+      console.log(`бенч: ${bench.fps.toFixed(1)} fps, худший кадр ${worst.toFixed(1)} мс, кадр с finish ${bench.cpu.toFixed(2)} мс (худший ${cpuWorst.toFixed(1)}), ${frameInfo.calls} draw calls, ${(frameInfo.tris / 1e6).toFixed(2)} млн треуг.`);
+    }
+  };
+  requestAnimationFrame(step);
+}
+
+// строка состояния: курсор и параметры камеры для URL
+const statusEl = document.getElementById('status');
+let cursor = null;
+function updateStatus() {
+  const f = (v, n = 1) => v.toFixed(n);
+  let txt = `cam=${f(view.x, 0)},${f(view.z, 0)},${f(view.h, 0)},${f(view.pitch, 0)},${f(view.yaw, 0)}`;
+  txt += `  ·  кадр ${(frameInfo.tris / 1e6).toFixed(2)} млн треуг., ${frameInfo.calls} draw calls` + (bench ? `  ·  бенч ${f(bench.fps)} fps, худший ${f(bench.worst)} мс, кадр ${f(bench.cpu, 2)} мс` : '');
+  if (cursor) {
+    const { x, z } = cursor, i = shoreMap.info(x, z), h = hf.sample(x, z);
+    txt += `\nx ${f(x)}  z ${f(z)}`;
+    txt += h > 0 ? `  суша ${f(h)} м, уклон ${f(hf.slope(x, z, 3), 2)}` : `  глубина ${f(-h)} м`;
+    txt += ['', '  песок', '  скала'][hf.materialAt(x, z)] + `  ·  ${BIOME_NAMES[bio.biomeAt(x, z)]}, ${ZONE_NAMES[bio.zoneAt(x, z)]}`;
+    txt += Number.isFinite(i.dist) ? `  до берега ${f(i.dist)} м` : '  открытое море';
+  }
+  statusEl.textContent = txt;
+}
+
+const tmp = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3();
+function place(el, p) {
+  tmp.copy(p).project(camera);
+  const vis = tmp.z < 1 && Math.abs(tmp.x) < 1.2 && Math.abs(tmp.y) < 1.2;
+  el.style.visibility = vis ? '' : 'hidden';
+  if (vis) { el.style.left = `${(tmp.x + 1) / 2 * innerWidth}px`; el.style.top = `${(1 - tmp.y) / 2 * innerHeight}px`; }
+  return vis;
+}
+// верхний край кадра на плоскости: при наклоне — последний ряд, где луч ещё бьёт в землю
+function topRow(nx0, nx1) {
+  for (let ny = 0.95; ny > -0.95; ny -= 0.03) if (groundAt(nx0, ny, a) && groundAt(nx1, ny, b)) return ny;
+  return null;
+}
+function updateCoords() {
+  let n = 0;
+  if (layerOn.has('grid')) {
+    const step = view.h > 1500 ? 500 : view.h > 600 ? 200 : 100;
+    // вдоль верхнего и правого края (там нет панелей); по каждому краю подписываем ось, что меняется сильнее
+    const ny = topRow(-0.6, 0.97), edges = [];
+    if (ny !== null) {
+      edges.push([groundAt(-0.6, ny, a.clone()), groundAt(0.9, ny, b.clone())]);
+      edges.push([groundAt(0.96, ny - 0.08, a.clone()), groundAt(0.96, -0.85, b.clone())]);
+    }
+    for (const [p0, p1] of edges) {
+      if (!p0 || !p1) continue;
+      const axis = Math.abs(p1.x - p0.x) > Math.abs(p1.z - p0.z) ? 'x' : 'z';
+      const v0 = Math.min(p0[axis], p1[axis]), v1 = Math.max(p0[axis], p1[axis]);
+      for (let v = Math.ceil(v0 / step) * step; v <= v1 && n < 80; v += step) {
+        const t = (v - p0[axis]) / (p1[axis] - p0[axis]);
+        const el = coordLabel(n++);
+        el.textContent = `${axis} ${v}`;
+        el.style.display = '';
+        place(el, tmp.copy(p0).lerp(p1, t).clone());
+      }
+    }
+  }
+  for (let i = n; i < coordEls.length; i++) coordEls[i].style.display = 'none';
+}
+
+function render() {
+  applyView();
+  startArrow?.scale.setScalar(Math.max(1, view.h / 400)); // стрелка старта не теряется на высоте
+  veg?.update(camera.position, layerOn.has('lod'));
+  placeShadow();
+  renderer.render(scene, camera);
+  frameInfo.calls = renderer.info.render.calls; frameInfo.tris = renderer.info.render.triangles;
+  for (const m of marks) if (layerOn.has(m.layer ?? 'labels')) place(m.el, m.p);
+  updateCoords();
+  updateStatus();
+  updateCompass();
+}
+// компас: роза поворачивается против курса камеры, буквы остаются прямыми
+const rose = document.getElementById('rose');
+function updateCompass() {
+  rose.setAttribute('transform', `rotate(${-view.yaw})`);
+  for (const id of ['cN', 'cS', 'cE', 'cW']) {
+    const t = document.getElementById(id);
+    t.setAttribute('transform', `rotate(${view.yaw} ${t.getAttribute('x') ?? 0} ${t.getAttribute('y') ?? 0})`);
+  }
+}
+document.getElementById('compass').addEventListener('click', () => { view.yaw = 0; render(); });
+
+// управление
+const keys = new Set();
+let drag = null, last = 0, looping = false, shift = false;
+const canvas = renderer.domElement;
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || e.ctrlKey) return;
+  const p = groundAt(ndc(e).x, ndc(e).y);
+  if (p) { drag = p; canvas.setPointerCapture(e.pointerId); }
+});
+canvas.addEventListener('pointerup', () => { drag = null; });
+canvas.addEventListener('pointermove', (e) => {
+  const n = ndc(e);
+  if (e.ctrlKey) {
+    view.pitch += e.movementY * 0.3;
+    view.yaw += e.movementX * 0.3;
+    drag = null;
+  } else if (drag) {
+    applyView();
+    const p = groundAt(n.x, n.y);
+    if (p) { view.x += drag.x - p.x; view.z += drag.z - p.z; }
+  }
+  applyView();
+  cursor = groundAt(n.x, n.y);
+  render();
+});
+canvas.addEventListener('pointerleave', () => { cursor = null; updateStatus(); });
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  view.h *= Math.pow(1.1, Math.sign(e.deltaY));
+  render();
+}, { passive: false });
+// [вправо, вперёд, поворот (по часовой), подъём]
+const MOVE = { KeyW: [0, 1, 0, 0], KeyS: [0, -1, 0, 0], KeyA: [-1, 0, 0, 0], KeyD: [1, 0, 0, 0],
+  KeyQ: [0, 0, -1, 0], KeyE: [0, 0, 1, 0], KeyR: [0, 0, 0, 1], KeyF: [0, 0, 0, -1] };
+addEventListener('keydown', (e) => {
+  if (!MOVE[e.code] || e.metaKey || e.ctrlKey) return;
+  keys.add(e.code);
+  if (!looping) { looping = true; last = performance.now(); requestAnimationFrame(tick); }
+});
+addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('blur', () => keys.clear());
+function tick(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (!keys.size) { looping = false; return; }
+  let r = 0, f = 0, turn = 0, up = 0;
+  for (const k of keys) { r += MOVE[k][0]; f += MOVE[k][1]; turn += MOVE[k][2]; up += MOVE[k][3]; }
+  const speed = view.h * (shift ? 3 : 1);
+  view.yaw += turn * (shift ? 150 : 60) * dt;          // °/с
+  view.h *= Math.exp(up * (shift ? 2.4 : 0.8) * dt);   // высота — в разах, как колесо
+  const y = view.yaw * DEG;
+  view.x += (Math.sin(y) * f + Math.cos(y) * r) * speed * dt;
+  view.z += (-Math.cos(y) * f + Math.sin(y) * r) * speed * dt;
+  render();
+  requestAnimationFrame(tick);
+}
+addEventListener('keydown', (e) => { shift = e.shiftKey; });
+addEventListener('keyup', (e) => { shift = e.shiftKey; });
+
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  render();
+});
+
+render();
+window.__map = { env, shoreMap, camera, view, render, scene, world, hf, bio, terrain, settle, veg, frameInfo, runBench, get bench() { return bench; } };
+if (q.get('bench')) runBench(+q.get('bench') * 1000 || 5000);
+</script>
+</body>
+</html>
