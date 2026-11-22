@@ -31,6 +31,7 @@ export class Waves {
     this.stableLambda = 12;  // и длина волны
     this.stableT = 0;        // сколько секунд цель не менялась
     this.trains = [];
+    this.manual = false;     // ручной режим: системы задаются из панели, высоты не меняются
     this._init = false;
     this.count = 0;
     this.dirX = new Float32Array(MAX_COMP);
@@ -59,6 +60,22 @@ export class Waves {
     this.stableLambda = this.targetLambda;
     this.stableT = 0;
     this.trains = [this._makeTrain(this.windDir, this.targetLambda, this.targetHeight)];
+    this._rebuild();
+  }
+
+  // Ручное волнение: systems — [{ h, dir, lambda }] (dir «откуда», рад), применяется сразу.
+  // null — назад к волнению от ветра: последняя система станет текущей, остальные доживут зыбью.
+  setManual(systems) {
+    this._init = true;
+    if (!systems) { this.manual = false; return; }
+    this.manual = true;
+    // существующие системы перенастраиваем — фазы сохраняются
+    this.trains = systems.map((s, i) => {
+      const t = this.trains[i] ?? this._makeTrain(s.dir, s.lambda, 0);
+      this._tune(t, s.dir, s.lambda);
+      t.h = s.h; t.fading = false;
+      return t;
+    });
     this._rebuild();
   }
 
@@ -104,6 +121,11 @@ export class Waves {
 
   update(dt) {
     this.time += dt;
+    if (this.manual) {
+      for (const t of this.trains) for (let i = 0; i < N; i++) t.phase[i] += t.omega[i] * dt;
+      this._rebuild();
+      return;
+    }
     // ждём, пока ветер устоится: протаскивание ползунка не рождает цепочку систем
     if (Math.abs(wrapPi(this.windDir - this.stableDir)) > STABLE_DIR
       || Math.abs(this.targetLambda / this.stableLambda - 1) > STABLE_LAMBDA) {

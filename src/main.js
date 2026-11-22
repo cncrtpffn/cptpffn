@@ -110,7 +110,7 @@ const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
   resetBoat: () => placeBoat(),
 };
-createWeatherPanel({ wind, sea, env, water, particles, actions, start: START, resolution, perfOverlay });
+createWeatherPanel({ wind, sea, waves, env, water, particles, actions, start: START, resolution, perfOverlay });
 input.on('reef', (d) => boat.sail.reef(d));
 input.on('crew', (a) => { if (boat.crewPos) boat.crewPos = crewMove(boat.crewPos, a); });
 input.on('camera', () => followCam.nextMode());

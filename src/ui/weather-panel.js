@@ -1,5 +1,5 @@
 import GUI from 'three/addons/libs/lil-gui.module.min.js';
-import { beaufort, BEAUFORT_NAMES } from '../config.js';
+import { beaufort, BEAUFORT_NAMES, DEG, SEA } from '../config.js';
 import { SMALL_SCREEN, loadState, saveState } from './collapse.js';
 import { ICONS } from './icons.js';
 import { isTouchDevice } from './touch.js';
@@ -23,7 +23,7 @@ const PRESET_CLOUDS = {
   'Шторм': 'Гроза',
 };
 
-export function createWeatherPanel({ wind, sea, env, water, particles, actions, start, resolution, perfOverlay }) {
+export function createWeatherPanel({ wind, sea, waves, env, water, particles, actions, start, resolution, perfOverlay }) {
   const gui = new GUI({ title: 'Погода и сцена', width: 270 });
   const state = { preset: start.weather.preset, timeOfDay: start.timeOfDay, clouds: start.weather.clouds };
 
@@ -42,13 +42,44 @@ export function createWeatherPanel({ wind, sea, env, water, particles, actions, 
     state.clouds = PRESET_CLOUDS[name];
     env.setCloudType(state.clouds);
     sea.auto = true;
+    if (manual.on) { manual.on = false; setManual(); }
     gui.controllersRecursive().forEach((c) => c.updateDisplay());
     updateBf();
   });
 
   const fs = gui.addFolder('Море');
-  fs.add(sea, 'auto').name('Волнение от ветра');
-  fs.add(sea, 'state', 0, 1, 0.02).name('Волнение вручную');
+  const autoCtl = fs.add(sea, 'auto').name('Волнение от ветра');
+  const stateCtl = fs.add(sea, 'state', 0, 1, 0.02).name('Волнение вручную');
+
+  // ручные волны: две системы, меняются сразу, без нарастания и затухания
+  // стартовые значения — как волнение от ветра (main.js, Waves.configure)
+  const h0 = (sea.auto ? Math.min(1, 0.006 * wind.baseSpeed ** 2) : sea.state) * SEA.maxHeight;
+  const lambda = Math.round(Math.min(40, Math.max(6, 3 + 2.2 * wind.baseSpeed)) * 2) / 2;
+  const manual = {
+    on: false,
+    h1: Math.round(h0 * 20) / 20, dir1: wind.baseDirDeg, len1: lambda,
+    on2: true, h2: 0.5, dir2: (wind.baseDirDeg + 60) % 360, len2: Math.min(40, Math.round(lambda * 1.6 * 2) / 2),
+  };
+  const apply = () => {
+    if (!manual.on) return;
+    const systems = [{ h: manual.h1, dir: manual.dir1 * DEG, lambda: manual.len1 }];
+    if (manual.on2) systems.push({ h: manual.h2, dir: manual.dir2 * DEG, lambda: manual.len2 });
+    waves.setManual(systems);
+  };
+  const setManual = () => {
+    autoCtl.enable(!manual.on); stateCtl.enable(!manual.on);
+    if (manual.on) apply(); else waves.setManual(null);
+  };
+  fs.add(manual, 'on').name('Волны вручную').onChange(setManual);
+  const fs1 = fs.addFolder('Система 1');
+  fs1.add(manual, 'h1', 0, 4, 0.05).name('Высота, м').onChange(apply);
+  fs1.add(manual, 'dir1', 0, 360, 1).name('Откуда, °').onChange(apply);
+  fs1.add(manual, 'len1', 6, 40, 0.5).name('Длина волны, м').onChange(apply);
+  const fs2 = fs.addFolder('Система 2');
+  fs2.add(manual, 'on2').name('Включена').onChange(apply);
+  fs2.add(manual, 'h2', 0, 4, 0.05).name('Высота, м').onChange(apply);
+  fs2.add(manual, 'dir2', 0, 360, 1).name('Откуда, °').onChange(apply);
+  fs2.add(manual, 'len2', 6, 40, 0.5).name('Длина волны, м').onChange(apply);
 
   const fwater = gui.addFolder('Вода');
   fwater.addColor(water.settings, 'color').name('Цвет');
@@ -79,11 +110,17 @@ export function createWeatherPanel({ wind, sea, env, water, particles, actions, 
   fq.add(rs, 'ratio', 0.75, Math.max(1, rs.max), 0.25).name('Плотность пикселей').listen()
     .onChange(() => { rs.auto = false; gui.controllersRecursive().forEach((c) => c.updateDisplay()); });
   fq.add(perfOverlay.state, 'visible').name('Счётчик кадра');
-  fq.close();
 
-  // на маленьких экранах панель и второстепенные папки свёрнуты
+  // папки по умолчанию свёрнуты, их состояние запоминается между сессиями
+  const path = (f) => (f.parent && f.parent !== gui ? `${path(f.parent)}/` : '') + f._title;
+  for (const f of gui.foldersRecursive()) {
+    const key = `weather.${path(f)}`;
+    f.open(!(loadState(key) ?? true));
+    f.$title.addEventListener('click', () => saveState(key, f._closed));
+  }
+
+  // на маленьких экранах панель свёрнута
   const small = matchMedia(SMALL_SCREEN).matches;
-  if (small) { fs.close(); fr.close(); fp.close(); fb.close(); fc.close(); }
   const saved = loadState('weather');
   if (saved ?? small) gui.close();
   gui.title(`<i class="ico">${ICONS.weather}</i><span class="gui-title-text">Погода и сцена</span>`);
