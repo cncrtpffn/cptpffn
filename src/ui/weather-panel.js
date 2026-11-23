@@ -103,6 +103,7 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   const fk = gui.addFolder('Кильватер');
   fk.add(wake.settings, 'enabled').name('Кильватер');
   fk.add(wake.settings, 'lace').name('Дыры');
+  fk.add(wake.settings, 'hull').name('У борта');
   fk.addColor(wake.settings, 'color').name('Цвет');
   fk.addColor(wake.settings, 'edgeColor').name('Цвет контура');
   // 0 — без контура, один тон

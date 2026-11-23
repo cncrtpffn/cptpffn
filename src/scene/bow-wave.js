@@ -53,7 +53,7 @@ export function createBowWave(wake, hullGeo) {
 
   // bow, stern — сила горбов у носа и кормы; width — ширина полосы; lumps — размер барашков;
   // strongColor — сильная пена у носа (остальные цвета — кильватера); waterline — отладочная линия контура
-  const settings = { enabled: true, bow: 1, stern: 1, width: 1, lumps: 1, strongColor: '#ffffff', waterline: false };
+  const settings = { enabled: false, bow: 1, stern: 1, width: 1, lumps: 1, strongColor: '#ffffff', waterline: false };
   const uniforms = {
     uFoam: { value: new THREE.Color() },
     uShade: { value: new THREE.Color() },
@@ -140,6 +140,21 @@ export function createBowWave(wake, hullGeo) {
 
   const bow = new THREE.Vector3();
   let odo = 0, slam = 0, prevImm = null;
+  // кадр: k — включение по ходу 0..1, f — доля скорости корпуса, высоты горбов у носа, кормы, вдоль борта
+  const F = { k: 0, f: 0, bowH: 0, sternH: 0, sideH: 0 };
+  // высота пены над водой по σ — доле длины ватерлинии от носа
+  function heightAt(sgm) {
+    const bowK = Math.exp(-(((sgm - 0.05) / 0.12) ** 2));
+    const sternK = Math.exp(-(((1 - sgm) / 0.1) ** 2));
+    return F.sideH + F.bowH * bowK + F.sternH * sternK;
+  }
+  // ширина пены от борта до внешнего края по σ; по ней же — волна у борта (лента кильватера, wake.js).
+  // У самого форштевня внешний край ближе: пена обтекает нос подушкой, а не клином; за транцем шире — переходит в кильватер
+  function widthAt(sgm) {
+    const sternK = Math.exp(-(((1 - sgm) / 0.1) ** 2));
+    return (settings.width * (0.12 + 0.25 * F.f) * F.k + 1.2 * heightAt(sgm))
+      * (0.6 + 0.4 * THREE.MathUtils.smoothstep(sgm, 0, 0.06)) * (1 + 0.5 * sternK);
+  }
 
   function drawDebug() {
     lines.visible = settings.waterline && rs.valid;
@@ -170,15 +185,18 @@ export function createBowWave(wake, hullGeo) {
     const want = S.enabled && k > 0.01 && !boat.capsized;
     boatMesh.group.updateMatrixWorld();
     const M = boatMesh.group.matrixWorld;
-    // без буруна контур не нужен; устаревший не держим — им могут пользоваться другие (брызги)
-    if (want || S.waterline) waterline.update(M, waves); else waterline.invalidate();
+    // без буруна и волны у борта (лента кильватера, wake.js) контур не нужен; устаревший не держим —
+    // им могут пользоваться другие (брызги)
+    const band = wake.settings.enabled && wake.settings.hull && k > 0.01 && !boat.capsized;
+    if (want || band || S.waterline) waterline.update(M, waves); else waterline.invalidate();
     drawDebug();
+    const f = Math.min(speed / BOAT.hullSpeed, 1.4);
+    F.k = k; F.f = f;
+    F.bowH = (S.bow * (0.04 + 0.18 * f * f) + slam) * k;
+    F.sternH = S.stern * (0.02 + 0.07 * f * f) * k;
+    F.sideH = 0.04 * f * k;
     mesh.visible = want;
     if (!mesh.visible) return;
-    const f = Math.min(speed / BOAT.hullSpeed, 1.4);
-    const bowH = (S.bow * (0.04 + 0.18 * f * f) + slam) * k;
-    const sternH = S.stern * (0.02 + 0.07 * f * f) * k;
-    const sideH = 0.04 * f * k;
 
     // настоящие концы ватерлинии вдоль оси корпуса (нос — −z в СК модели)
     let zmin = Infinity, zmax = -Infinity;
@@ -193,8 +211,7 @@ export function createBowWave(wake, hullGeo) {
       // транец: кромка, обращённая назад, у кормы — пена переходит в кильватер, рисунок не едет
       const tr = THREE.MathUtils.smoothstep(-(nx * fx + nz * fz), 0.55, 0.85) * THREE.MathUtils.smoothstep(sgm, 0.7, 0.9);
       const bowK = Math.exp(-(((sgm - 0.05) / 0.12) ** 2));
-      const sternK = Math.exp(-(((1 - sgm) / 0.1) ** 2));
-      const h = sideH + bowH * bowK + sternH * sternK;
+      const h = heightAt(sgm);
       // развёртка — путь от носа по своему борту; транец — свой рисунок (code 2)
       const sc = rs.s[c], o = c * ROWS * 4;
       const code = tr > 0.5 ? 2 : sc < L / 2 ? 0 : 1;
@@ -209,10 +226,7 @@ export function createBowWave(wake, hullGeo) {
       const climb = 0.5 * h, out = 0.03 + 0.3 * climb;
       const ix = px + nx * out, iz = pz + nz * out, iy = py + 0.02 + climb;
       const cw = 0.06 + 0.35 * h;
-      // у самого форштевня внешний край ближе: пена обтекает нос подушкой, а не клином;
-      // за транцем шире — переходит в кильватер
-      const w = (S.width * (0.12 + 0.25 * f) * k + 1.2 * h) * (0.6 + 0.4 * THREE.MathUtils.smoothstep(sgm, 0, 0.06))
-        * (1 + 0.5 * sternK);
+      const w = widthAt(sgm);
       const H = S.lumps * (0.06 + 0.4 * h) * k;
       // вода под гребнем — между бортом и внешним краем (гребень близко к борту, волны длиннее метра)
       const ox = ix + nx * w, oz = iz + nz * w, ho = waterline.waterAt(ox, oz);
@@ -240,5 +254,5 @@ export function createBowWave(wake, hullGeo) {
 
   function reset() { odo = 0; slam = 0; prevImm = null; }
 
-  return { mesh, lines, waterline, settings, update, reset };
+  return { mesh, lines, waterline, settings, widthAt, update, reset };
 }

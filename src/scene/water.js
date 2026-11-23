@@ -127,6 +127,9 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uWakeG: { value: wake.groups },
     uWakeCap: { value: wake.caps },
     uWakeCount: { value: 0 },
+    uWakeIn: { value: wake.inner },
+    uWakeHullN: { value: 0 },
+    uWakeTail: { value: wake.tail },
     uWakeBox: { value: wake.box },
     uWakeW: { value: new THREE.Vector2() },
     uWakeEdge: { value: 0 },
@@ -292,6 +295,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uWakeOn.value = ws.enabled ? 1 : 0;
     uniforms.uWakeLace.value = ws.lace ? 1 : 0;
     uniforms.uWakeCount.value = wake.count;
+    uniforms.uWakeHullN.value = wake.hullCount;
     uniforms.uWakeW.value.set(ws.life, ws.holes);
     uniforms.uWakeEdge.value = ws.edge;
     uniforms.uWakeRim.value = ws.rim;

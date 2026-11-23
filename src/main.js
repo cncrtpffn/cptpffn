@@ -242,7 +242,8 @@ function frame(now) {
     crestSpray.update(dt, waves, wind, camera);
   }
   particles.update(halted ? 0 : dt, { waves, wind, env, camera });
-  if (!halted) wake.update(simTime, boat);
+  // волна у борта — лента кильватера вдоль корпуса по контуру ватерлинии буруна
+  if (!halted) wake.update(simTime, boat, { contour: bowWave.waterline.contour, widthAt: bowWave.widthAt });
   water.update(waves, boat.x, boat.z, wind.vector());
   env.update(halted ? 0 : dt, waves, wind, boat, camera);
   followCam.update(dt || 0.016, boat, boatMesh);
