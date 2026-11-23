@@ -52,8 +52,8 @@ export function createWake() {
   // spread — на сколько полуширин у кормы лента расширяется за секунду; holes — длина ячейки кружева, м;
   // edge — толщина контура перемычек (0 — один тон); rim — ширина края ленты у кормы, пока дыры его не прорвали (в ячейках); цвета — заливка ленты и контур (панель «Кильватер»);
   // lace — дыры кружева
-  // hull — волна у борта (продление ленты вдоль корпуса)
-  const settings = { enabled: true, lace: true, hull: true, life: 20, width: 1.1, spread: 0.12, holes: 1.0, edge: 0.1, rim: 0.15, color: '#9ad8e6', edgeColor: '#2f9cc8' };
+  // hull — волна у борта (продление ленты вдоль корпуса); segments — границы сегментов (отладка: линии на точках следа)
+  const settings = { enabled: true, lace: true, hull: true, segments: false, life: 20, width: 1.1, spread: 0.12, holes: 1.0, edge: 0.1, rim: 0.15, color: '#9ad8e6', edgeColor: '#2f9cc8' };
   // доля корпуса в полуширине у точек корпуса; hullCount — сколько сегментов корпуса в начале a, b (начало следа —
   // a[hullCount]); tail — (одометр начала следа, доля корпуса там, TAIL): переход за началом в WAKE_GLSL
   const inner = new Float32Array(WAKE_HULL + 1);

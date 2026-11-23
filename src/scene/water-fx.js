@@ -126,6 +126,7 @@ export const WAKE_GLSL = `
   uniform vec4 uWakeA[${WAKE_POINTS}]; uniform vec4 uWakeB[${WAKE_POINTS}]; uniform vec3 uWakeCap[${WAKE_CAPS}]; uniform int uWakeCount;
   uniform vec3 uWakeG[${WAKE_POINTS / WAKE_GROUP}];
   uniform float uWakeIn[${WAKE_HULL + 1}]; uniform int uWakeHullN; uniform vec3 uWakeTail;
+  uniform float uWakeSeg;
   uniform vec4 uWakeBox; uniform vec2 uWakeW; uniform float uWakeEdge; uniform float uWakeRim; uniform float uWakeOn; uniform float uWakeLace;
   // Дыры кружева — круги случайного радиуса вокруг узлов сетки ячеек (в q поперёк сжато — в мире овалы),
   // соседние сливаются в волнистые. x — расстояние до ближайшей дыры (минус — внутри).
@@ -162,9 +163,9 @@ export const WAKE_GLSL = `
   // край ленты в долях полуширины: без кружева хвост в последней четверти жизни сужается до нуля
   // (иначе обрыв), с кружевом не сужается — хвост съедают дыры, фигура не замыкается
   float wakeRim(float life) { return uWakeLace > 0.0 ? 1.0 : 1.0 - smoothstep(0.75, 1.0, life); }
-  // x — заливка ленты, y — контур, z — бурун за кормой
-  vec3 wakeMask(vec2 p) {
-    if (uWakeOn <= 0.0 || uWakeCount < 2 || any(lessThan(p, uWakeBox.xy)) || any(greaterThan(p, uWakeBox.zw))) return vec3(0.0);
+  // x — заливка ленты, y — контур, z — бурун за кормой, w — границы сегментов (отладка, uWakeSeg)
+  vec4 wakeMask(vec2 p) {
+    if (uWakeOn <= 0.0 || uWakeCount < 2 || any(lessThan(p, uWakeBox.xy)) || any(greaterThan(p, uWakeBox.zw))) return vec4(0.0);
     // ближайшее место на ломаной в долях ширины ленты (там, где лента перекрывает себя на повороте, выигрывает
     // тот участок, что накрывает точку, — край без ступенек): поперёк со знаком, одометр, возраст, скорость.
     // На стыках — расстояние до самой точки: на внешней стороне поворота лента без щелей
@@ -175,6 +176,8 @@ export const WAKE_GLSL = `
     float rows = 2.0;
     float bv = 1.3, bu = 0.0, ba = 0.0, bs = 0.0, bi = 0.0;
     bool bh = false;
+    // до ближайшей точки следа вдоль сегмента, м: линия поперёк ленты на каждой точке
+    float bd = 10.0;
     // светлая сердцевина — по всем участкам, что накрывают точку (где лента наложилась сама на себя, светлее
     // берётся верх, без шва): до её края, в единицах ячеек
     float core = -10.0;
@@ -212,7 +215,7 @@ export const WAKE_GLSL = `
         bool hs = i < uWakeHullN;
         float inr = hs ? mix(uWakeIn[i], uWakeIn[i + 1], clamp(t, 0.0, 1.0))
           : uWakeTail.y * (1.0 - smoothstep(0.0, uWakeTail.z, uWakeTail.x - u));
-        if (abs(v) < abs(bv)) { bv = v; bu = u; ba = a; bs = w.y; bi = inr; bh = hs; }
+        if (abs(v) < abs(bv)) { bv = v; bu = u; ba = a; bs = w.y; bi = inr; bh = hs; bd = min(abs(t), abs(1.0 - t)) * sqrt(l2); }
         // сердцевина — только на пробегах выше ~1.5 уз (wake.js), внутри тонкого контура (uWakeEdge);
         // концы пробега — круги радиусом в полуширину ленты (uWakeCap), без круга — по расстоянию вдоль следа
         if (w.z > 0.0) {
@@ -230,7 +233,7 @@ export const WAKE_GLSL = `
       }
     }
     float life = ba;
-    if (life >= 1.0 || abs(bv) >= 1.3) return vec3(0.0);
+    if (life >= 1.0 || abs(bv) >= 1.3) return vec4(0.0);
     float v = bv;
     float rimOut = mix(wob, 1.0, bi) * wakeRim(ba);
     // вдоль борта — сплошная полоса: без дыр и буруна
@@ -249,8 +252,9 @@ export const WAKE_GLSL = `
     float qLim = vIn * (0.6 + 0.4 * vIn) * rows;
     // gLace — дыры целиком (вокруг них контур), gWater — их залитая водой часть; пока не залита — цвет контура
     // без кружева (uWakeLace = 0) — сплошная лента с ободом
+    // дыры рождаются мелкими (0.4 от базового радиуса) и к концу жизни вырастают в 2.2 раза
     vec2 hw = lace
-      ? wakeHoles(q, 1.0 + 1.2 * life, life, 0.3 * life * 1.4 + 1.2 * smoothstep(0.7, 1.0, life), qLim, keep) : vec2(10.0);
+      ? wakeHoles(q, 0.4 + 1.8 * life, life, 0.3 * life * 1.4 + 1.2 * smoothstep(0.7, 1.0, life), qLim, keep) : vec2(10.0);
     float gLace = hw.x - off;
     float gWater = max(hw.y, gLace);
     float e = (rimOut - abs(v)) * rows; // до внешнего края, в единицах ячеек
@@ -276,6 +280,8 @@ export const WAKE_GLSL = `
     float churn = (1.0 - smoothstep(0.4, 2.2, ba * uWakeW.x)) * (1.0 - smoothstep(0.35, 0.75, abs(v)));
     churn *= smoothstep(0.42, 0.58, vnoise(p * 2.3 + uTime * 0.6) * 0.6 + vnoise(p * 5.1 - uTime * 0.9) * 0.4);
     churn *= smoothstep(1.0, 3.5, bs) * (bh ? 0.0 : 1.0);
-    return vec3(fill, edge, churn);
+    float seg = 0.0;
+    if (uWakeSeg > 0.0) seg = (1.0 - smoothstep(0.0, 1.5 * fwidth(bd), bd)) * inside;
+    return vec4(fill, edge, churn, seg);
   }
 `;

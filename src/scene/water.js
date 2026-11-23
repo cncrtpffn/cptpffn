@@ -129,6 +129,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uWakeCount: { value: 0 },
     uWakeIn: { value: wake.inner },
     uWakeHullN: { value: 0 },
+    uWakeSeg: { value: 0 },
     uWakeTail: { value: wake.tail },
     uWakeBox: { value: wake.box },
     uWakeW: { value: new THREE.Vector2() },
@@ -195,10 +196,11 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         float surfLines = 1.0 - smoothstep(uRadius * 0.6, uRadius * 0.9, length(vWaveP - uCenter));
         diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, surfFoam(vWaveP, sh, surfLines));
         // кильватер: светлая лента с контуром перемычек, у кормы — белый бурун
-        vec3 wk = wakeMask(vWaveP);
+        vec4 wk = wakeMask(vWaveP);
         diffuseColor.rgb = mix(diffuseColor.rgb, uWakeColor, wk.x);
         diffuseColor.rgb = mix(diffuseColor.rgb, uWakeEdgeColor, wk.y);
-        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, wk.z);`)
+        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, wk.z);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.25, 0.3), wk.w);`)
       .replace('#include <shadowmap_pars_fragment>', `#include <shadowmap_pars_fragment>
         ${WATER_SHADOW_GLSL(shadowTaps)}`)
       // нормаль по пикселю, а не по вершинам: сетка короче коротких компонент не передаёт,
@@ -296,6 +298,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uWakeLace.value = ws.lace ? 1 : 0;
     uniforms.uWakeCount.value = wake.count;
     uniforms.uWakeHullN.value = wake.hullCount;
+    uniforms.uWakeSeg.value = ws.segments ? 1 : 0;
     uniforms.uWakeW.value.set(ws.life, ws.holes);
     uniforms.uWakeEdge.value = ws.edge;
     uniforms.uWakeRim.value = ws.rim;
