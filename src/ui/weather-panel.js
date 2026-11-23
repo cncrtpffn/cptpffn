@@ -97,6 +97,9 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   // мелкая рябь по направлению ветровых волн, сила — множитель к силе от ветра
   fwater.add(water.settings, 'ripple').name('Рябь');
   fwater.add(water.settings, 'rippleStrength', 0, 3, 0.05).name('Сила ряби');
+  // барашки на гребнях с умеренного ветра; количество — множитель к силе от ветра
+  fwater.add(water.settings, 'whitecaps').name('Барашки');
+  fwater.add(water.settings, 'whitecapAmount', 0, 2, 0.05).name('Количество барашков');
 
   const fr = gui.addFolder('Отражения');
   const R = water.reflection;
@@ -124,6 +127,8 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   fk.add(wake.settings, 'segments').name('Границы сегментов');
   fk.addColor(wake.settings, 'color').name('Цвет');
   fk.addColor(wake.settings, 'edgeColor').name('Цвет контура');
+  // палитра общая для всей пены и брызг: барашки, прибой, капли
+  fk.addColor(wake.settings, 'foamColor').name('Цвет сильной пены');
   // 0 — без контура, один тон
   fk.add(wake.settings, 'edge', 0, 0.2, 0.01).name('Контур');
   // сплошной край ленты у кормы, дальше его прорывают дыры

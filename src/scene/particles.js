@@ -12,7 +12,8 @@ const DROP_SPRITE_MIN = 0.0025;
 //   drop — low-poly капли, падают по баллистике и гибнут в воде;
 //   mist — водяная пыль: мягкие спрайты, их подхватывает ветер, расплываются и тают.
 // Спрайты рисуют и пыль, и далёкие капли. scale — доля частиц от эмиттеров (на таче меньше).
-export function createParticles({ scale = 1, maxDrops = 1500, maxMist = 1200 } = {}) {
+// palette — палитра пены (wake.settings): капли цвета сильной пены (foamColor), пыль — цвета заливки кильватера (color).
+export function createParticles({ scale = 1, maxDrops = 1500, maxMist = 1200, palette } = {}) {
   const drop = createPool(maxDrops, { gravity: 9.81, drag: 0.9 });
   const mist = createPool(maxMist, { gravity: 0.6, drag: 2.5 });
   const maxSprites = maxMist + maxDrops;
@@ -29,7 +30,8 @@ export function createParticles({ scale = 1, maxDrops = 1500, maxMist = 1200 } =
   quad.setAttribute('aFade', fade);
   quad.setAttribute('aMin', minSize);
   const spriteMat = new THREE.ShaderMaterial({
-    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTint: { value: new THREE.Color(1, 1, 1) } }]),
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
+      uTint: { value: new THREE.Color(1, 1, 1) }, uMist: { value: new THREE.Color(1, 1, 1) }, uDrop: { value: new THREE.Color(1, 1, 1) } }]),
     vertexShader: /* glsl */`
       attribute float aFade; attribute float aMin;
       varying float vFade; varying float vDrop; varying vec2 vUv;
@@ -49,7 +51,7 @@ export function createParticles({ scale = 1, maxDrops = 1500, maxMist = 1200 } =
         #include <fog_vertex>
       }`,
     fragmentShader: /* glsl */`
-      uniform vec3 uTint;
+      uniform vec3 uTint; uniform vec3 uMist; uniform vec3 uDrop;
       varying float vFade; varying float vDrop; varying vec2 vUv;
       #include <fog_pars_fragment>
       void main() {
@@ -57,7 +59,7 @@ export function createParticles({ scale = 1, maxDrops = 1500, maxMist = 1200 } =
         if (r2 > 1.0 || vFade < 0.004) discard;
         float a = 1.0 - r2;
         // пыль — мягкий клуб; капля-спрайт — плотная светлая точка
-        gl_FragColor = vec4(uTint * (1.0 + 0.3 * vDrop), mix(a * a, smoothstep(0.0, 0.4, a), vDrop) * vFade);
+        gl_FragColor = vec4(uTint * mix(uMist, uDrop * 1.3, vDrop), mix(a * a, smoothstep(0.0, 0.4, a), vDrop) * vFade);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
         #include <fog_fragment>
@@ -139,7 +141,12 @@ export function createParticles({ scale = 1, maxDrops = 1500, maxMist = 1200 } =
     upload(spriteMesh.instanceMatrix, ns, 16);
     upload(fade, ns, 1);
     upload(minSize, ns, 1);
-    // спрайты освещены небом и солнцем, как матовый белый шар
+    if (palette) {
+      dropMesh.material.color.set(palette.foamColor);
+      spriteMat.uniforms.uDrop.value.set(palette.foamColor);
+      spriteMat.uniforms.uMist.value.set(palette.color);
+    }
+    // спрайты освещены небом и солнцем, как матовый шар цвета палитры
     if (env) {
       sky.copy(env.hemi.color).multiplyScalar(env.hemi.intensity);
       spriteMat.uniforms.uTint.value.copy(env.sun.color).multiplyScalar(env.sun.intensity * Math.max(0, env.sunDir.y) * 0.45).add(sky);

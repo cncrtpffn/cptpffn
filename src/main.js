@@ -102,7 +102,7 @@ scene.add(bowWave.mesh, bowWave.lines);
 const bowl = P.bowl ? createTestBowls(Math.max(1, Math.round(P.bowl)), startBoat.x + 6, startBoat.z - 6) : null;
 if (bowl) scene.add(...bowl.objects);
 // брызги: общая система частиц и эмиттеры; на таче частиц вдвое меньше
-const particles = createParticles({ scale: isTouchDevice() ? 0.5 : 1 });
+const particles = createParticles({ scale: isTouchDevice() ? 0.5 : 1, palette: wake.settings });
 scene.add(...particles.meshes);
 const bowSpray = createBowSpray(particles);
 const shoreSpray = createShoreSpray(particles, shoreMap);

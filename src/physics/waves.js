@@ -110,6 +110,9 @@ export class Waves {
 
   // направление ветрового волнения «откуда» (рад): текущая (последняя) система, в ручном режиме — последняя ручная
   get windSeaDir() { return this.trains.length ? this.trains[this.trains.length - 1].dir : this.windDir; }
+  // её длина волны и номер главной компоненты в общих массивах (по ней полоса барашков в шейдере)
+  get windSeaLambda() { return this.trains.length ? this.trains[this.trains.length - 1].lambda : this.targetLambda; }
+  get windSeaComp() { return Math.max(0, this.trains.length - 1) * N; }
 
   // доли амплитуд по долям длин, Σ доль² = AMP_ENERGY
   _spectrum(t) {
@@ -262,14 +265,17 @@ export class Waves {
     return { h, sx: hx / (2 * e), sz: hz / (2 * e) };
   }
 
-  // Крутизна гребня Σ a·k·sin θ — как vSteep в шейдере воды (по ней рисуются барашки).
+  // Нормированная высота гребня Σ a·sin θ / √Σ a² — как waveHn в шейдере воды (по ней барашки, WHITECAP в water-fx.js).
   // Считается в точке параметризации, без обратной итерации: для брызг точности хватает.
-  steepAt(x, z) {
-    let s = 0;
+  // У берега, где волны гаснут (там барашков нет — пена прибоя), — −1.
+  crestAt(x, z) {
+    if (this.damp && this.damp(x, z) < 0.85) return -1;
+    let h = 0, e = 0;
     for (let i = 0; i < this.count; i++) {
-      s += this.k[i] * this.amp[i] * Math.sin(this.k[i] * (this.dirX[i] * x + this.dirZ[i] * z) - this.phase[i]);
+      h += this.amp[i] * Math.sin(this.k[i] * (this.dirX[i] * x + this.dirZ[i] * z) - this.phase[i]);
+      e += this.amp[i] * this.amp[i];
     }
-    return s * (this.damp ? this.damp(x, z) : 1);
+    return e > 1e-8 ? h / Math.sqrt(e) : 0;
   }
 
   maxAmplitude() {

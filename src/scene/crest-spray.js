@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { whitecapForce, whitecapThreshold } from './water-fx.js';
 
 const R0 = 5, R1 = 80;     // кольцо вокруг камеры, где ищем гребни, м
 const SAMPLES = 2000;      // проб в секунду при полной силе
@@ -7,7 +8,7 @@ const DROPS_FROM = 30;     // ближе — только пыль: срыв г�
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 
-// Срыв гребней в сильный ветер: случайные пробы вокруг камеры; где гребень круче порога
+// Срыв гребней в сильный ветер: случайные пробы вокруг камеры; где гребень выше порога
 // барашков (как в шейдере воды), ветер срывает с него шлейф пыли и пару капель.
 export function createCrestSpray(particles) {
   let acc = 0;
@@ -19,9 +20,8 @@ export function createCrestSpray(particles) {
     const amount = particles.amount('crest');
     const force = THREE.MathUtils.smoothstep(wind.speed, 11, 18);
     if (!amount || !force) { acc = 0; return; }
-    // порог барашков из шейдера воды: lo = mix(0.36, 0.2, whitecap); срывается только самый верх
-    const whitecap = THREE.MathUtils.clamp((wind.speed - 5) / 10, 0, 1);
-    const thr = THREE.MathUtils.lerp(0.36, 0.2, whitecap) + 0.05;
+    // порог барашков из шейдера воды (без шума полос); срывается только самый верх
+    const thr = whitecapThreshold(whitecapForce(wind.speed)) + 0.4;
     const w = wind.vector();
     camera.getWorldDirection(dir);
     const yaw = Math.atan2(dir.z, dir.x);
@@ -34,7 +34,7 @@ export function createCrestSpray(particles) {
       // равномерно по расстоянию: ближних гребней больше, чем при равномерной площади, — их и видно
       const r = rnd(R0, R1);
       const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
-      if (waves.steepAt(x, z) < thr) continue;
+      if (waves.crestAt(x, z) < thr) continue;
       const h = waves.heightAt(x, z);
       const k = force * amount;
       // шлейф: клубы цепочкой по ветру от гребня

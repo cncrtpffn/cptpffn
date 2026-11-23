@@ -355,3 +355,62 @@ export const RIPPLE_GLSL = `
     return s * uRipple;
   }
 `;
+
+// Барашки: пороги общие для шейдера (WHITECAP_GLSL) и брызг с гребней (crest-spray.js).
+// Сила от ветра: 0 до windFrom, 1 с windFull (м/с). Есть ли пена на участке гребня — по нормированной высоте
+// hn = Σ a·sin θ / √Σ a² (на гребне одной главной волны ≈ 0.9, где сходятся компоненты — до ~1.6): порог
+// опускается с силой от hi до lo — барашков больше и они длиннее.
+export const WHITECAP = { windFrom: 5, windFull: 15, hi: 1.55, lo: 0.62 };
+export const whitecapForce = (speed) => Math.min(1, Math.max(0, (speed - WHITECAP.windFrom) / (WHITECAP.windFull - WHITECAP.windFrom)));
+export const whitecapThreshold = (f) => WHITECAP.hi + (WHITECAP.lo - WHITECAP.hi) * f;
+
+// Барашки — полосы пены вдоль гребней, цветами кильватера: заливка, контур по краю, сильная пена на фронте. Поперёк полоса — по фазе главной волны ветровой системы
+// (s0 = sin θ, c0 = cos θ; гребень s0 = 1, c0 > 0 — задний склон): узкая, с ветром шире. Вдоль — есть ли пена,
+// решают высота hn (сходятся волны — гребень выше) и шум, растянутый вдоль гребня (поперёк uRippleDir):
+// к концам участка полоса сужается в линзу. Шум едет с гребнем (uWhitecap.y — пройденный гребнем путь, м)
+// и медленно меняется во времени — полоса появляется, держится несколько секунд и гаснет.
+// Фронт (передний склон, c0 < 0) — сильная пена. За гребнем — полупрозрачный хвост цвета заливки при сильном ветре.
+// Возвращает x — заливку (с хвостом), y — контур, z — сильную пену; uWhitecapEdge — толщина контура в долях полосы.
+// uWhitecap.x — сила 0..1 (с ветром), 0 — выкл; z — волновое число главной волны (рад/м). Нужны NOISE_GLSL, RIPPLE_GLSL (uRippleDir), uTime.
+export const WHITECAP_GLSL = `
+  uniform vec3 uWhitecap; uniform int uWhitecapComp; uniform float uWhitecapEdge;
+  vec3 whitecap(vec2 p, float hn, float s0, float c0) {
+    float f = uWhitecap.x;
+    if (f <= 0.0) return vec3(0.0);
+    float thr = ${WHITECAP.hi.toFixed(3)} + ${(WHITECAP.lo - WHITECAP.hi).toFixed(3)} * f;
+    // ниже порога с запасом на шум или далеко от гребня — пены нет, шум не считаем
+    if (hn < thr - 0.5 || s0 < 0.5) return vec3(0.0);
+    vec2 w = uRippleDir, wp = vec2(-w.y, w.x);
+    // вдоль гребня ~9 м, поперёк — как соседние гребни
+    vec2 q = vec2(dot(p, wp) / 9.0, (dot(p, w) - uWhitecap.y) / 6.0);
+    float n = vnoise(q) * 0.65 + vnoise(q * vec2(1.7, 1.3) + vec2(31.7, uTime * 0.12)) * 0.35;
+    float fpx = length(fwidth(p));
+    // рваный край, мелкий шум гаснет вдали
+    float hf = mix(vnoise(p * 1.3 + w * uTime * 0.4), 0.5, smoothstep(0.1, 0.4, fpx));
+    // есть ли пена: 0 — нет, 1 — полная ширина
+    float gp = clamp((hn - thr + (n - 0.5) * 1.0) / 0.15, 0.0, 1.0);
+    // поперёк: доля гребня в фазе главной волны; полуширина 0.3 м при слабом ветре, 1 м при сильном
+    // (uWhitecap.z — волновое число главной волны), неровная вдоль полосы
+    float wb = 1.0 - cos(min(mix(0.3, 1.0, f) * (0.5 + n) * uWhitecap.z, 1.2));
+    // рваный край — только внутри участка с пеной, иначе по всем гребням бисер
+    // без пены (gp = 0) центр гребня ровно на границе — сдвиг, иначе волосяная линия по всем гребням
+    float g = (s0 - 1.0 + wb) / wb - 1.1 + gp * (1.1 + (hf - 0.5) * 0.5);
+    // сглаживание только внутрь: снаружи строго 0, иначе вдали, где полоса уже пикселя, бледные линии по всем
+    // гребням; узкие далёкие полосы сами бледнеют и гаснут без мерцания
+    float aa = max(fwidth(g), 1e-3);
+    float cap = smoothstep(0.0, 2.0 * aa, g);
+    // хвост: за гребнем шире, при сильном ветре
+    float tail = 0.0;
+    if (f > 0.3 && c0 > 0.0) {
+      float wt = wb * 2.5;
+      float gt = (s0 - 1.0 + wt) / wt - 1.1 + gp * (1.1 + (vnoise(p * 0.8 - w * uTime * 0.2) - 0.5) * 0.8);
+      tail = smoothstep(0.0, 2.0 * aa, gt) * 0.4 * smoothstep(0.3, 0.8, f);
+    }
+    // контур: полоса у края толщиной uWhitecapEdge (в единицах g: 1 — от края до середины полной полосы)
+    float edge = cap * (1.0 - smoothstep(uWhitecapEdge, uWhitecapEdge + 2.0 * aa, g));
+    // фронт — сильная пена внутри контура
+    float ca = max(fwidth(c0), 1e-3);
+    float strong = cap * (1.0 - edge) * (1.0 - smoothstep(-ca, ca, c0));
+    return vec3(max(cap, tail), edge, strong);
+  }
+`;

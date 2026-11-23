@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { MAX_COMP } from '../physics/waves.js';
-import { NOISE_GLSL, SHORE_DAMP_GLSL, SURF_GLSL, WAKE_GLSL, SKY_REFLECT_GLSL, RIPPLE_GLSL } from './water-fx.js';
+import { NOISE_GLSL, SHORE_DAMP_GLSL, SURF_GLSL, WAKE_GLSL, SKY_REFLECT_GLSL, RIPPLE_GLSL, WHITECAP_GLSL, whitecapForce } from './water-fx.js';
+import { G } from '../config.js';
 import { wrapPi } from '../physics/wind.js';
 import { SKY_UNIFORMS_GLSL, SKY_COLOR_GLSL } from './sky.js';
 
@@ -46,26 +47,40 @@ const WATER_SHADOW_GLSL = (taps) => `
   #endif
 `;
 
-// Нормаль волн по пикселю — общая для ближней воды и дальнего кольца. Аналитически по всем компонентам
-// в точке параметризации vWaveP: короткие волны, которых нет в геометрии, видны в свете, а вдали, где
-// геометрии волн нет вовсе, свет рисует их на плоскости. Компоненты, меняющиеся быстрее пикселя
-// (k·fwidth > 1..3), гаснут — без ряби; у горизонта гаснут все. У берега гаснут по глубине.
-// Сверху — мелкая рябь (RIPPLE_GLSL) с долей rippleK: её объявляет шейдер (на пене ряби нет); у берега не гаснет.
-// waterN — мировая нормаль, по ней же отражения.
+// Поле волн по пикселю — общее для ближней воды и дальнего кольца, в начале color_fragment (по нему же барашки).
+// Аналитически по всем компонентам в точке параметризации vWaveP: короткие волны, которых нет в геометрии,
+// видны в свете, а вдали, где геометрии волн нет вовсе, свет рисует их на плоскости. Компоненты, меняющиеся
+// быстрее пикселя (k·fwidth > 1..3), гаснут — без ряби; у горизонта гаснут все. У берега гаснут по глубине.
+// waveNd — наклон для нормали; waveHn — нормированная высота Σ a·sin θ / √Σ a² (гребень — барашки);
+// waveS0, waveC0 — sin и cos фазы главной волны ветровой системы (uWhitecapComp): по ней полоса барашков.
+const WAVE_FIELD_GLSL = `
+  vec3 waveNd = vec3(0.0);
+  float waveHn, waveS0 = 0.0, waveC0 = 0.0, waveDamp = shoreDampAt(vWaveP);
+  {
+    float fw = length(fwidth(vWaveP));
+    float h = 0.0, e = 0.0;
+    for (int i = 0; i < ${MAX_COMP}; i++) {
+      if (i >= uWaveCount) break;
+      float a = uWaveA[i] * (1.0 - smoothstep(1.0, 3.0, uWaveK[i] * fw));
+      if (a == 0.0) continue;
+      float wa = uWaveK[i] * a;
+      float th = uWaveK[i] * dot(uWaveDir[i], vWaveP) - uWavePhase[i];
+      float s = sin(th), c = cos(th);
+      if (i == uWhitecapComp) { waveS0 = s; waveC0 = c; }
+      waveNd.xz += uWaveDir[i] * wa * c;
+      waveNd.y += uWaveQ[i] * wa * s;
+      h += a * s; e += a * a;
+    }
+    waveNd *= waveDamp;
+    waveHn = e > 1e-8 ? h / sqrt(e) : 0.0;
+  }`;
+
+// Нормаль по готовому полю волн (WAVE_FIELD_GLSL). Сверху — мелкая рябь (RIPPLE_GLSL) с долей rippleK:
+// её объявляет шейдер (на пене ряби нет); у берега не гаснет. waterN — мировая нормаль, по ней же отражения.
 const WAVE_NORMAL_GLSL = `
   vec3 waterN;
   {
-    float fw = length(fwidth(vWaveP));
-    vec3 nd = vec3(0.0);
-    for (int i = 0; i < ${MAX_COMP}; i++) {
-      if (i >= uWaveCount) break;
-      float wa = uWaveK[i] * uWaveA[i] * (1.0 - smoothstep(1.0, 3.0, uWaveK[i] * fw));
-      if (wa == 0.0) continue;
-      float th = uWaveK[i] * dot(uWaveDir[i], vWaveP) - uWavePhase[i];
-      nd.xz += uWaveDir[i] * wa * cos(th);
-      nd.y += uWaveQ[i] * wa * sin(th);
-    }
-    nd *= shoreDampAt(vWaveP);
+    vec3 nd = waveNd;
     nd.xz += rippleSlope(vWaveP) * rippleK;
     waterN = normalize(vec3(-nd.x, 1.0 - nd.y, -nd.z));
     normal = normalize((viewMatrix * vec4(waterN, 0.0)).xyz);
@@ -155,14 +170,18 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uReflDistort: { value: 0 },
     uRipple: { value: 0 },
     uRippleDir: { value: new THREE.Vector2(0, 1) },
+    uWhitecap: { value: new THREE.Vector3() },
+    uWhitecapComp: { value: 0 },
+    uWhitecapEdge: { value: 0.25 },
   };
   // палитра неба и солнце — те же объекты, что у неба (uTime у воды свой)
   for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo', 'uSunDir', 'uSunColor']) uniforms[k] = sky.uniforms[k];
   // shadowFade — метров от предмета до воды, за которые тень слабеет в e раз;
   // shadowBlur — на сколько метров растёт радиус размытия на метр от предмета
-  // wireframe — показать сетку волн (каркас того же материала); ripple — мелкая рябь, её сила растёт с ветром
+  // wireframe — показать сетку волн (каркас того же материала); ripple — мелкая рябь, её сила растёт с ветром (выключена);
+  // whitecaps — барашки на гребнях с умеренного ветра, whitecapAmount — множитель их силы
   const settings = { color: '#2f86b5', shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08, wireframe: false,
-    ripple: true, rippleStrength: 1 };
+    ripple: false, rippleStrength: 1, whitecaps: true, whitecapAmount: 1 };
   // прибой у берегов и бирюза мелководья (панель «Прибой»)
   const surf = { enabled: true, strength: 1, shallows: true };
   // отражения (панель «Отражения»): небо по Френелю; объекты — вторым рендером (planar-reflection.js),
@@ -174,7 +193,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniform float uWavePhase[${MAX_COMP}]; uniform float uWaveQ[${MAX_COMP}]; uniform int uWaveCount;
     varying vec2 vWaveP;`;
   // прибой: униформы карты берега даёт SHORE_DAMP_GLSL
-  const SURF_PARS = `uniform float uTime; uniform vec2 uWindDir; ${NOISE_GLSL} ${SURF_GLSL} ${RIPPLE_GLSL}`;
+  const SURF_PARS = `uniform float uTime; uniform vec2 uWindDir; ${NOISE_GLSL} ${SURF_GLSL} ${RIPPLE_GLSL} ${WHITECAP_GLSL}`;
   const WAKE_PARS = `${WAKE_GLSL} uniform vec3 uWakeColor; uniform vec3 uWakeEdgeColor;`;
   const REFLECT_PARS = `uniform vec3 uSunDir; uniform vec3 uSunColor; ${SKY_UNIFORMS_GLSL} ${SKY_COLOR_GLSL} ${SKY_REFLECT_GLSL}`;
   const mat = new THREE.MeshLambertMaterial({ color: settings.color });
@@ -217,11 +236,18 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         ${SHORE_DAMP_GLSL} ${SURF_PARS} ${WAKE_PARS} ${REFLECT_PARS}`)
       // мелководье и пена прибоя; буруны гаснут к краю ближней воды — за ним дальняя вода рисует только кромку
       .replace('#include <color_fragment>', `#include <color_fragment>
+        ${WAVE_FIELD_GLSL}
         vec4 sh = shoreInfo(vWaveP);
         diffuseColor.rgb = mix(diffuseColor.rgb, uLagoon, shallowMix(sh));
         float surfLines = 1.0 - smoothstep(uRadius * 0.6, uRadius * 0.9, length(vWaveP - uCenter));
         float waterFoam = surfFoam(vWaveP, sh, surfLines);
         diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, waterFoam);
+        // барашки цветами кильватера; гаснут там, где у берега гаснут волны: там пена — дело прибоя
+        vec3 wc = whitecap(vWaveP, waveHn, waveS0, waveC0) * smoothstep(0.7, 1.0, waveDamp);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uWakeColor, wc.x);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uWakeEdgeColor, wc.y);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, wc.z);
+        waterFoam = max(waterFoam, wc.x);
         // кильватер: светлая лента с контуром перемычек, у кормы — белый бурун
         vec4 wk = wakeMask(vWaveP);
         diffuseColor.rgb = mix(diffuseColor.rgb, uWakeColor, wk.x);
@@ -272,13 +298,19 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         vWaveP = (modelMatrix * vec4(position, 1.0)).xz;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-        ${WAVE_UNIFORMS} ${SHORE_DAMP_GLSL} ${SURF_PARS} ${REFLECT_PARS}`)
+        ${WAVE_UNIFORMS} ${SHORE_DAMP_GLSL} ${SURF_PARS} ${REFLECT_PARS} uniform vec3 uWakeColor; uniform vec3 uWakeEdgeColor;`)
       // мелководье и пена у кромки — как у ближней воды, без бурунов
       .replace('#include <color_fragment>', `#include <color_fragment>
+        ${WAVE_FIELD_GLSL}
         vec4 sh = shoreInfo(vWaveP);
         diffuseColor.rgb = mix(diffuseColor.rgb, uLagoon, shallowMix(sh));
         float farFoam = surfFoam(vWaveP, sh, 0.0);
         diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, farFoam);
+        vec3 wc = whitecap(vWaveP, waveHn, waveS0, waveC0) * smoothstep(0.7, 1.0, waveDamp);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uWakeColor, wc.x);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uWakeEdgeColor, wc.y);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, wc.z);
+        farFoam = max(farFoam, wc.x);
         float rippleK = 1.0 - farFoam;`)
       .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
         ${WAVE_NORMAL_GLSL}`)
@@ -321,6 +353,22 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uRipple.value = settings.ripple ? settings.rippleStrength * ripple.k : 0;
   }
 
+  // барашки: сила за ветром с порывами; шум полос едет вместе с гребнем главной волны текущей системы —
+  // путь копится по шагам, иначе при смене длины волны рисунок прыгнул бы
+  const caps = { k: null, off: 0, time: 0 };
+  function updateWhitecaps(w, windDir) {
+    const dt = Math.min(0.1, Math.max(0, w.time - caps.time));
+    caps.time = w.time;
+    const f = whitecapForce(Math.hypot(windDir.x, windDir.z));
+    if (caps.k === null) caps.k = f;
+    caps.k += (f - caps.k) * (1 - Math.exp(-dt / 1.5));
+    const lambda = w.windSeaLambda;
+    caps.off += Math.sqrt(G * lambda / (2 * Math.PI)) * dt;
+    const k = settings.whitecaps ? Math.min(1, caps.k * settings.whitecapAmount) : 0;
+    uniforms.uWhitecap.value.set(k, caps.off, 2 * Math.PI / lambda);
+    uniforms.uWhitecapComp.value = w.windSeaComp;
+  }
+
   // windDir — вектор ветра {x, z}: наветренный берег пенится сильнее, рябь сильнее
   function update(w, cx, cz, windDir) {
     const sx = Math.round(cx / step) * step, sz = Math.round(cz / step) * step;
@@ -347,6 +395,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uShallows.value = surf.shallows ? 1 : 0;
     uniforms.uSurfAmp.value = w.maxAmplitude();
     updateRipple(w, windDir);
+    updateWhitecaps(w, windDir);
     uniforms.uReflect.value = reflection.sky ? reflection.strength : 0;
     uniforms.uFresnelPow.value = reflection.fresnel;
     uniforms.uPlanar.value = reflection.objects ? reflection.objectStrength : 0;
@@ -362,6 +411,8 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uWakeRim.value = ws.rim;
     uniforms.uWakeColor.value.set(ws.color);
     uniforms.uWakeEdgeColor.value.set(ws.edgeColor);
+    // сильная пена: бурун за кормой, фронт барашков, прибой
+    uniforms.uFoam.value.set(ws.foamColor);
   }
 
   return { mesh, far, update, edgeAt, uniforms, settings, surf, reflection };
