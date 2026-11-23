@@ -20,7 +20,7 @@ const SWEEP_LAG = 0.3;
 // следа до ближайшей границы своего пробега (минус — вне сердцевины) и номер круга этого конца пробега.
 // Концы сердцевины — настоящие круги (caps: центр на оси следа в полуширине от границы, радиус — полуширина):
 // по расстоянию вдоль следа полукруг на изгибе широкой ленты искажался бы.
-// a — (x, z, одометр, возраст), b — (полуширина ленты, м; скорость, сглаженная, см. SPEED_LAG; до границы
+// a — (x, z, одометр, доля жизни 0..1 — возраст / life), b — (полуширина ленты, м; скорость, сглаженная, см. SPEED_LAG; до границы
 // сердцевины, м; номер круга конца, −1 — нет). Одометр — путь в метрах: продольная координата узора,
 // кружево приклеено к воде и не скользит за лодкой.
 export function createWake() {
@@ -33,11 +33,11 @@ export function createWake() {
   // описанные круги групп по WAKE_GROUP сегментов (x, z, радиус²) с шириной ленты: шейдер проверяет сначала их
   const groups = Array.from({ length: WAKE_POINTS / WAKE_GROUP }, () => new THREE.Vector3());
   const points = []; // { x, z, odo, t0, s, psi, sweep, run }
-  // life — сколько секунд живёт лента; width — полуширина у кормы в долях полуширины лодки;
+  // life — сколько секунд живёт участок ленты (длина следа = скорость × life); width — полуширина у кормы в долях полуширины лодки;
   // spread — на сколько полуширин у кормы лента расширяется за секунду; holes — длина ячейки кружева, м;
   // edge — толщина контура перемычек (0 — один тон); цвета — заливка ленты и контур (панель «Кильватер»);
-  // lace — дыры кружева (временно выключены: работаем с формой ленты)
-  const settings = { enabled: true, lace: false, life: 30, width: 1.1, spread: 0.12, holes: 2.6, edge: 0.1, color: '#9ad8e6', edgeColor: '#2f9cc8' };
+  // lace — дыры кружева
+  const settings = { enabled: true, lace: true, life: 12, width: 1.1, spread: 0.12, holes: 1.0, edge: 0.1, color: '#9ad8e6', edgeColor: '#2f9cc8' };
   const state = { a, b, caps, box, groups, count: 0, settings };
   let odo = 0, px = null, pz = null, sm = 0, lastTime = null;
   // корма в прошлом кадре и сглаженный снос: смещение миделя поперёк хода кормы, м (плюс — влево от хода)
@@ -129,7 +129,11 @@ export function createWake() {
         points.unshift({ x, z, odo, t0: time, s, psi: boat.psi, sweep, run });
       }
     }
-    while (points.length && time - points[points.length - 1].t0 > settings.life) points.pop();
+    // доля жизни точки — по времени: у быстрого судна след сам выходит длиннее
+    const lifeOf = (p) => (time - p.t0) / settings.life;
+    // хвост за концом жизни выбрасываем, только если и предпоследняя точка за ним: последний сегмент
+    // пересекает конец ленты, и шейдер обрезает её там, а не на точке (без скачка)
+    while (points.length > 1 && lifeOf(points[points.length - 2]) >= 1) points.pop();
     while (points.length > WAKE_POINTS - 1) simplify();
     // точка 0 — текущая корма (если лодка идёт, есть хвост и корма успела отойти от последней точки)
     let n = 0;
@@ -139,7 +143,7 @@ export function createWake() {
     }
     for (const p of points) {
       const age = time - p.t0;
-      a[n].set(p.x, p.z, p.odo, age); b[n].set(halfWidth(age, p.sweep), p.s, coreDist(p.odo, p.run), -1);
+      a[n].set(p.x, p.z, p.odo, lifeOf(p)); b[n].set(halfWidth(age, p.sweep), p.s, coreDist(p.odo, p.run), -1);
       runs.push(p.run); n++;
     }
     state.count = n;

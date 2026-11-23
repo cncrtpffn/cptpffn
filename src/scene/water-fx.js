@@ -112,7 +112,8 @@ export const SURF_GLSL = `
 `;
 
 // Кильватер «кружевом» (как в рисованных фильмах): светлая лента с дырами цвета воды, перемычки с контуром.
-// Точки uWakeA (x, z, одометр, возраст) и uWakeB (полуширина, скорость, до границы сердцевины, номер круга её конца) —
+// Фигура открытая: с возрастом дыры растут, прорывают край и сливаются с водой вокруг, хвост рассыпается.
+// Точки uWakeA (x, z, одометр, доля жизни 0..1) и uWakeB (полуширина, скорость, до границы сердцевины, номер круга её конца) —
 // от кормы к хвосту, uWakeCap — круги концов сердцевины (x, z, радиус) (wake.js).
 // uWakeG — описанные круги групп по WAKE_GROUP сегментов (x, z, радиус²). Нужны NOISE_GLSL, uTime.
 // uWakeW: x — жизнь (с), y — длина ячейки (м).
@@ -134,8 +135,9 @@ export const WAKE_GLSL = `
     }
     return h;
   }
-  // в последней четверти жизни хвост сужается до нуля: выброс старых точек не виден скачком
-  float wakeTaper(float age) { return 1.0 - smoothstep(0.75, 1.0, age / uWakeW.x); }
+  // край ленты в долях полуширины: без кружева хвост в последней четверти жизни сужается до нуля
+  // (иначе обрыв), с кружевом не сужается — хвост съедают дыры, фигура не замыкается
+  float wakeRim(float life) { return uWakeLace > 0.0 ? 1.0 : 1.0 - smoothstep(0.75, 1.0, life); }
   // x — заливка ленты, y — контур, z — бурун за кормой
   vec3 wakeMask(vec2 p) {
     if (uWakeOn <= 0.0 || uWakeCount < 2 || any(lessThan(p, uWakeBox.xy)) || any(greaterThan(p, uWakeBox.zw))) return vec3(0.0);
@@ -180,12 +182,12 @@ export const WAKE_GLSL = `
         }
         else { a = A.w; w = wa; u = A.z; cr = length(ap) * sign(cr + 1e-6); }
         float v = cr / max(w.x, 1e-3);
-        if (abs(v) >= 1.3 || a >= uWakeW.x) continue;
+        if (abs(v) >= 1.3 || a >= 1.0) continue;
         if (abs(v) < abs(bv)) { bv = v; bu = u; ba = a; bs = w.y; }
         // сердцевина — только на пробегах выше ~1.5 уз (wake.js), внутри тонкого контура (uWakeEdge);
         // концы пробега — круги радиусом в полуширину ленты (uWakeCap), без круга — по расстоянию вдоль следа
         if (w.z > 0.0) {
-          float rim = wob * wakeTaper(a);
+          float rim = wob * wakeRim(a);
           float cc = (rim - abs(v)) * rows - uWakeEdge;
           if (w.w >= 0.0) {
             vec3 C = uWakeCap[int(w.w + 0.5)];
@@ -198,20 +200,25 @@ export const WAKE_GLSL = `
         }
       }
     }
-    float life = ba / uWakeW.x;
+    float life = ba;
     if (life >= 1.0 || abs(bv) >= 1.3) return vec3(0.0);
     float v = bv;
-    float rimOut = wob * wakeTaper(ba);
+    float rimOut = wob * wakeRim(ba);
     // по центру ячейки крупнее; ячейки растягиваются вместе с лентой — дыры-овалы
     vec2 q = vec2(bu / uWakeW.y, v * (0.6 + 0.4 * abs(v)) * rows);
     float n = vnoise(q * 1.7 + 5.0);
-    // с возрастом дыры растут, перемычки и обод тоньше и рвутся на обрывки (у каждого куска свой срок)
+    // с возрастом дыры растут, перемычки тоньше и рвутся на обрывки (у каждого куска свой срок),
+    // к концу жизни дыры сливаются и хвост рассыпается
     float fade = 1.0 - life;
     // без кружева (uWakeLace = 0) — сплошная лента с ободом
-    float gLace = uWakeLace > 0.0 ? wakeHoles(q, 1.0 + 0.5 * life) - 0.3 * life * (0.4 + n) : 10.0;
+    float gLace = uWakeLace > 0.0
+      ? wakeHoles(q, 1.0 + 1.2 * life) - 0.3 * life * (0.4 + n) - 1.2 * smoothstep(0.7, 1.0, life) : 10.0;
     float e = (rimOut - abs(v)) * rows; // до внешнего края, в единицах ячеек
-    float rimW = 0.45 * fade * (0.5 + n);
-    float gRim = rimW - abs(e - rimW);
+    // обод держит край только у кормы: дальше дыры прорывают его и открываются в воду за лентой
+    float keep = uWakeLace > 0.0 ? 1.0 - smoothstep(0.1, 0.45, life) : fade;
+    float rimW = 0.45 * keep * (0.5 + n);
+    // когда обод сошёл на нет, уводим его в минус — иначе по краю остаётся линия толщиной в пиксель
+    float gRim = rimW - abs(e - rimW) - 0.3 * (1.0 - keep);
     float g = min(max(gLace, gRim), e);
     float aa = clamp(fwidth(g), 1e-4, 0.3);
     float fill = smoothstep(-aa, aa, g);
@@ -226,7 +233,7 @@ export const WAKE_GLSL = `
     fill = mix(fill, (uWakeLace > 0.0 ? 0.45 * fade : 1.0) * inside, far);
     edge = mix(edge, (core > 0.0 ? 0.0 : 1.0) * fill, far);
     // бурун: рваная белая пена первые секунды за кормой, сильнее на ходу
-    float churn = (1.0 - smoothstep(0.4, 2.2, ba)) * (1.0 - smoothstep(0.35, 0.75, abs(v)));
+    float churn = (1.0 - smoothstep(0.4, 2.2, ba * uWakeW.x)) * (1.0 - smoothstep(0.35, 0.75, abs(v)));
     churn *= smoothstep(0.42, 0.58, vnoise(p * 2.3 + uTime * 0.6) * 0.6 + vnoise(p * 5.1 - uTime * 0.9) * 0.4);
     churn *= smoothstep(1.0, 3.5, bs);
     return vec3(fill, edge, churn);
