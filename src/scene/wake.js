@@ -12,6 +12,7 @@ const CORE_ON = 0.8, CORE_OFF = 0.7;
 const SWEEP_LAG = 0.3;
 
 // Кильватерный след: точки у кормы через метр пути, на поворотах чаще, от новой к старой; передаётся в шейдер воды (WAKE_GLSL).
+// Задним ходом след тянется от носа (dir в update).
 // Когда точки кончаются, выбрасывается та, что меньше всех отходит от хорды соседей: прямые участки
 // прореживаются, изгибы остаются гладкими, а хвост живёт весь свой срок.
 // Точка — середина полосы, которую заметает корпус: на повороте корму заносит наружу, а корпус от кормы до
@@ -42,6 +43,8 @@ export function createWake() {
   let odo = 0, px = null, pz = null, sm = 0, lastTime = null;
   // корма в прошлом кадре и сглаженный снос: смещение миделя поперёк хода кормы, м (плюс — влево от хода)
   let sx = null, sz = null, sweep = 0;
+  // куда идём: 1 — вперёд (след от кормы), −1 — задним ходом (след от носа); меняется, когда ход больше MIN_SPEED
+  let dir = 1;
   // текущий пробег сердцевины { start, end } по одометру; end = Infinity, пока идёт
   let run = null;
   const coreDist = (o, r) => (r ? Math.min(o - r.start, r.end - o) : -1);
@@ -98,22 +101,27 @@ export function createWake() {
   function update(time, boat) {
     const dt = lastTime === null ? 0 : Math.max(0, time - lastTime);
     lastTime = time;
+    // задним ходом след тянется от носа: всё ниже «корма» — тот конец корпуса, что идёт последним.
+    // При смене хода конец прыгает на длину корпуса — снос в этот кадр не считаем (скорость конца ложная);
+    // ленту от прежнего следа до нового конца прячет корпус, одометр честно прибавляет прыжок
+    const nd = boat.u < -MIN_SPEED ? -1 : boat.u > MIN_SPEED ? 1 : dir;
+    if (nd !== dir) { dir = nd; sx = null; }
     // корма и направление её хода; hx, hz — курс (к носу)
     const hx = Math.sin(boat.psi), hz = -Math.cos(boat.psi);
-    const kx = boat.x - hx * STERN, kz = boat.z - hz * STERN;
+    const kx = boat.x - dir * hx * STERN, kz = boat.z - dir * hz * STERN;
     let nx = -hz, nz = hx; // поперёк хода кормы; пока стоим — поперёк курса
     if (sx !== null && dt > 0) {
       const vx = (kx - sx) / dt, vz = (kz - sz) / dt, v = Math.hypot(vx, vz);
       if (v > MIN_SPEED) { nx = -vz / v; nz = vx / v; }
       // мидель относительно кормы поперёк её хода: STERN·sin β, β — угол между курсом и ходом кормы
-      sweep += (STERN * (hx * nx + hz * nz) - sweep) * (1 - Math.exp(-dt / SWEEP_LAG));
+      sweep += (dir * STERN * (hx * nx + hz * nz) - sweep) * (1 - Math.exp(-dt / SWEEP_LAG));
     }
     sx = kx; sz = kz;
     // середина заметаемой полосы — на полпути от кормы к миделю поперёк хода
     const x = kx + nx * sweep * 0.5, z = kz + nz * sweep * 0.5;
     if (px !== null) odo += Math.hypot(x - px, z - pz);
     px = x; pz = z;
-    const u = Math.max(0, boat.u);
+    const u = Math.abs(boat.u);
     sm += (u - sm) * (1 - Math.exp(-dt / SPEED_LAG));
     const s = sm;
     // начало и конец пробега сердцевины; на границе ставим точку, чтобы скругление легло на место
@@ -171,7 +179,7 @@ export function createWake() {
     }
   }
 
-  function reset() { points.length = 0; state.count = 0; px = pz = sx = sz = lastTime = null; sm = 0; sweep = 0; run = null; }
+  function reset() { points.length = 0; state.count = 0; px = pz = sx = sz = lastTime = null; sm = 0; sweep = 0; run = null; dir = 1; }
 
   return Object.assign(state, { update, reset });
 }
