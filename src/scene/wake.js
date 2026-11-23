@@ -32,8 +32,8 @@ const WIDEST_PROBES = 24;
 // a — (x, z, одометр, доля жизни 0..1 — возраст / life), b — (полуширина ленты, м; скорость, сглаженная, см. SPEED_LAG; до границы
 // сердцевины, м; номер круга конца, −1 — нет). Одометр — путь в метрах: продольная координата узора,
 // кружево приклеено к воде и не скользит за лодкой.
-// Волна у борта — та же лента, продлённая от кормы к носу (hull в update): перед кормой каждый кадр WAKE_HULL «живых»
-// точек от носа, полуширина — корпус по контуру ватерлинии (waterline.js) плюс ширина пены буруна (bowWave.widthAt).
+// Волна у борта — та же лента, продлённая от кормы к носу (contour в update): перед кормой каждый кадр WAKE_HULL «живых»
+// точек от носа, полуширина — корпус по контуру ватерлинии (waterline.js) плюс ширина пены (bandWidth).
 // Середину ленты прячет корпус, снаружи остаётся полоса вида кильватера; у носа лента кончается кругом — «подушка».
 // Точки корпуса — от носа до самого широкого места; там начинается след (пишутся его точки), корму накрывает он.
 // За началом лента TAIL метров разворачивается из полосы у борта в обычный след: полуширина, сдвиг на снос и доля
@@ -56,8 +56,9 @@ export function createWake() {
   // след не расплывается в веер); holes — длина ячейки кружева, м;
   // edge — толщина контура перемычек (0 — один тон); rim — ширина края ленты у кормы, пока дыры его не прорвали (в ячейках); цвета — заливка ленты и контур (панель «Кильватер»);
   // lace — дыры кружева
-  // hull — волна у борта (продление ленты вдоль корпуса); segments — границы сегментов (отладка: линии на точках следа)
-  const settings = { enabled: true, lace: true, hull: true, segments: false, life: 20, width: 1.1, spread: 0.04, holes: 1.0, edge: 0.1, rim: 0.15, color: '#9ad8e6', edgeColor: '#2f9cc8' };
+  // hull — волна у борта (продление ленты вдоль корпуса), hullWidth — её ширина к корме;
+  // segments — границы сегментов (отладка: линии на точках следа)
+  const settings = { enabled: true, lace: true, hull: true, hullWidth: 1, segments: false, life: 12, width: 1.1, spread: 0.04, holes: 1.0, edge: 0.1, rim: 0.15, color: '#9ad8e6', edgeColor: '#2f9cc8' };
   // доля корпуса в полуширине у точек корпуса; hullCount — сколько сегментов корпуса в начале a, b (начало следа —
   // a[hullCount]); tail — (одометр начала следа, доля корпуса там, TAIL): переход за началом в WAKE_GLSL
   const inner = new Float32Array(WAKE_HULL + 1);
@@ -128,8 +129,9 @@ export function createWake() {
 
   // точки корпуса от носа до самого широкого места в a, b[0..WAKE_HULL] (одометр, сердцевина — в update), оно — в head.
   // Станции гуще к носу и к началу следа: полуширина между ними линейна, на выпуклом носу хорда иначе уходит под корпус
-  function placeHull(boat, hull) {
-    const rs = hull.contour, n = rs.pw.length / 3;
+  function placeHull(boat, rs) {
+    const n = rs.pw.length / 3;
+    const k = THREE.MathUtils.smoothstep(boat.u, 0.3, 1.2), f = Math.min(boat.u / BOAT.hullSpeed, 1.4);
     if (lx.length < n) { lx = new Float32Array(n); ly = new Float32Array(n); }
     const fx = Math.sin(boat.psi), fz = -Math.cos(boat.psi), sx = -fz, sz = fx;
     let xb = -Infinity, xs = Infinity;
@@ -154,8 +156,8 @@ export function createWake() {
       const sgm = Math.min(Math.max((xb - xi) / L, 0), 1);
       // от носа до миделя полоса узкая — две толщины контура (контур в WAKE_GLSL — edge / 2 полуширины ленты:
       // w = edge·(корпус + w)); у самого форштевня корпус берём не уже 0.3 м, иначе полоса там исчезает.
-      // К корме — полная ширина пены буруна
-      const ins = (hl + hr) / 2, wf = hull.widthAt(sgm);
+      // К корме — полная ширина пены
+      const ins = (hl + hr) / 2, wf = bandWidth(sgm, k, f);
       const wn = Math.min(wf, settings.edge * Math.max(ins, 0.3) / (1 - settings.edge));
       const h = ins + wn + (wf - wn) * THREE.MathUtils.smoothstep(sgm, 0.5, 0.85);
       const cy = (hl - hr) / 2;
@@ -179,8 +181,17 @@ export function createWake() {
     if (best > 0) points.splice(best, 1); else points.pop();
   }
 
-  // hull — { contour, widthAt }: контур ватерлинии и ширина пены у борта по доле длины от носа (bow-wave.js)
-  function update(time, boat, hull) {
+  // ширина пены у борта по σ — доле длины от носа; k — включение по ходу 0..1, f — доля скорости корпуса.
+  // У самого форштевня уже, у транца шире — переходит в след
+  function bandWidth(sgm, k, f) {
+    const sternK = Math.exp(-(((1 - sgm) / 0.1) ** 2));
+    const h = (0.04 * f + (0.02 + 0.07 * f * f) * sternK) * k;
+    return (settings.hullWidth * (0.12 + 0.25 * f) * k + 1.2 * h)
+      * (0.6 + 0.4 * THREE.MathUtils.smoothstep(sgm, 0, 0.06)) * (1 + 0.5 * sternK);
+  }
+
+  // contour — контур ватерлинии корпуса (waterline.js) для волны у борта
+  function update(time, boat, contour) {
     const dt = lastTime === null ? 0 : Math.max(0, time - lastTime);
     lastTime = time;
     // задним ходом след тянется от носа: всё ниже «корма» — тот конец корпуса, что идёт последним.
@@ -204,8 +215,8 @@ export function createWake() {
     if (px !== null) odo += Math.hypot(x - px, z - pz);
     px = x; pz = z;
     // волна у борта: только передним ходом, по свежему контуру ватерлинии; точки следа — в самом широком месте корпуса
-    const withHull = settings.hull && hull && hull.contour.valid && dir === 1 && boat.u > MIN_SPEED && !boat.capsized;
-    if (withHull) placeHull(boat, hull);
+    const withHull = settings.hull && contour && contour.valid && dir === 1 && boat.u > MIN_SPEED && !boat.capsized;
+    if (withHull) placeHull(boat, contour);
     const u = Math.abs(boat.u);
     sm += (u - sm) * (1 - Math.exp(-dt / SPEED_LAG));
     const s = sm;

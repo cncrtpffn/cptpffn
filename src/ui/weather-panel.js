@@ -104,6 +104,7 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   fk.add(wake.settings, 'enabled').name('Кильватер');
   fk.add(wake.settings, 'lace').name('Дыры');
   fk.add(wake.settings, 'hull').name('У борта');
+  fk.add(wake.settings, 'hullWidth', 0, 2, 0.05).name('Ширина у борта');
   fk.add(wake.settings, 'segments').name('Границы сегментов');
   fk.addColor(wake.settings, 'color').name('Цвет');
   fk.addColor(wake.settings, 'edgeColor').name('Цвет контура');
@@ -119,11 +120,7 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   const fbw = gui.addFolder('Бурун');
   fbw.add(bowWave.settings, 'enabled').name('Бурун');
   fbw.add(bowWave.settings, 'bow', 0, 2, 0.05).name('У носа');
-  fbw.add(bowWave.settings, 'stern', 0, 2, 0.05).name('У кормы');
-  fbw.add(bowWave.settings, 'width', 0, 2, 0.05).name('Ширина');
   fbw.add(bowWave.settings, 'lumps', 0, 2, 0.05).name('Барашки');
-  // остальные цвета буруна — цвета кильватера
-  fbw.addColor(bowWave.settings, 'strongColor').name('Сильная пена');
   // отладка: контур пересечения корпуса с водой поверх сцены
   fbw.add(bowWave.settings, 'waterline').name('Ватерлиния');
 

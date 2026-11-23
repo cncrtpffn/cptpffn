@@ -243,7 +243,7 @@ function frame(now) {
   }
   particles.update(halted ? 0 : dt, { waves, wind, env, camera });
   // волна у борта — лента кильватера вдоль корпуса по контуру ватерлинии буруна
-  if (!halted) wake.update(simTime, boat, { contour: bowWave.waterline.contour, widthAt: bowWave.widthAt });
+  if (!halted) wake.update(simTime, boat, bowWave.waterline.contour);
   water.update(waves, boat.x, boat.z, wind.vector());
   env.update(halted ? 0 : dt, waves, wind, boat, camera);
   followCam.update(dt || 0.016, boat, boatMesh);

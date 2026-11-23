@@ -11,11 +11,13 @@ const ROWS = 6;
 // с, спад всплеска от удара носом о волну
 const SLAM_DECAY = 0.4;
 
-// Бурун: пена по урезу вокруг корпуса, у носа горб поднимается над водой, у кормы — второй горб,
-// вдоль транца пена переходит в кильватер. Цвета — кильватера (заливка и контур, wake.settings),
-// у носа поверх — белая «сильная пена». Задним ходом буруна нет.
-// Лента — замкнутое кольцо по настоящему контуру пересечения корпуса с водой (waterline.js): при крене,
-// дифференте и сухой корме пена идёт по урезу, а не по ватерлинии покоя.
+// Бурун: валик пены у носа — горб над водой по урезу, к бортам сходит на нет (волну вдоль борта рисует
+// лента кильватера, wake.js). Цвета — кильватера (заливка и контур, wake.settings).
+// Задним ходом буруна нет.
+// Лента — по настоящему контуру пересечения корпуса с водой (waterline.js): при крене и дифференте пена идёт
+// по урезу, а не по ватерлинии покоя. Кольцо замкнутое, но дальше от носа все ряды сходятся в линию — пикселей нет.
+// Точка форштевня в кольце дважды (в начале и в конце): у бортов разный code, на общем четырёхугольнике
+// он интерполировался бы через чужие полосы.
 // Сечение: склон от обшивки к гребню, внешний склон с рваным краем на воду, над гребнем — барашки (полукруги).
 // Рисунок пены стоит в воде: развёртка вдоль борта сдвигается на пройденный путь.
 // hullGeo — обшивка корпуса в СК модели (boat-mesh.js, hullGeometry)
@@ -23,15 +25,15 @@ export function createBowWave(wake, hullGeo) {
   const waterline = createWaterline(hullGeo, { rays: NR });
   const rs = waterline.contour;
 
-  const nv = NR * ROWS;
+  const nv = (NR + 1) * ROWS;
   const pos = new Float32Array(nv * 3);
-  // (развёртка, м; поперёк 0..1; полоса + 3·code; высота барашков, м); code: 0/1 — левый/правый борт, 2 — транец
+  // (развёртка, м; поперёк 0..1; полоса + 3·code; высота барашков, м); code: 0/1 — первый/второй борт по обходу
   const attr = new Float32Array(nv * 4);
   const idx = [];
   const vi = (c, r) => c * ROWS + r;
+  for (let c = 0; c <= NR; c++) for (let r = 0; r < ROWS; r++) attr[vi(c, r) * 4 + 1] = r % 2;
   for (let c = 0; c < NR; c++) {
-    for (let r = 0; r < ROWS; r++) attr[vi(c, r) * 4 + 1] = r % 2;
-    const c1 = (c + 1) % NR;
+    const c1 = c + 1;
     for (const r of [0, 2, 4]) {
       const a = vi(c, r), b = vi(c1, r), cc = vi(c1, r + 1), d = vi(c, r + 1);
       idx.push(a, b, cc, a, cc, d);
@@ -42,22 +44,15 @@ export function createBowWave(wake, hullGeo) {
   const aAttr = new THREE.BufferAttribute(attr, 4).setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute('position', posAttr);
   geo.setAttribute('aFoam', aAttr);
-  // плюс — доля «сильной пены» (белой): 1 на вершине носового горба, к борту гаснет;
-  // минус — доля перехода в кильватер у транца
-  const strong = new Float32Array(nv);
-  const sAttr = new THREE.BufferAttribute(strong, 1).setUsage(THREE.DynamicDrawUsage);
-  geo.setAttribute('aStrong', sAttr);
   // нормаль вверх (свет как на плоской воде, см. mat); шейдер её всё равно переопределяет
   geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nv * 3).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
   geo.setIndex(idx);
 
-  // bow, stern — сила горбов у носа и кормы; width — ширина полосы; lumps — размер барашков;
-  // strongColor — сильная пена у носа (остальные цвета — кильватера); waterline — отладочная линия контура
-  const settings = { enabled: false, bow: 1, stern: 1, width: 1, lumps: 1, strongColor: '#ffffff', waterline: false };
+  // bow — сила валика; lumps — размер барашков; waterline — отладочная линия контура
+  const settings = { enabled: true, bow: 1, lumps: 1, waterline: false };
   const uniforms = {
     uFoam: { value: new THREE.Color() },
     uShade: { value: new THREE.Color() },
-    uStrong: { value: new THREE.Color() },
     uSunDir: { value: new THREE.Vector3(0, 1, 0) },
     uOdo: { value: 0 },
     uTime: { value: 0 },
@@ -70,23 +65,22 @@ export function createBowWave(wake, hullGeo) {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
-        attribute vec4 aFoam; attribute float aStrong;
-        varying vec4 vFoam; varying vec3 vWorld; varying float vStrong;`)
+        attribute vec4 aFoam;
+        varying vec4 vFoam; varying vec3 vWorld;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
-        vFoam = aFoam; vStrong = aStrong; vWorld = position;`);
+        vFoam = aFoam; vWorld = position;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-        uniform vec3 uFoam, uShade, uStrong, uSunDir;
+        uniform vec3 uFoam, uShade, uSunDir;
         uniform float uOdo, uTime, uCell;
-        varying vec4 vFoam; varying vec3 vWorld; varying float vStrong;
+        varying vec4 vFoam; varying vec3 vWorld;
         ${NOISE_GLSL}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         float kind = mod(vFoam.z, 3.0), side = floor(vFoam.z / 3.0 + 0.01);
         float v = vFoam.y;
         // пена стоит в воде: корпус проходит сквозь рисунок
-        float u = vFoam.x - (side > 1.5 ? 0.0 : uOdo);
+        float u = vFoam.x - uOdo;
         float sd = side * 41.0;
-        float tr = max(-vStrong, 0.0);
         bool shade = false;
         if (kind > 1.5) {
           // барашки: полукруги на гребне, у каждого свой радиус и «кипение»; внизу сплошная полоса.
@@ -111,16 +105,13 @@ export function createBowWave(wake, hullGeo) {
           float e = 0.55 + 0.25 * hash12(vec2(ci, sd + 7.0)) + 0.2 * sqrt(max(0.0, 1.0 - cx * cx))
             + 0.05 * sin(uTime * 2.0 + ci);
           if (v > e) discard;
-          // у транца пена переходит в ленту кильватера: без тени по краю
-          shade = v > e - 0.3 && tr < 0.5;
+          shade = v > e - 0.3;
         }
         // ступенчатый свет: в тени только грани, заметно отвёрнутые от солнца
         vec3 fn = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
         if (dot(fn, cameraPosition - vWorld) < 0.0) fn = -fn;
-        if (dot(fn, uSunDir) < -0.2 && (kind < 0.5 || kind > 1.5 || tr < 0.5)) shade = true;
-        // сильная пена: белая, её тень — заливка кильватера; граница рваная по шуму
-        bool white = max(vStrong, 0.0) * (0.6 + 0.8 * vnoise(vec2(u * 2.5 + sd, v * 2.0 + uTime * 0.5))) > 0.5;
-        diffuseColor.rgb = white ? (shade ? uFoam : uStrong) : (shade ? uShade : uFoam);`)
+        if (dot(fn, uSunDir) < -0.2) shade = true;
+        diffuseColor.rgb = shade ? uShade : uFoam;`)
       // свет как на плоской воде: нормаль вверх у всех граней, с любой стороны
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         normal = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);`);
@@ -140,21 +131,6 @@ export function createBowWave(wake, hullGeo) {
 
   const bow = new THREE.Vector3();
   let odo = 0, slam = 0, prevImm = null;
-  // кадр: k — включение по ходу 0..1, f — доля скорости корпуса, высоты горбов у носа, кормы, вдоль борта
-  const F = { k: 0, f: 0, bowH: 0, sternH: 0, sideH: 0 };
-  // высота пены над водой по σ — доле длины ватерлинии от носа
-  function heightAt(sgm) {
-    const bowK = Math.exp(-(((sgm - 0.05) / 0.12) ** 2));
-    const sternK = Math.exp(-(((1 - sgm) / 0.1) ** 2));
-    return F.sideH + F.bowH * bowK + F.sternH * sternK;
-  }
-  // ширина пены от борта до внешнего края по σ; по ней же — волна у борта (лента кильватера, wake.js).
-  // У самого форштевня внешний край ближе: пена обтекает нос подушкой, а не клином; за транцем шире — переходит в кильватер
-  function widthAt(sgm) {
-    const sternK = Math.exp(-(((1 - sgm) / 0.1) ** 2));
-    return (settings.width * (0.12 + 0.25 * F.f) * F.k + 1.2 * heightAt(sgm))
-      * (0.6 + 0.4 * THREE.MathUtils.smoothstep(sgm, 0, 0.06)) * (1 + 0.5 * sternK);
-  }
 
   function drawDebug() {
     lines.visible = settings.waterline && rs.valid;
@@ -191,10 +167,9 @@ export function createBowWave(wake, hullGeo) {
     if (want || band || S.waterline) waterline.update(M, waves); else waterline.invalidate();
     drawDebug();
     const f = Math.min(speed / BOAT.hullSpeed, 1.4);
-    F.k = k; F.f = f;
-    F.bowH = (S.bow * (0.04 + 0.18 * f * f) + slam) * k;
-    F.sternH = S.stern * (0.02 + 0.07 * f * f) * k;
-    F.sideH = 0.04 * f * k;
+    // высота валика на вершине; основа ширины пены
+    const bowH = (S.bow * (0.04 + 0.18 * f * f) + slam) * k;
+    const base = (0.12 + 0.25 * f) * k;
     mesh.visible = want;
     if (!mesh.visible) return;
 
@@ -202,32 +177,29 @@ export function createBowWave(wake, hullGeo) {
     let zmin = Infinity, zmax = -Infinity;
     for (let c = 0; c < NR; c++) { const z = rs.pl[c * 3 + 2]; if (z < zmin) zmin = z; if (z > zmax) zmax = z; }
     const span = Math.max(zmax - zmin, 0.1), L = rs.len;
-    const fx = Math.sin(boat.psi), fz = -Math.cos(boat.psi);
-    for (let c = 0; c < NR; c++) {
-      const px = rs.pw[c * 3], py = rs.pw[c * 3 + 1], pz = rs.pw[c * 3 + 2];
-      const nx = rs.nw[c * 2], nz = rs.nw[c * 2 + 1];
-      // профиль: σ — доля длины ватерлинии от носа
-      const sgm = (rs.pl[c * 3 + 2] - zmin) / span;
-      // транец: кромка, обращённая назад, у кормы — пена переходит в кильватер, рисунок не едет
-      const tr = THREE.MathUtils.smoothstep(-(nx * fx + nz * fz), 0.55, 0.85) * THREE.MathUtils.smoothstep(sgm, 0.7, 0.9);
+    for (let c = 0; c <= NR; c++) {
+      // i — точка контура; c = NR — снова форштевень, со стороны второго борта
+      const i = c % NR;
+      const px = rs.pw[i * 3], py = rs.pw[i * 3 + 1], pz = rs.pw[i * 3 + 2];
+      const nx = rs.nw[i * 2], nz = rs.nw[i * 2 + 1];
+      // профиль валика по σ — доле длины ватерлинии от носа: вершина у форштевня, к бортам сходит на нет
+      const sgm = (rs.pl[i * 3 + 2] - zmin) / span;
       const bowK = Math.exp(-(((sgm - 0.05) / 0.12) ** 2));
-      const h = heightAt(sgm);
-      // развёртка — путь от носа по своему борту; транец — свой рисунок (code 2)
-      const sc = rs.s[c], o = c * ROWS * 4;
-      const code = tr > 0.5 ? 2 : sc < L / 2 ? 0 : 1;
+      const h = bowH * bowK;
+      // развёртка — путь от носа по своему борту
+      const sc = c === NR ? L : rs.s[i], o = c * ROWS * 4;
+      const code = sc < L / 2 ? 0 : 1;
       for (let r = 0; r < ROWS; r++) {
         attr[o + r * 4] = Math.min(sc, L - sc);
         attr[o + r * 4 + 2] = (r >> 1) + 3 * code;
       }
-      // aStrong: плюс — доля белой сильной пены у носа, минус — переход в кильватер у транца
-      const st = tr > 0 ? -tr : Math.min(1, bowK * 1.3) * k;
-      for (let r = 0; r < ROWS; r++) strong[vi(c, r)] = st;
       // пена взбирается на обшивку на полвысоты горба (с развалом борта — чуть наружу)
       const climb = 0.5 * h, out = 0.03 + 0.3 * climb;
       const ix = px + nx * out, iz = pz + nz * out, iy = py + 0.02 + climb;
-      const cw = 0.06 + 0.35 * h;
-      const w = widthAt(sgm);
-      const H = S.lumps * (0.06 + 0.4 * h) * k;
+      // ширина пены от борта до внешнего края; у самого форштевня край ближе: пена обтекает нос подушкой, а не клином
+      const w = (base + 1.2 * bowH) * bowK * (0.6 + 0.4 * THREE.MathUtils.smoothstep(sgm, 0, 0.06));
+      const cw = Math.min(0.06 + 0.35 * h, 0.5 * w);
+      const H = S.lumps * (0.06 + 0.4 * h) * k * bowK;
       // вода под гребнем — между бортом и внешним краем (гребень близко к борту, волны длиннее метра)
       const ox = ix + nx * w, oz = iz + nz * w, ho = waterline.waterAt(ox, oz);
       put(c, 0, ix, iy, iz);
@@ -241,11 +213,9 @@ export function createBowWave(wake, hullGeo) {
     }
     posAttr.needsUpdate = true;
     aAttr.needsUpdate = true;
-    sAttr.needsUpdate = true;
 
     uniforms.uFoam.value.set(wake.settings.color);
     uniforms.uShade.value.set(wake.settings.edgeColor);
-    uniforms.uStrong.value.set(S.strongColor);
     uniforms.uOdo.value = odo;
     uniforms.uTime.value = time;
     uniforms.uCell.value = 0.2 * Math.max(S.lumps, 0.3);
@@ -254,5 +224,5 @@ export function createBowWave(wake, hullGeo) {
 
   function reset() { odo = 0; slam = 0; prevImm = null; }
 
-  return { mesh, lines, waterline, settings, widthAt, update, reset };
+  return { mesh, lines, waterline, settings, update, reset };
 }
