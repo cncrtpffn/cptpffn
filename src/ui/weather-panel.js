@@ -95,6 +95,19 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   fwater.add(water.settings, 'shadowBlur', 0, 0.3, 0.01).name('Размытие');
   fwater.add(water.settings, 'wireframe').name('Сетка волн');
 
+  const fr = gui.addFolder('Отражения');
+  const R = water.reflection;
+  fr.add(R, 'sky').name('Небо');
+  fr.add(R, 'strength', 0, 1, 0.05).name('Сила неба');
+  // больше — цвет воды у лодки тянется дальше к горизонту
+  fr.add(R, 'fresnel', 3, 25, 1).name('Дальность');
+  // второй рендер сцены: лодка, берег, постройки, буи
+  fr.add(R, 'objects').name('Объекты');
+  fr.add(R, 'objectStrength', 0, 2, 0.05).name('Сила объектов');
+  fr.add(R, 'distort', 0, 0.1, 0.005).name('Искажение волнами');
+  fr.add(R, 'resolution', { '¼': 0.25, '½': 0.5, 'полное': 1 }).name('Разрешение');
+  fr.add(R, 'clouds').name('Облака в отражении');
+
   const fp = gui.addFolder('Прибой');
   fp.add(water.surf, 'enabled').name('Прибой');
   fp.add(water.surf, 'strength', 0, 2, 0.05).name('Сила');

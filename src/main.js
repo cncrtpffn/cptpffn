@@ -4,6 +4,7 @@ import { Wind } from './physics/wind.js';
 import { Waves } from './physics/waves.js';
 import { Boat, crewMove } from './physics/boat.js';
 import { createWater } from './scene/water.js';
+import { createPlanarReflection, markReflected } from './scene/planar-reflection.js';
 import { createWake } from './scene/wake.js';
 import { bakeShoreMap, shoreDamp } from './scene/shore-map.js';
 import { createBoatMesh, hullGeometry } from './scene/boat-mesh.js';
@@ -84,10 +85,13 @@ const bakeMs = performance.now() - bakeT0;
 // физика гасит волны у берега так же, как вершинный шейдер воды
 waves.damp = (x, z) => shoreDamp(shoreMap.depthAt(x, z));
 const wake = createWake();
+const planar = createPlanarReflection(renderer);
 const water = createWater(waves, {
-  size: SCENE.waterSize, segments: SCENE.waterSegments, shoreMap, wake,
+  size: SCENE.waterSize, segments: SCENE.waterSegments, shoreMap, wake, sky: env.sky, planar,
   shadowCamera: env.sun.shadow.camera, shadowTaps: isTouchDevice() ? 8 : 12,
 });
+// второй рендер дорог: на телефонах и планшетах отражение объектов по умолчанию выключено
+water.reflection.objects = !isTouchDevice();
 scene.add(water.mesh, water.far);
 const boatMesh = createBoatMesh();
 scene.add(boatMesh.group);
@@ -104,6 +108,17 @@ const bowSpray = createBowSpray(particles);
 const shoreSpray = createShoreSpray(particles, shoreMap);
 const crestSpray = createCrestSpray(particles);
 const followCam = new FollowCamera(camera, canvas);
+// в отражение — крупное: суша, постройки, деревья, буи, облака, лодка без мелочи; свет — весь.
+// Трава, кусты и камни (прототип мельче 1.5 м) — почти миллион треугольников, в отражении на половинном разрешении не видны
+scene.traverse((o) => { if (o.isLight) markReflected(o); });
+markReflected(world.terrain);
+markReflected(world.settle.group);
+markReflected(world.veg.group, { minRadius: 1.5 });
+for (const g of env.buoys) markReflected(g);
+markReflected(env.clouds.group);
+markReflected(boatMesh.group, { minRadius: 0.25 });
+markReflected(boatMesh.sailor.group, { minRadius: 0.1 }); // моряк мельче, но заметен: тело, голова, шапка
+const cloudsHidden = [env.clouds.group], noHide = [];
 
 // --- замеры и разрешение ---
 // вода — самое дорогое на GPU, и цена растёт с числом пикселей: на таче потолок DPR 1.5,
@@ -250,6 +265,11 @@ function frame(now) {
   world.update(camera.position);
   if (camPitch) camera.rotateX(camPitch);
   hud.update({ boat, wind, cameraMode: followCam.mode });
+  const R = water.reflection;
+  if (R.objects) {
+    planar.state.scale = R.resolution;
+    planar.render(scene, camera, R.clouds ? noHide : cloudsHidden);
+  }
   renderer.render(scene, camera);
   perf.end();
   resolution.update(dt);
@@ -262,4 +282,4 @@ document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { world, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, bowWave, bowl, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
+window.__sim = { world, planar, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, bowWave, bowl, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
