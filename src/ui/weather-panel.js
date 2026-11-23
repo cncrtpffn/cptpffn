@@ -23,7 +23,7 @@ const PRESET_CLOUDS = {
   'Шторм': 'Гроза',
 };
 
-export function createWeatherPanel({ wind, sea, waves, env, water, wake, particles, actions, start, resolution, perfOverlay }) {
+export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave, particles, actions, start, resolution, perfOverlay }) {
   const gui = new GUI({ title: 'Погода и сцена', width: 270 });
   const state = { preset: start.weather.preset, timeOfDay: start.timeOfDay, clouds: start.weather.clouds };
 
@@ -113,6 +113,17 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, particl
   fk.add(wake.settings, 'spread', 0, 0.4, 0.01).name('Расширение');
   fk.add(wake.settings, 'life', 5, 60, 1).name('Длина, с');
   fk.add(wake.settings, 'holes', 1, 5, 0.1).name('Ячейки, м');
+
+  const fbw = gui.addFolder('Бурун');
+  fbw.add(bowWave.settings, 'enabled').name('Бурун');
+  fbw.add(bowWave.settings, 'bow', 0, 2, 0.05).name('У носа');
+  fbw.add(bowWave.settings, 'stern', 0, 2, 0.05).name('У кормы');
+  fbw.add(bowWave.settings, 'width', 0, 2, 0.05).name('Ширина');
+  fbw.add(bowWave.settings, 'lumps', 0, 2, 0.05).name('Барашки');
+  // остальные цвета буруна — цвета кильватера
+  fbw.addColor(bowWave.settings, 'strongColor').name('Сильная пена');
+  // отладка: контур пересечения корпуса с водой поверх сцены
+  fbw.add(bowWave.settings, 'waterline').name('Ватерлиния');
 
   const fb = gui.addFolder('Брызги');
   fb.add(particles.settings, 'enabled').name('Брызги');

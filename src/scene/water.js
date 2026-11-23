@@ -218,6 +218,9 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   mesh.frustumCulled = false;
   // после остальной непрозрачной сцены: крышка кокпита лодки (renderOrder 1) уже записала глубину
   mesh.renderOrder = 2;
+  // «дырка» внутри открытых лодок: их крышка по ватерлинии (waterline.js) пишет 1 в стенсил — там воды нет
+  Object.assign(mat, { stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc,
+    stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp, stencilZPass: THREE.KeepStencilOp });
 
   // Дальняя вода — плоское кольцо до горизонта, растворяется в тумане. Кольцо с дырой под ближней
   // водой: сплошная плоскость торчала бы из ложбин волн плоским полигоном. Волны здесь только в свете
@@ -248,6 +251,17 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   );
   far.position.y = -0.08;
   far.receiveShadow = false;
+  // как у ближней воды — после масок открытых лодок (renderOrder 1): вода внутри них не проходит тест глубины
+  far.renderOrder = 2;
+
+  // доля волны, которую показывает ближняя вода в точке (x, z): к краю сетки смещение гаснет (как edge в шейдере,
+  // без затухания у берега — его даёт waves.damp). Что плавает далеко от лодки, садится на heightAt × edgeAt,
+  // иначе в ложбинах тонет под плоским дальним кольцом
+  function edgeAt(x, z) {
+    const r = uniforms.uRadius.value, d = Math.hypot(x - uniforms.uCenter.value.x, z - uniforms.uCenter.value.y);
+    const t = Math.min(1, Math.max(0, (d - r * 0.72) / (r * 0.26)));
+    return 1 - t * t * (3 - 2 * t);
+  }
 
   // windDir — вектор ветра {x, z}: наветренный берег пенится сильнее
   function update(w, cx, cz, windDir) {
@@ -285,5 +299,5 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uWakeEdgeColor.value.set(ws.edgeColor);
   }
 
-  return { mesh, far, update, uniforms, settings, surf };
+  return { mesh, far, update, edgeAt, uniforms, settings, surf };
 }

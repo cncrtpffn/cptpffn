@@ -6,9 +6,11 @@ import { Boat, crewMove } from './physics/boat.js';
 import { createWater } from './scene/water.js';
 import { createWake } from './scene/wake.js';
 import { bakeShoreMap, shoreDamp } from './scene/shore-map.js';
-import { createBoatMesh } from './scene/boat-mesh.js';
+import { createBoatMesh, hullGeometry } from './scene/boat-mesh.js';
 import { createParticles } from './scene/particles.js';
 import { createBowSpray } from './scene/spray.js';
+import { createBowWave } from './scene/bow-wave.js';
+import { createTestBowls } from './debug/test-bowl.js';
 import { createShoreSpray } from './scene/shore-spray.js';
 import { createCrestSpray } from './scene/crest-spray.js';
 import { createEnvironment } from './scene/environment.js';
@@ -41,7 +43,8 @@ if (P.pos) {
 }
 
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+// стенсил — «дырка» в воде внутри открытых лодок (waterline.js, createWaterlineCap)
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 // на таче — карта теней 1024 и простой PCF (createEnvironment): мягкий PCF — 4× выборок на пиксель
@@ -88,6 +91,12 @@ const water = createWater(waves, {
 scene.add(water.mesh, water.far);
 const boatMesh = createBoatMesh();
 scene.add(boatMesh.group);
+// бурун у носа, вдоль борта и у кормы
+const bowWave = createBowWave(wake, hullGeometry());
+scene.add(bowWave.mesh, bowWave.lines);
+// ?bowl=N — N открытых «мисок» на воде рядом со стартом: проверка контура ватерлинии, дырки в воде и цены
+const bowl = P.bowl ? createTestBowls(Math.max(1, Math.round(P.bowl)), startBoat.x + 6, startBoat.z - 6) : null;
+if (bowl) scene.add(...bowl.objects);
 // брызги: общая система частиц и эмиттеры; на таче частиц вдвое меньше
 const particles = createParticles({ scale: isTouchDevice() ? 0.5 : 1 });
 scene.add(...particles.meshes);
@@ -110,9 +119,9 @@ const hud = new Hud();
 let paused = false;
 const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
-  resetBoat: () => { placeBoat(); wake.reset(); },
+  resetBoat: () => { placeBoat(); wake.reset(); bowWave.reset(); },
 };
-createWeatherPanel({ wind, sea, waves, env, water, wake, particles, actions, start: START, resolution, perfOverlay });
+createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave, particles, actions, start: START, resolution, perfOverlay });
 input.on('reef', (d) => boat.sail.reef(d));
 input.on('crew', (a) => { if (boat.crewPos) boat.crewPos = crewMove(boat.crewPos, a); });
 input.on('camera', () => followCam.nextMode());
@@ -227,6 +236,8 @@ function frame(now) {
   boatMesh.update(boat, simTime);
   if (!halted) {
     bowSpray.update(dt, boat, waves, boatMesh);
+    bowWave.update(dt, simTime, boat, waves, boatMesh, env);
+    bowl?.update(waves, boat.x, boat.z, water.edgeAt);
     shoreSpray.update(dt, waves, wind, camera);
     crestSpray.update(dt, waves, wind, camera);
   }
@@ -250,4 +261,4 @@ document.getElementById('loading').remove();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { world, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
+window.__sim = { world, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, bowWave, bowl, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };

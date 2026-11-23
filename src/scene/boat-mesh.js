@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { DEG } from '../config.js';
 import { createRig } from './boat-rigging.js';
 import { createFittings } from './boat-fittings.js';
@@ -148,6 +149,13 @@ function buildHull() {
   const out = {};
   for (const key of Object.keys(parts)) out[key] = toGeo(parts[key]);
   return out;
+}
+
+// Обшивка корпуса одной геометрией (только положения) — для контура ватерлинии (waterline.js)
+export function hullGeometry() {
+  const parts = Object.values(buildHull());
+  const geo = mergeGeometries(parts.map((g) => { const c = new THREE.BufferGeometry(); c.setAttribute('position', g.getAttribute('position')); return c; }));
+  return geo;
 }
 
 // Киль: невысокий брус по всей длине, к корме корпус поднимается — получается скег под навесной руль.
