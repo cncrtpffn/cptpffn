@@ -116,18 +116,19 @@ export const SURF_GLSL = `
 // Точки uWakeA (x, z, одометр, доля жизни 0..1) и uWakeB (полуширина, скорость, до границы сердцевины, номер круга её конца) —
 // от кормы к хвосту, uWakeCap — круги концов сердцевины (x, z, радиус) (wake.js).
 // uWakeG — описанные круги групп по WAKE_GROUP сегментов (x, z, радиус²). Нужны NOISE_GLSL, uTime.
-// uWakeW: x — жизнь (с), y — длина ячейки (м).
+// uWakeW: x — жизнь (с), y — длина ячейки (м). uWakeRim — ширина края у кормы (в ячейках, по шуму от 1× до 3×).
 export const WAKE_GLSL = `
   uniform vec4 uWakeA[${WAKE_POINTS}]; uniform vec4 uWakeB[${WAKE_POINTS}]; uniform vec3 uWakeCap[${WAKE_CAPS}]; uniform int uWakeCount;
   uniform vec3 uWakeG[${WAKE_POINTS / WAKE_GROUP}];
-  uniform vec4 uWakeBox; uniform vec2 uWakeW; uniform float uWakeEdge; uniform float uWakeOn; uniform float uWakeLace;
+  uniform vec4 uWakeBox; uniform vec2 uWakeW; uniform float uWakeEdge; uniform float uWakeRim; uniform float uWakeOn; uniform float uWakeLace;
   // Дыры кружева — круги случайного радиуса вокруг узлов сетки ячеек (в q поперёк сжато — в мире овалы),
   // соседние сливаются в волнистые. x — расстояние до ближайшей дыры (минус — внутри).
   // grow — во сколько раз дыры больше; узлы медленно гуляют — кружево живое.
   // Дыра рождается цветом контура и заливается водой из своей точки внутри (у каждой свои точка и срок):
   // y — расстояние до залитой части (минус — вода). Круг воды растёт до радиуса, что накрывает всю дыру
-  // вместе с расширением off (в ячейках); дальше от дыры остаётся тонкий контур
-  vec2 wakeHoles(vec2 q, float grow, float life, float off) {
+  // вместе с расширением off (в ячейках); дальше от дыры остаётся тонкий контур.
+  // Пока обод держит край (keep), дыра не выходит за |q.y| = qLim: у края она меньше или её нет — без обрубков
+  vec2 wakeHoles(vec2 q, float grow, float life, float off, float qLim, float keep) {
     vec2 c = floor(q), f = fract(q);
     float h = 8.0, wt = 8.0;
     for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
@@ -135,6 +136,8 @@ export const WAKE_GLSL = `
       vec2 r = vec2(hash12(c + g), hash12(c + g + 19.7));
       vec2 o = 0.5 + 0.3 * sin(uTime * 0.25 + 6.2831 * r);
       float R = (0.22 + 0.16 * hash12(c + g + 41.3)) * grow;
+      R = mix(R, min(R, qLim - abs(c.y + g.y + o.y) - off), keep);
+      if (R < 0.08) continue;
       float d = length(g + o - f) - R;
       h = min(h, d);
       // точка залива — до 0.6 радиуса от центра; заливка начинается в 8–20 % жизни, идёт 20–30 %
@@ -225,16 +228,20 @@ export const WAKE_GLSL = `
     // с возрастом дыры растут, перемычки тоньше и рвутся на обрывки (у каждого куска свой срок),
     // к концу жизни дыры сливаются и хвост рассыпается
     float fade = 1.0 - life;
-    // без кружева (uWakeLace = 0) — сплошная лента с ободом
     float off = 0.3 * life * (0.4 + n) + 1.2 * smoothstep(0.7, 1.0, life);
+    // обод держит край только у кормы: дальше дыры прорывают его и открываются в воду за лентой
+    float keep = uWakeLace > 0.0 ? 1.0 - smoothstep(0.1, 0.45, life) : fade;
+    // куда дыре можно доходить, пока обод держится: внутренняя граница самого толстого обода с контуром и зазором, в q
+    float vIn = rimOut - (uWakeRim * keep * 1.5 + uWakeEdge + 0.1) / rows;
+    float qLim = vIn * (0.6 + 0.4 * vIn) * rows;
     // gLace — дыры целиком (вокруг них контур), gWater — их залитая водой часть; пока не залита — цвет контура
-    vec2 hw = uWakeLace > 0.0 ? wakeHoles(q, 1.0 + 1.2 * life, life, 0.3 * life * 1.4 + 1.2 * smoothstep(0.7, 1.0, life)) : vec2(10.0);
+    // без кружева (uWakeLace = 0) — сплошная лента с ободом
+    vec2 hw = uWakeLace > 0.0
+      ? wakeHoles(q, 1.0 + 1.2 * life, life, 0.3 * life * 1.4 + 1.2 * smoothstep(0.7, 1.0, life), qLim, keep) : vec2(10.0);
     float gLace = hw.x - off;
     float gWater = max(hw.y, gLace);
     float e = (rimOut - abs(v)) * rows; // до внешнего края, в единицах ячеек
-    // обод держит край только у кормы: дальше дыры прорывают его и открываются в воду за лентой
-    float keep = uWakeLace > 0.0 ? 1.0 - smoothstep(0.1, 0.45, life) : fade;
-    float rimW = 0.45 * keep * (0.5 + n);
+    float rimW = uWakeRim * keep * (0.5 + n);
     // когда обод сошёл на нет, уводим его в минус — иначе по краю остаётся линия толщиной в пиксель
     float gRim = rimW - abs(e - rimW) - 0.3 * (1.0 - keep);
     float g = min(max(gLace, gRim), e);

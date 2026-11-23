@@ -35,9 +35,9 @@ export function createWake() {
   const points = []; // { x, z, odo, t0, s, psi, sweep, run }
   // life — сколько секунд живёт участок ленты (длина следа = скорость × life); width — полуширина у кормы в долях полуширины лодки;
   // spread — на сколько полуширин у кормы лента расширяется за секунду; holes — длина ячейки кружева, м;
-  // edge — толщина контура перемычек (0 — один тон); цвета — заливка ленты и контур (панель «Кильватер»);
+  // edge — толщина контура перемычек (0 — один тон); rim — ширина края ленты у кормы, пока дыры его не прорвали (в ячейках); цвета — заливка ленты и контур (панель «Кильватер»);
   // lace — дыры кружева
-  const settings = { enabled: true, lace: true, life: 20, width: 1.1, spread: 0.12, holes: 1.0, edge: 0.1, color: '#9ad8e6', edgeColor: '#2f9cc8' };
+  const settings = { enabled: true, lace: true, life: 20, width: 1.1, spread: 0.12, holes: 1.0, edge: 0.1, rim: 0.15, color: '#9ad8e6', edgeColor: '#2f9cc8' };
   const state = { a, b, caps, box, groups, count: 0, settings };
   let odo = 0, px = null, pz = null, sm = 0, lastTime = null;
   // корма в прошлом кадре и сглаженный снос: смещение миделя поперёк хода кормы, м (плюс — влево от хода)

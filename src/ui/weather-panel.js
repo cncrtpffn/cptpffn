@@ -107,6 +107,8 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, particl
   fk.addColor(wake.settings, 'edgeColor').name('Цвет контура');
   // 0 — без контура, один тон
   fk.add(wake.settings, 'edge', 0, 0.2, 0.01).name('Контур');
+  // сплошной край ленты у кормы, дальше его прорывают дыры
+  fk.add(wake.settings, 'rim', 0, 1, 0.05).name('Край');
   fk.add(wake.settings, 'width', 0.5, 2.5, 0.05).name('Ширина');
   fk.add(wake.settings, 'spread', 0, 0.4, 0.01).name('Расширение');
   fk.add(wake.settings, 'life', 5, 60, 1).name('Длина, с');
