@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { MAX_COMP } from '../physics/waves.js';
-import { NOISE_GLSL, SHORE_DAMP_GLSL, SURF_GLSL, WAKE_GLSL, SKY_REFLECT_GLSL } from './water-fx.js';
+import { NOISE_GLSL, SHORE_DAMP_GLSL, SURF_GLSL, WAKE_GLSL, SKY_REFLECT_GLSL, RIPPLE_GLSL } from './water-fx.js';
+import { wrapPi } from '../physics/wind.js';
 import { SKY_UNIFORMS_GLSL, SKY_COLOR_GLSL } from './sky.js';
 
 // Тень на воде по карте теней солнца (three r170: глубина упакована в RGBA, камера ортографическая —
@@ -49,6 +50,7 @@ const WATER_SHADOW_GLSL = (taps) => `
 // в точке параметризации vWaveP: короткие волны, которых нет в геометрии, видны в свете, а вдали, где
 // геометрии волн нет вовсе, свет рисует их на плоскости. Компоненты, меняющиеся быстрее пикселя
 // (k·fwidth > 1..3), гаснут — без ряби; у горизонта гаснут все. У берега гаснут по глубине.
+// Сверху — мелкая рябь (RIPPLE_GLSL) с долей rippleK: её объявляет шейдер (на пене ряби нет); у берега не гаснет.
 // waterN — мировая нормаль, по ней же отражения.
 const WAVE_NORMAL_GLSL = `
   vec3 waterN;
@@ -64,6 +66,7 @@ const WAVE_NORMAL_GLSL = `
       nd.y += uWaveQ[i] * wa * sin(th);
     }
     nd *= shoreDampAt(vWaveP);
+    nd.xz += rippleSlope(vWaveP) * rippleK;
     waterN = normalize(vec3(-nd.x, 1.0 - nd.y, -nd.z));
     normal = normalize((viewMatrix * vec4(waterN, 0.0)).xyz);
   }`;
@@ -150,13 +153,16 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uReflMatrix: { value: planar.matrix },
     uPlanar: { value: 0 },
     uReflDistort: { value: 0 },
+    uRipple: { value: 0 },
+    uRippleDir: { value: new THREE.Vector2(0, 1) },
   };
   // палитра неба и солнце — те же объекты, что у неба (uTime у воды свой)
   for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo', 'uSunDir', 'uSunColor']) uniforms[k] = sky.uniforms[k];
   // shadowFade — метров от предмета до воды, за которые тень слабеет в e раз;
   // shadowBlur — на сколько метров растёт радиус размытия на метр от предмета
-  // wireframe — показать сетку волн (каркас того же материала)
-  const settings = { color: '#2f86b5', shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08, wireframe: false };
+  // wireframe — показать сетку волн (каркас того же материала); ripple — мелкая рябь, её сила растёт с ветром
+  const settings = { color: '#2f86b5', shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08, wireframe: false,
+    ripple: true, rippleStrength: 1 };
   // прибой у берегов и бирюза мелководья (панель «Прибой»)
   const surf = { enabled: true, strength: 1, shallows: true };
   // отражения (панель «Отражения»): небо по Френелю; объекты — вторым рендером (planar-reflection.js),
@@ -168,7 +174,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniform float uWavePhase[${MAX_COMP}]; uniform float uWaveQ[${MAX_COMP}]; uniform int uWaveCount;
     varying vec2 vWaveP;`;
   // прибой: униформы карты берега даёт SHORE_DAMP_GLSL
-  const SURF_PARS = `uniform float uTime; uniform vec2 uWindDir; ${NOISE_GLSL} ${SURF_GLSL}`;
+  const SURF_PARS = `uniform float uTime; uniform vec2 uWindDir; ${NOISE_GLSL} ${SURF_GLSL} ${RIPPLE_GLSL}`;
   const WAKE_PARS = `${WAKE_GLSL} uniform vec3 uWakeColor; uniform vec3 uWakeEdgeColor;`;
   const REFLECT_PARS = `uniform vec3 uSunDir; uniform vec3 uSunColor; ${SKY_UNIFORMS_GLSL} ${SKY_COLOR_GLSL} ${SKY_REFLECT_GLSL}`;
   const mat = new THREE.MeshLambertMaterial({ color: settings.color });
@@ -222,8 +228,9 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         diffuseColor.rgb = mix(diffuseColor.rgb, uWakeEdgeColor, wk.y);
         diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, wk.z);
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.25, 0.3), wk.w);
-        // на пене и следе отражений нет
-        waterFoam = clamp(max(waterFoam, max(wk.x, max(wk.y, wk.z))), 0.0, 1.0);`)
+        // на пене и следе нет ни отражений, ни ряби
+        waterFoam = clamp(max(waterFoam, max(wk.x, max(wk.y, wk.z))), 0.0, 1.0);
+        float rippleK = 1.0 - waterFoam;`)
       .replace('#include <shadowmap_pars_fragment>', `#include <shadowmap_pars_fragment>
         ${WATER_SHADOW_GLSL(shadowTaps)}`)
       // нормаль по пикселю, а не по вершинам: сетка короче коротких компонент не передаёт,
@@ -271,7 +278,8 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         vec4 sh = shoreInfo(vWaveP);
         diffuseColor.rgb = mix(diffuseColor.rgb, uLagoon, shallowMix(sh));
         float farFoam = surfFoam(vWaveP, sh, 0.0);
-        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, farFoam);`)
+        diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, farFoam);
+        float rippleK = 1.0 - farFoam;`)
       .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
         ${WAVE_NORMAL_GLSL}`)
       // те же отражения, иначе на стыке с ближней водой видна граница яркости
@@ -298,7 +306,22 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     return 1 - t * t * (3 - 2 * t);
   }
 
-  // windDir — вектор ветра {x, z}: наветренный берег пенится сильнее
+  // рябь: направление за ветровыми волнами (без скачка при рождении новой системы), сила за ветром с порывами
+  const ripple = { ang: null, k: 0, time: 0 };
+  function updateRipple(w, windDir) {
+    const dt = Math.min(0.1, Math.max(0, w.time - ripple.time));
+    ripple.time = w.time;
+    const target = w.windSeaDir;
+    const f = Math.min(1, Math.max(0.05, (Math.hypot(windDir.x, windDir.z) - 1) / 9));
+    if (ripple.ang === null) { ripple.ang = target; ripple.k = f; }
+    ripple.ang += wrapPi(target - ripple.ang) * (1 - Math.exp(-dt / 2));
+    ripple.k += (f - ripple.k) * (1 - Math.exp(-dt / 0.5));
+    // «откуда» → вектор «куда», как у компонент волн
+    uniforms.uRippleDir.value.set(-Math.sin(ripple.ang), Math.cos(ripple.ang));
+    uniforms.uRipple.value = settings.ripple ? settings.rippleStrength * ripple.k : 0;
+  }
+
+  // windDir — вектор ветра {x, z}: наветренный берег пенится сильнее, рябь сильнее
   function update(w, cx, cz, windDir) {
     const sx = Math.round(cx / step) * step, sz = Math.round(cz / step) * step;
     mesh.position.set(sx, 0, sz);
@@ -323,6 +346,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uSurf.value = surf.enabled ? surf.strength : 0;
     uniforms.uShallows.value = surf.shallows ? 1 : 0;
     uniforms.uSurfAmp.value = w.maxAmplitude();
+    updateRipple(w, windDir);
     uniforms.uReflect.value = reflection.sky ? reflection.strength : 0;
     uniforms.uFresnelPow.value = reflection.fresnel;
     uniforms.uPlanar.value = reflection.objects ? reflection.objectStrength : 0;

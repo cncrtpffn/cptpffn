@@ -94,6 +94,9 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   // размытие растёт с расстоянием от предмета
   fwater.add(water.settings, 'shadowBlur', 0, 0.3, 0.01).name('Размытие');
   fwater.add(water.settings, 'wireframe').name('Сетка волн');
+  // мелкая рябь по направлению ветровых волн, сила — множитель к силе от ветра
+  fwater.add(water.settings, 'ripple').name('Рябь');
+  fwater.add(water.settings, 'rippleStrength', 0, 3, 0.05).name('Сила ряби');
 
   const fr = gui.addFolder('Отражения');
   const R = water.reflection;

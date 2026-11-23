@@ -316,3 +316,42 @@ export const SKY_REFLECT_GLSL = `
     return col;
   }
 `;
+
+// Мелкая рябь — наклон поверхности для нормали по пикселю (геометрии нет): 4 октавы градиентного шума,
+// вытянутого вдоль гребня. Гребни поперёк направления ветровых волн uRippleDir (вектор «куда»), октавы
+// чуть разведены по углу и бегут по направлению с фазовой скоростью глубокой воды √(gλ/2π).
+// Октава гаснет, когда её длина меньше ~2–4 пикселей. Нужны hash12 (NOISE_GLSL) и uTime.
+export const RIPPLE_GLSL = `
+  uniform float uRipple; uniform vec2 uRippleDir;
+  // xy — градиент, z — значение
+  vec3 vnoised(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f), du = 6.0 * f * (1.0 - f);
+    float a = hash12(i), b = hash12(i + vec2(1.0, 0.0));
+    float c = hash12(i + vec2(0.0, 1.0)), d = hash12(i + vec2(1.0, 1.0));
+    float k = a - b - c + d;
+    return vec3(du * vec2(b - a + k * u.y, c - a + k * u.x), a + (b - a) * u.x + (c - a) * u.y + k * u.x * u.y);
+  }
+  // λ (м), поворот от направления волн (рад), наклон
+  vec2 rippleOctave(vec2 p, float fpx, float lambda, float ang, float amp, float seed) {
+    float fade = 1.0 - smoothstep(0.25, 0.6, fpx / lambda);
+    if (fade <= 0.0) return vec2(0.0);
+    float ca = cos(ang), sa = sin(ang);
+    vec2 w = vec2(uRippleDir.x * ca - uRippleDir.y * sa, uRippleDir.x * sa + uRippleDir.y * ca);
+    vec2 wp = vec2(-w.y, w.x);
+    float speed = sqrt(9.81 * lambda / 6.2831853);
+    // вдоль гребня растянуто в 2.5 раза
+    vec2 q = vec2(dot(p, w) - uTime * speed, dot(p, wp) * 0.4) / lambda + seed;
+    vec2 g = vnoised(q).xy;
+    return (g.x * w + g.y * 0.4 * wp) * amp * fade;
+  }
+  vec2 rippleSlope(vec2 p) {
+    if (uRipple <= 0.0) return vec2(0.0);
+    float fpx = length(fwidth(p));
+    vec2 s = rippleOctave(p, fpx, 1.6, 0.0, 0.16, 0.0);
+    s += rippleOctave(p, fpx, 0.8, 0.35, 0.16, 17.3);
+    s += rippleOctave(p, fpx, 0.4, -0.44, 0.14, 41.7);
+    s += rippleOctave(p, fpx, 0.2, 0.21, 0.12, 73.1);
+    return s * uRipple;
+  }
+`;

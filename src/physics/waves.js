@@ -108,6 +108,9 @@ export class Waves {
     this._rebuild();
   }
 
+  // направление ветрового волнения «откуда» (рад): текущая (последняя) система, в ручном режиме — последняя ручная
+  get windSeaDir() { return this.trains.length ? this.trains[this.trains.length - 1].dir : this.windDir; }
+
   // доли амплитуд по долям длин, Σ доль² = AMP_ENERGY
   _spectrum(t) {
     let e = 0;
