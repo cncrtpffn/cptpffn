@@ -10,6 +10,9 @@ const SPEED_LAG = 1.0;
 const CORE_ON = 0.8, CORE_OFF = 0.7;
 // с, сглаживание сноса кормы (см. update): без него ширина дрожит от шага физики
 const SWEEP_LAG = 0.3;
+// шаг точек следа от хода: на малом ходу реже и порог поворота выше — качка по курсу не плодит коротких сегментов.
+// (ход м/с, шаг м, порог поворота °): медленнее SLOW — первая тройка, быстрее FAST — вторая, между — линейно
+const SPAWN_SLOW = [0.5, 2.5, 12], SPAWN_FAST = [2.0, 1.0, 3];
 // м за началом следа (самое широкое место корпуса), на которых лента из полосы у борта разворачивается в обычный след:
 // ширина, снос, волнистый край
 export const TAIL = 3.0;
@@ -49,11 +52,12 @@ export function createWake() {
   // при выгрузке, nx, nz)
   const points = []; // { x, z, odo, t0, s, psi, sweep, run, hull, nx, nz }
   // life — сколько секунд живёт участок ленты (длина следа = скорость × life); width — полуширина у кормы в долях полуширины лодки;
-  // spread — на сколько полуширин у кормы лента расширяется за секунду; holes — длина ячейки кружева, м;
+  // spread — на сколько полуширин у кормы лента расширяется за метр пути (по пути, а не по времени: на малом ходу короткий
+  // след не расплывается в веер); holes — длина ячейки кружева, м;
   // edge — толщина контура перемычек (0 — один тон); rim — ширина края ленты у кормы, пока дыры его не прорвали (в ячейках); цвета — заливка ленты и контур (панель «Кильватер»);
   // lace — дыры кружева
   // hull — волна у борта (продление ленты вдоль корпуса); segments — границы сегментов (отладка: линии на точках следа)
-  const settings = { enabled: true, lace: true, hull: true, segments: false, life: 20, width: 1.1, spread: 0.12, holes: 1.0, edge: 0.1, rim: 0.15, color: '#9ad8e6', edgeColor: '#2f9cc8' };
+  const settings = { enabled: true, lace: true, hull: true, segments: false, life: 20, width: 1.1, spread: 0.04, holes: 1.0, edge: 0.1, rim: 0.15, color: '#9ad8e6', edgeColor: '#2f9cc8' };
   // доля корпуса в полуширине у точек корпуса; hullCount — сколько сегментов корпуса в начале a, b (начало следа —
   // a[hullCount]); tail — (одометр начала следа, доля корпуса там, TAIL): переход за началом в WAKE_GLSL
   const inner = new Float32Array(WAKE_HULL + 1);
@@ -72,9 +76,9 @@ export function createWake() {
   const coreDist = (o, r) => (r ? Math.min(o - r.start, r.end - o) : -1);
 
   // ширина от скорости не зависит: след всегда чуть шире лодки, начало — полуокружность (WAKE_GLSL);
-  // sweep — снос корпуса: полоса шире на его половину с каждой стороны
-  function halfWidth(age, sweep) {
-    return (BOAT.beam * 0.5 * settings.width + Math.abs(sweep) * 0.5) * (1 + settings.spread * age);
+  // sweep — снос корпуса: полоса шире на его половину с каждой стороны; dist — путь от точки до кормы, м
+  function halfWidth(dist, sweep) {
+    return (BOAT.beam * 0.5 * settings.width + Math.abs(sweep) * 0.5) * (1 + settings.spread * dist);
   }
 
   // точка на оси следа по одометру (за концами — продолжение крайнего сегмента) и полуширина там
@@ -210,11 +214,14 @@ export function createWake() {
     if (!run && s > CORE_ON) { run = { start: odo, end: Infinity }; edgeOfRun = true; }
     else if (run && s < CORE_OFF) { run.end = odo; run = null; edgeOfRun = true; }
     const last = points[0];
-    // стоя на месте след не пишем; на повороте (курс ушёл на 3°) точка ставится раньше метра
+    // стоя на месте след не пишем; на повороте (курс ушёл на порог) точка ставится раньше шага — не ближе трети шага
     if (u > MIN_SPEED) {
+      const k = THREE.MathUtils.clamp((s - SPAWN_SLOW[0]) / (SPAWN_FAST[0] - SPAWN_SLOW[0]), 0, 1);
+      const step = SPAWN_SLOW[1] + (SPAWN_FAST[1] - SPAWN_SLOW[1]) * k;
+      const turnMin = (SPAWN_SLOW[2] + (SPAWN_FAST[2] - SPAWN_SLOW[2]) * k) * Math.PI / 180;
       const dist = last ? odo - last.odo : Infinity;
       const turn = last ? Math.abs(Math.atan2(Math.sin(boat.psi - last.psi), Math.cos(boat.psi - last.psi))) : 0;
-      if (dist > 1.0 || (dist > 0.3 && turn > 3 * Math.PI / 180) || (edgeOfRun && dist > 0.05)) {
+      if (dist > step || (dist > step * 0.3 && turn > turnMin) || (edgeOfRun && dist > 0.05)) {
         points.unshift(withHull
           ? { x: head.x, z: head.z, odo, t0: time, s, psi: boat.psi, sweep, run, hull: true, nx, nz }
           : { x, z, odo, t0: time, s, psi: boat.psi, sweep, run, hull: false });
@@ -247,8 +254,7 @@ export function createWake() {
     for (const p of points) {
       // точка, только что поставленная в начале следа, совпадает с ним
       if (withHull && odo - p.odo <= 0.05) continue;
-      const age = time - p.t0;
-      let hw = halfWidth(age, p.sweep), x = p.x, z = p.z;
+      let hw = halfWidth(odo - p.odo, p.sweep), x = p.x, z = p.z;
       if (p.hull) {
         // за началом: из полосы у борта в обычный след — ширина и сдвиг на снос. Мидель — на sweep поперёк хода от
         // кормы, середина заметаемой полосы — на полпути назад к корме
