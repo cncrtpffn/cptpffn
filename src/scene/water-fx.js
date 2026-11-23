@@ -122,18 +122,33 @@ export const WAKE_GLSL = `
   uniform vec3 uWakeG[${WAKE_POINTS / WAKE_GROUP}];
   uniform vec4 uWakeBox; uniform vec2 uWakeW; uniform float uWakeEdge; uniform float uWakeOn; uniform float uWakeLace;
   // Дыры кружева — круги случайного радиуса вокруг узлов сетки ячеек (в q поперёк сжато — в мире овалы),
-  // соседние сливаются в волнистые. Возвращает расстояние до ближайшей дыры (минус — внутри).
-  // grow — во сколько раз дыры больше; узлы медленно гуляют — кружево живое
-  float wakeHoles(vec2 q, float grow) {
+  // соседние сливаются в волнистые. x — расстояние до ближайшей дыры (минус — внутри).
+  // grow — во сколько раз дыры больше; узлы медленно гуляют — кружево живое.
+  // Дыра рождается цветом контура и заливается водой из своей точки внутри (у каждой свои точка и срок):
+  // y — расстояние до залитой части (минус — вода). Круг воды растёт до радиуса, что накрывает всю дыру
+  // вместе с расширением off (в ячейках); дальше от дыры остаётся тонкий контур
+  vec2 wakeHoles(vec2 q, float grow, float life, float off) {
     vec2 c = floor(q), f = fract(q);
-    float h = 8.0;
+    float h = 8.0, wt = 8.0;
     for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
       vec2 g = vec2(float(i), float(j));
       vec2 r = vec2(hash12(c + g), hash12(c + g + 19.7));
       vec2 o = 0.5 + 0.3 * sin(uTime * 0.25 + 6.2831 * r);
-      h = min(h, length(g + o - f) - (0.22 + 0.16 * hash12(c + g + 41.3)) * grow);
+      float R = (0.22 + 0.16 * hash12(c + g + 41.3)) * grow;
+      float d = length(g + o - f) - R;
+      h = min(h, d);
+      // точка залива — до 0.6 радиуса от центра; заливка начинается в 8–20 % жизни, идёт 20–30 %
+      vec2 sr = vec2(hash12(c + g + 7.1), hash12(c + g + 63.9));
+      vec2 s = 0.6 * sqrt(sr.x) * vec2(cos(6.2831 * sr.y), sin(6.2831 * sr.y));
+      float t0 = 0.08 + 0.12 * hash12(c + g + 88.4);
+      float k = clamp((life - t0) / (0.2 + 0.1 * hash12(c + g + 31.6)), 0.0, 1.0);
+      k = 1.0 - (1.0 - k) * (1.0 - k);
+      float rho = k * (R * (1.0 + length(s)) + off) + 0.02;
+      float sd = length(g + o + s * R - f) - rho;
+      // k = 0 — воды нет; иначе вода — круг залива внутри своей дыры (с расширением)
+      wt = min(wt, k > 0.0 ? max(d - off, sd) : 8.0);
     }
-    return h;
+    return vec2(h, wt);
   }
   // край ленты в долях полуширины: без кружева хвост в последней четверти жизни сужается до нуля
   // (иначе обрыв), с кружевом не сужается — хвост съедают дыры, фигура не замыкается
@@ -211,8 +226,11 @@ export const WAKE_GLSL = `
     // к концу жизни дыры сливаются и хвост рассыпается
     float fade = 1.0 - life;
     // без кружева (uWakeLace = 0) — сплошная лента с ободом
-    float gLace = uWakeLace > 0.0
-      ? wakeHoles(q, 1.0 + 1.2 * life) - 0.3 * life * (0.4 + n) - 1.2 * smoothstep(0.7, 1.0, life) : 10.0;
+    float off = 0.3 * life * (0.4 + n) + 1.2 * smoothstep(0.7, 1.0, life);
+    // gLace — дыры целиком (вокруг них контур), gWater — их залитая водой часть; пока не залита — цвет контура
+    vec2 hw = uWakeLace > 0.0 ? wakeHoles(q, 1.0 + 1.2 * life, life, 0.3 * life * 1.4 + 1.2 * smoothstep(0.7, 1.0, life)) : vec2(10.0);
+    float gLace = hw.x - off;
+    float gWater = max(hw.y, gLace);
     float e = (rimOut - abs(v)) * rows; // до внешнего края, в единицах ячеек
     // обод держит край только у кормы: дальше дыры прорывают его и открываются в воду за лентой
     float keep = uWakeLace > 0.0 ? 1.0 - smoothstep(0.1, 0.45, life) : fade;
@@ -220,9 +238,11 @@ export const WAKE_GLSL = `
     // когда обод сошёл на нет, уводим его в минус — иначе по краю остаётся линия толщиной в пиксель
     float gRim = rimW - abs(e - rimW) - 0.3 * (1.0 - keep);
     float g = min(max(gLace, gRim), e);
-    float aa = clamp(fwidth(g), 1e-4, 0.3);
-    float fill = smoothstep(-aa, aa, g);
-    // вне сердцевины участок весь цветом контура; контур есть и вокруг дыр. Белая пена на полном ходу — потом
+    float gw = min(max(gWater, gRim), e);
+    float aa = clamp(fwidth(gw), 1e-4, 0.3);
+    float fill = smoothstep(-aa, aa, gw);
+    // вне сердцевины участок весь цветом контура; контур есть и вокруг дыр, и в ещё не залитой их части.
+    // Белая пена на полном ходу — потом
     float gc = min(g - uWakeEdge, core);
     // на скачке между участками (сердцевина есть / нет) fwidth огромен — ограничиваем, иначе шов полупрозрачными точками
     float ac = clamp(fwidth(gc), 1e-4, 0.3);
