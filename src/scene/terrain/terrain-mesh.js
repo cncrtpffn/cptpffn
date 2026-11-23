@@ -3,16 +3,34 @@ import { propMaterial } from '../flora.js';
 
 // Меш рельефа по полю высот: чанки chunk×chunk м, индексная сетка, цвет по вершинам.
 // Грани ломаные за счёт flatShading материала (нормаль по производным в шейдере).
+// smooth: гладкое затенение — материал без flatShading, нормали по полю высот (центральные разности на шаге step),
+// одинаковые на стыке чанков любого шага; вершинам юбки — нормаль их вершины края.
+// На крутом (клифы) гладкая нормаль в шейдере уходит в нормаль грани — кромки и грани скал остаются резкими:
+// вес по крутизне гладкой нормали, 1 − cos наклона от cliff[0] до cliff[1] (≈47°…60°).
 // Чанк с сушей или мелководьем (мельче deep м) — шаг step, глубокое море — шаг coarse.
 // Шаги кратны шагу поля высот: вершины ложатся на его узлы, без биений билинейной выборки («лесенки»).
 // По краю чанка — «юбка» вниз на skirt м: закрывает щели на стыке чанков разного шага.
 // Цвет вершины даёт paint(x, z, h, color) — палитра биомов (biomes.js).
 // userData.heightAt(x, z) — высота самого меша (та же триангуляция): по ней ленты дорог ложатся на рельеф без провалов.
 
-export function buildTerrain(hf, paint, { chunk = 200, step = 4, coarse = 25, deep = 15, skirt = 4 } = {}) {
+function smoothMaterial([lo, hi]) {
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
+  m.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
+      {
+        vec3 faceN = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
+        vec3 upV = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+        normal = normalize(mix(normal, faceN, smoothstep(${lo.toFixed(3)}, ${hi.toFixed(3)}, 1.0 - dot(normal, upV))));
+        nonPerturbedNormal = normal;
+      }`);
+  };
+  return m;
+}
+
+export function buildTerrain(hf, paint, { chunk = 200, step = 4, coarse = 25, deep = 15, skirt = 4, smooth = false, cliff = [0.32, 0.5] } = {}) {
   const [bx, bz, bw, bh] = hf.bounds;
   const group = new THREE.Group();
-  const material = propMaterial();
+  const material = smooth ? smoothMaterial(cliff) : propMaterial();
   const c = new THREE.Color();
   let tris = 0;
   const nx = Math.ceil(bw / chunk - 1e-6), chunks = []; // для heightAt: { cx, cz, st, V, pos } по сетке чанков
@@ -60,7 +78,17 @@ export function buildTerrain(hf, paint, { chunk = 200, step = 4, coarse = 25, de
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
       geo.setIndex(idx);
-      geo.computeVertexNormals();
+      if (smooth) {
+        const nrm = new Float32Array(pos.length), d = step;
+        for (let k = 0; k < V * V; k++) {
+          const x = pos[k * 3], z = pos[k * 3 + 2];
+          const gx = (hf.sample(x + d, z) - hf.sample(x - d, z)) / (2 * d), gz = (hf.sample(x, z + d) - hf.sample(x, z - d)) / (2 * d);
+          const l = Math.hypot(gx, 1, gz);
+          nrm[k * 3] = -gx / l; nrm[k * 3 + 1] = 1 / l; nrm[k * 3 + 2] = -gz / l;
+        }
+        edge.forEach((k, e) => nrm.copyWithin((V * V + e) * 3, k * 3, k * 3 + 3));
+        geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+      } else geo.computeVertexNormals();
       geo.computeBoundingSphere();
       const mesh = new THREE.Mesh(geo, material);
       mesh.castShadow = st === step;

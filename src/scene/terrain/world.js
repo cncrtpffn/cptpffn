@@ -24,7 +24,7 @@ export function buildWorld(map, { regions, tstep, density = 1 } = {}) {
   // новая сеть улиц — пока только у карт с plan: 'v2' (демо); остальные — замороженный план шага 3а
   const plan = (map.plan === 'v2' ? planSettlements : planSettlementsV1)(hf, bio, map, { footprint: (id) => STRUCTURES[id].footprint }); lap('plan');
   markSettle(bio, hf, plan);
-  const terrain = buildTerrain(hf, bio.paint, tstep ? { step: tstep } : {}); lap('terrain');
+  const terrain = buildTerrain(hf, bio.paint, { ...(tstep ? { step: tstep } : {}), smooth: !!map.smoothTerrain }); lap('terrain');
   // строитель по плану — тоже только у plan: 'v2'; у остальных — замороженный строитель со своей сеткой улиц
   const settle = map.plan === 'v2' ? buildSettlements(hf, bio, map, plan, { ground: terrain.userData.heightAt }) : buildSettlementsV1(hf, bio, map); lap('settlements');
   const veg = buildVegetation(hf, bio, settle.occ, { density, bare: new Set(map.islands.flatMap((isl, i) => (isl.bare ? [i] : []))) }); lap('vegetation');
