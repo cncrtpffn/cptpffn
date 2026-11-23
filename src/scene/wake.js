@@ -37,7 +37,7 @@ export function createWake() {
   // spread — на сколько полуширин у кормы лента расширяется за секунду; holes — длина ячейки кружева, м;
   // edge — толщина контура перемычек (0 — один тон); цвета — заливка ленты и контур (панель «Кильватер»);
   // lace — дыры кружева
-  const settings = { enabled: true, lace: true, life: 12, width: 1.1, spread: 0.12, holes: 1.0, edge: 0.1, color: '#9ad8e6', edgeColor: '#2f9cc8' };
+  const settings = { enabled: true, lace: true, life: 20, width: 1.1, spread: 0.12, holes: 1.0, edge: 0.1, color: '#9ad8e6', edgeColor: '#2f9cc8' };
   const state = { a, b, caps, box, groups, count: 0, settings };
   let odo = 0, px = null, pz = null, sm = 0, lastTime = null;
   // корма в прошлом кадре и сглаженный снос: смещение миделя поперёк хода кормы, м (плюс — влево от хода)
