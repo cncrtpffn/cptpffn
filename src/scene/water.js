@@ -18,6 +18,8 @@ const WATER_SHADOW_GLSL = (taps) => `
     return r * vec2(cos(a), sin(a));
   }
   float waterShadow() {
+    // тень на воде выключена (галка «Тень на воде») — без выборок
+    if (uShadowStrength <= 0.0) return 0.0;
     vec3 sc = vDirectionalShadowCoord[0].xyz / vDirectionalShadowCoord[0].w;
     // к краю карты тень гаснет — без обрыва на границе
     float border = min(min(sc.x, sc.y), min(1.0 - sc.x, 1.0 - sc.y));
@@ -145,12 +147,13 @@ const RIDGE_GLSL = `
 // Тень на воде своя (встроенная выключена): цвет и сила задаются отдельно, у отбрасывающего предмета
 // тень плотная и чёткая, дальше от него — прозрачнее и мягче (PCSS по карте теней солнца).
 // shadowCamera — камера тени солнца (ортографическая): её размеры переводят карту в метры.
-// shadowTaps — выборок карты на каждый из двух проходов (поиск заслона и размытие).
+// shadowTaps — выборок карты на каждый из двух проходов (поиск заслона и размытие); тень — самое дорогое в воде
+// (~0.12 мс на выборку за проход на M4 при DPR 2), 8 вместо 12 — край размытия чуть зернистее, docs/changes/perf-audit-water.
 // focus — шаг сетки в центре относительно равномерного (size / segments): у лодки сетка гуще,
 // к краю реже, число вершин то же.
 // wake — кильватерный след (wake.js): лента «кружевом» за кормой на ближней воде.
 // sky — из createSky: его униформы палитры подключаются по ссылке; planar — из createPlanarReflection.
-export function createWater(waves, { size = 440, segments = 176, focus = 0.35, shoreMap, shadowCamera, shadowTaps = 12, wake, sky, planar } = {}) {
+export function createWater(waves, { size = 440, segments = 176, focus = 0.35, shoreMap, shadowCamera, shadowTaps = 8, wake, sky, planar } = {}) {
   const geo = new THREE.PlaneGeometry(size, size, segments, segments);
   geo.rotateX(-Math.PI / 2);
   const cell = size / segments;
@@ -240,6 +243,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   };
   // палитра неба и солнце — те же объекты, что у неба (uTime у воды свой)
   for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo', 'uSunDir', 'uSunColor', 'uMoonDir', 'uMoonGlint', 'uSunPathK', 'uMoonPathK']) uniforms[k] = sky.uniforms[k];
+  // shadow — тень на воде (выкл — шейдер её не считает, тени на лодке и суше остаются);
   // shadowFade — метров от предмета до воды, за которые тень слабеет в e раз;
   // shadowBlur — на сколько метров растёт радиус размытия на метр от предмета
   // wireframe — показать сетку волн (каркас того же материала); ripple — мелкая рябь, её сила растёт с ветром;
@@ -251,7 +255,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   // rippleShow — отладка: множитель цветом (синий — rippleLow, красный — rippleHigh);
   // ridges — отладочные линии гребней и дна ложбин (RIDGE_GLSL): ridgeWidth в пикселях, ridgeMin — минимальная длина волны, м;
   // ridgeHatch — штрихи поперёк гребня по наветренному склону, ridgeHatchStep — шаг штрихов, м
-  const settings = { color: '#2f86b5', shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08, wireframe: false,
+  const settings = { color: '#2f86b5', shadow: true, shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08, wireframe: false,
     ripple: true, rippleStrength: 1, rippleLow: 0, rippleHigh: 1.5, rippleModH: 0.5, rippleModMin: 4,
     rippleContrastFrom: 3.3, rippleContrastTo: 19, rippleContrastStorm: 0.5, rippleCalmPow: 1.5, rippleStormGain: 2.5, rippleStormExp: 1.5, rippleStormWind: 19, rippleShow: false,
     ridges: false, ridgeWidth: 2, ridgeMin: 3, ridgeHatch: true, ridgeHatchStep: 10, crestColor: '#ffd400', troughColor: '#ff2bd6' };
@@ -476,7 +480,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     mat.color.set(settings.color); farMat.color.copy(mat.color);
     mat.wireframe = settings.wireframe;
     uniforms.uShadowColor.value.set(settings.shadowColor);
-    uniforms.uShadowStrength.value = settings.shadowStrength;
+    uniforms.uShadowStrength.value = settings.shadow ? settings.shadowStrength : 0;
     uniforms.uShadowFade.value = settings.shadowFade;
     uniforms.uShadowBlur.value = settings.shadowBlur;
     uniforms.uTime.value = w.time;

@@ -87,6 +87,8 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
 
   const fwater = gui.addFolder('Вода');
   fwater.addColor(water.settings, 'color').name('Цвет');
+  // тень на воде — самое дорогое в шейдере воды (~1/3 его цены); тени на лодке и суше не зависят от галки
+  fwater.add(water.settings, 'shadow').name('Тень на воде');
   fwater.addColor(water.settings, 'shadowColor').name('Цвет тени');
   fwater.add(water.settings, 'shadowStrength', 0, 1, 0.02).name('Сила тени');
   // за сколько метров от предмета до воды тень слабеет

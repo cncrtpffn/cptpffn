@@ -88,7 +88,7 @@ const wake = createWake();
 const planar = createPlanarReflection(renderer);
 const water = createWater(waves, {
   size: SCENE.waterSize, segments: SCENE.waterSegments, shoreMap, wake, sky: env.sky, planar,
-  shadowCamera: env.sun.shadow.camera, shadowTaps: isTouchDevice() ? 8 : 12,
+  shadowCamera: env.sun.shadow.camera,
 });
 // второй рендер дорог: на телефонах и планшетах отражение объектов по умолчанию выключено
 water.reflection.objects = !isTouchDevice();
