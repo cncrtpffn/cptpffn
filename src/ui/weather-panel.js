@@ -165,6 +165,12 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   fq.add(rs, 'ratio', 0.75, Math.max(1, rs.max), 0.25).name('Плотность пикселей').listen()
     .onChange(() => { rs.auto = false; gui.controllersRecursive().forEach((c) => c.updateDisplay()); });
   fq.add(perfOverlay.state, 'visible').name('Счётчик кадра');
+  // честный замер для сравнений вкл/выкл: GPU-таймер счётчика на Apple сам скачет вдвое
+  const bench = fq.add({ f: () => {
+    const ms = actions.benchGpu();
+    bench.name(`Замер GPU: ${ms.toFixed(2)} мс/кадр`);
+    console.log(`[perf] замер GPU: ${ms.toFixed(2)} мс/кадр`);
+  } }, 'f').name('Замер GPU');
 
   // папки по умолчанию свёрнуты, их состояние запоминается между сессиями
   const path = (f) => (f.parent && f.parent !== gui ? `${path(f.parent)}/` : '') + f._title;

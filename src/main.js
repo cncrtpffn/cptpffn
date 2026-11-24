@@ -25,7 +25,7 @@ import { createTouchControls, isTouchDevice } from './ui/touch.js';
 import { makeCollapsible } from './ui/collapse.js';
 import { setupFullscreen } from './ui/fullscreen.js';
 import { applyIcons } from './ui/icons.js';
-import { createPerf, createAdaptiveResolution, createPerfOverlay } from './perf.js';
+import { createPerf, createAdaptiveResolution, createPerfOverlay, benchGpu } from './perf.js';
 import { readParams } from './params.js';
 import './debug/polar.js';
 
@@ -135,6 +135,7 @@ let paused = false;
 const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
   resetBoat: () => { placeBoat(); wake.reset(); bowWave.reset(); },
+  benchGpu: () => benchGpu(renderer, renderFrame),
 };
 createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave, particles, actions, start: START, resolution, perfOverlay });
 input.on('reef', (d) => boat.sail.reef(d));
@@ -265,18 +266,22 @@ function frame(now) {
   world.update(camera.position);
   if (camPitch) camera.rotateX(camPitch);
   hud.update({ boat, wind, cameraMode: followCam.mode });
-  const R = water.reflection;
-  if (R.objects) {
-    planar.state.scale = R.resolution;
-    planar.render(scene, camera, R.clouds ? noHide : cloudsHidden);
-  }
-  renderer.render(scene, camera);
+  renderFrame();
   perf.end();
   resolution.update(dt);
   perfOverlay.update(dt);
   if (debugLog && Math.floor(simTime) !== Math.floor(simTime - dt)) {
     console.log(`[sim] t=${simTime.toFixed(1)} boat=(${boat.x.toFixed(1)},${boat.y.toFixed(2)},${boat.z.toFixed(1)}) u=${boat.u.toFixed(2)} heel=${(boat.phi / DEG).toFixed(1)} cam=(${camera.position.x.toFixed(1)},${camera.position.y.toFixed(1)},${camera.position.z.toFixed(1)}) tws=${wind.speed.toFixed(1)} H=${waves.sigHeight.toFixed(2)} spray=${particles.stats.drops}/${particles.stats.mist} lod=${particles.stats.lod} ${particles.stats.ms.toFixed(2)}мс`);
   }
+}
+// отражение и основной проход — то же самое гоняет замер GPU из панели
+function renderFrame() {
+  const R = water.reflection;
+  if (R.objects) {
+    planar.state.scale = R.resolution;
+    planar.render(scene, camera, R.clouds ? noHide : cloudsHidden);
+  }
+  renderer.render(scene, camera);
 }
 document.getElementById('loading').remove();
 requestAnimationFrame(frame);

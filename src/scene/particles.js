@@ -12,7 +12,7 @@ const DROP_SPRITE_MIN = 0.0025;
 //   drop — low-poly капли, падают по баллистике и гибнут в воде;
 //   mist — водяная пыль: мягкие спрайты, их подхватывает ветер, расплываются и тают.
 // Спрайты рисуют и пыль, и далёкие капли. scale — доля частиц от эмиттеров (на таче меньше).
-// palette — палитра пены (wake.settings): капли цвета сильной пены (foamColor), пыль — цвета заливки кильватера (color).
+// palette — палитра пены (wake.settings): капли и пыль цвета сильной пены (foamColor).
 export function createParticles({ scale = 1, maxDrops = 1500, maxMist = 1200, palette } = {}) {
   const drop = createPool(maxDrops, { gravity: 9.81, drag: 0.9 });
   const mist = createPool(maxMist, { gravity: 0.6, drag: 2.5 });
@@ -144,7 +144,7 @@ export function createParticles({ scale = 1, maxDrops = 1500, maxMist = 1200, pa
     if (palette) {
       dropMesh.material.color.set(palette.foamColor);
       spriteMat.uniforms.uDrop.value.set(palette.foamColor);
-      spriteMat.uniforms.uMist.value.set(palette.color);
+      spriteMat.uniforms.uMist.value.set(palette.foamColor);
     }
     // спрайты освещены небом и солнцем, как матовый шар цвета палитры
     if (env) {

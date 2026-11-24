@@ -52,10 +52,10 @@ const WATER_SHADOW_GLSL = (taps) => `
 // видны в свете, а вдали, где геометрии волн нет вовсе, свет рисует их на плоскости. Компоненты, меняющиеся
 // быстрее пикселя (k·fwidth > 1..3), гаснут — без ряби; у горизонта гаснут все. У берега гаснут по глубине.
 // waveNd — наклон для нормали; waveHn — нормированная высота Σ a·sin θ / √Σ a² (гребень — барашки);
-// waveS0, waveC0 — sin и cos фазы главной волны ветровой системы (uWhitecapComp): по ней полоса барашков.
+// waveS0, waveC0 — sin и cos фазы главной волны ветровой системы (uWhitecapComp), waveA0 — её доля в waveHn: по ним барашки.
 const WAVE_FIELD_GLSL = `
   vec3 waveNd = vec3(0.0);
-  float waveHn, waveS0 = 0.0, waveC0 = 0.0, waveDamp = shoreDampAt(vWaveP);
+  float waveHn, waveS0 = 0.0, waveC0 = 0.0, waveA0 = 0.0, waveDamp = shoreDampAt(vWaveP);
   {
     float fw = length(fwidth(vWaveP));
     float h = 0.0, e = 0.0;
@@ -66,13 +66,14 @@ const WAVE_FIELD_GLSL = `
       float wa = uWaveK[i] * a;
       float th = uWaveK[i] * dot(uWaveDir[i], vWaveP) - uWavePhase[i];
       float s = sin(th), c = cos(th);
-      if (i == uWhitecapComp) { waveS0 = s; waveC0 = c; }
+      if (i == uWhitecapComp) { waveS0 = s; waveC0 = c; waveA0 = a; }
       waveNd.xz += uWaveDir[i] * wa * c;
       waveNd.y += uWaveQ[i] * wa * s;
       h += a * s; e += a * a;
     }
     waveNd *= waveDamp;
     waveHn = e > 1e-8 ? h / sqrt(e) : 0.0;
+    waveA0 = e > 1e-8 ? waveA0 / sqrt(e) : 0.0;
   }`;
 
 // Нормаль по готовому полю волн (WAVE_FIELD_GLSL). Сверху — мелкая рябь (RIPPLE_GLSL) с долей rippleK:
@@ -243,7 +244,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         float waterFoam = surfFoam(vWaveP, sh, surfLines);
         diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, waterFoam);
         // барашки цветами кильватера; гаснут там, где у берега гаснут волны: там пена — дело прибоя
-        vec3 wc = whitecap(vWaveP, waveHn, waveS0, waveC0) * smoothstep(0.7, 1.0, waveDamp);
+        vec3 wc = whitecap(vWaveP, waveHn, waveS0, waveC0, waveA0) * smoothstep(0.7, 1.0, waveDamp);
         diffuseColor.rgb = mix(diffuseColor.rgb, uWakeColor, wc.x);
         diffuseColor.rgb = mix(diffuseColor.rgb, uWakeEdgeColor, wc.y);
         diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, wc.z);
@@ -306,7 +307,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         diffuseColor.rgb = mix(diffuseColor.rgb, uLagoon, shallowMix(sh));
         float farFoam = surfFoam(vWaveP, sh, 0.0);
         diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, farFoam);
-        vec3 wc = whitecap(vWaveP, waveHn, waveS0, waveC0) * smoothstep(0.7, 1.0, waveDamp);
+        vec3 wc = whitecap(vWaveP, waveHn, waveS0, waveC0, waveA0) * smoothstep(0.7, 1.0, waveDamp);
         diffuseColor.rgb = mix(diffuseColor.rgb, uWakeColor, wc.x);
         diffuseColor.rgb = mix(diffuseColor.rgb, uWakeEdgeColor, wc.y);
         diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, wc.z);

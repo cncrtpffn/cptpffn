@@ -58,7 +58,7 @@ export function createPerf(renderer) {
 // Без таймера GPU (iOS) ориентируется на интервал кадров и умеет только снижать разрешение:
 // по интервалу, упёртому в vsync, запас не виден.
 export function createAdaptiveResolution(renderer, perf, { max, min = 1, step = 0.25, budget = 11 }) {
-  const state = { auto: true, ratio: max, max, min };
+  const state = { auto: false, ratio: max, max, min }; // авто выключено по умолчанию — включается в панели
   let wait = 0;
   const apply = (r) => {
     state.ratio = r;
@@ -90,6 +90,22 @@ export function createAdaptiveResolution(renderer, perf, { max, min = 1, step = 
   return { state, update };
 }
 
+// Замер GPU без таймера: n кадров подряд, readPixels ждёт, пока GPU всё дорисует; медиана из reps повторов, мс на кадр.
+// Таймер (EXT_disjoint_timer_query) на Apple скачет вдвое от частоты GPU — для сравнений вкл/выкл годится только это.
+export function benchGpu(renderer, renderFrame, { n = 20, reps = 8 } = {}) {
+  const gl = renderer.getContext(), px = new Uint8Array(4);
+  const sync = () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  const runs = [];
+  renderFrame(); sync();
+  for (let r = 0; r < reps; r++) {
+    const t = performance.now();
+    for (let i = 0; i < n; i++) renderFrame();
+    sync();
+    runs.push((performance.now() - t) / n);
+  }
+  return median(runs);
+}
+
 // Оверлей (?perf=1 или панель): медианы GPU/CPU/кадра, draw call'ы, треугольники, разрешение.
 export function createPerfOverlay(perf, res, renderer, { visible = false } = {}) {
   const el = document.createElement('div');
@@ -103,7 +119,7 @@ export function createPerfOverlay(perf, res, renderer, { visible = false } = {})
     if (!state.visible || acc < 0.25) return;
     acc = 0;
     const s = perf.summary(), c = renderer.domElement;
-    el.textContent = `GPU ${s.hasGpu ? s.gpu.toFixed(1) + ' мс' : '—'} · CPU ${s.cpu.toFixed(1)} мс · кадр ${s.frame.toFixed(1)} мс`
+    el.textContent = `GPU ${s.hasGpu ? s.gpu.toFixed(1) + ' мс (таймер, шумит)' : '—'} · CPU ${s.cpu.toFixed(1)} мс · кадр ${s.frame.toFixed(1)} мс`
       + ` · ${s.calls} dc · ${(s.tris / 1000).toFixed(0)}k tri · DPR ${res.state.ratio.toFixed(2)}${res.state.auto ? ' авто' : ''}`
       + ` · ${c.width}×${c.height}`;
   }
