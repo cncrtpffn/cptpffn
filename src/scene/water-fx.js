@@ -362,26 +362,73 @@ export const RIPPLE_GLSL = `
 // (иначе пропадает между пикселями и рябит), яркость падает с её площадью. Солнце — uSunColor × uHalo:
 // ночью и в пасмурную погоду солнечных искр нет. В сумерках — искры луны: те же точки, свет uMoonGlint
 // по направлению uMoonDir (sky.js). Нужны hash12 (NOISE_GLSL), uTime, uSunDir, uSunColor, uHalo.
+//
+// Дорожка у низкого светила (glitterPath) — из искр-граней: у каждой ячейки сетки 1/3 м своя грань,
+// наклонённая на случайный угол (σ = uGlitterSlope, растёт с ветром), и искра горит, когда грань отражает
+// светило в глаз (конус PATH_CONE). Полоса к камере получается сама и при низком светиле вытягивается
+// к горизонту. Где ячейка мельче пикселя, дорожка гаснет: средняя яркость граней давала сплошной блик.
+// Сила — uSunPathK / uMoonPathK (sky.js: по высоте светила) × uPath; от силы искр по ветру не зависит —
+// в штиль дорожка узкая и яркая.
 export const SPARKLE_GLSL = `
   uniform float uSparkle; uniform float uSparkleCount; uniform vec3 uMoonDir; uniform vec3 uMoonGlint;
+  uniform float uPath; uniform float uGlitterSlope; uniform float uSunPathK; uniform float uMoonPathK;
+  const float PATH_CONE = 0.07;
+  // точка искры в ячейке: место случайное, радиус r0 (в долях ячейки), не тоньше ~пикселя
+  // (fpx — пиксель в долях ячейки), яркость падает с площадью
+  float sparkDot(vec2 g, vec2 cell, float fpx, float r0) {
+    vec2 c = vec2(hash12(cell + 17.0), hash12(cell + 31.0)) * 0.6 + 0.2;
+    float r = max(r0, 0.6 * fpx);
+    return (1.0 - smoothstep(r * 0.55, r * 1.4, length(fract(g) - c))) * min(1.0, pow(r0 / r, 2.0) * 4.0);
+  }
+  // v — к камере, L — к светилу, fpx — пиксель в долях ячейки дорожки
+  float glitterPath(vec3 n, vec3 p, vec3 v, vec3 L, float fpx) {
+    float sg = uGlitterSlope;
+    float c0 = dot(reflect(-v, n), L);
+    // отражённый луч гуляет на ~2σ: дальше 3σ от светила граней, которые его поймают, почти нет
+    if (c0 < cos(6.0 * sg + PATH_CONE)) return 0.0;
+    float near = 1.0 - smoothstep(0.5, 1.5, fpx);
+    float spark = 0.0;
+    if (near > 0.0) {
+      vec2 g = p.xz * 3.0 + 113.0;
+      vec2 cell = floor(g);
+      float h1 = hash12(cell + 5.1), h2 = hash12(cell + 9.7), h3 = hash12(cell + 2.3), h4 = hash12(cell + 7.9);
+      // наклон грани: сумма двух равномерных — почти нормальное распределение со σ
+      vec2 t = vec2(h1 + h2 - 1.0, h3 + h4 - 1.0) * sg * 2.449;
+      vec3 nf = normalize(n + vec3(t.x, 0.0, t.y));
+      float hit = smoothstep(cos(PATH_CONE), cos(PATH_CONE * 0.5), dot(reflect(-v, nf), L));
+      float tw = max(0.0, sin(uTime * (4.0 + h1 * 7.0) + h3 * 40.0));
+      if (hit > 0.0) spark = sparkDot(g, cell, fpx, 0.1) * hit * tw * 2.0;
+    }
+    return spark * near;
+  }
   // n — мировая нормаль, p — мировая точка воды, k — доля (на пене 0)
   vec3 sparkle(vec3 n, vec3 p, float k) {
+    // размеры пикселя — до ветвлений (fwidth в неравномерной ветке — мусор)
     float fpx = length(fwidth(p.xz)) * 1.6;
-    if (uSparkle <= 0.0 || k <= 0.0) return vec3(0.0);
-    vec3 rv = reflect(-normalize(cameraPosition - p), n);
-    float rs = uHalo > 0.0 ? max(dot(rv, normalize(uSunDir)), 0.0) : 0.0;
+    float fpxPath = fpx * 1.875;
+    if ((uSparkle <= 0.0 && uPath <= 0.0) || k <= 0.0) return vec3(0.0);
+    vec3 v = normalize(cameraPosition - p);
+    vec3 rv = reflect(-v, n);
+    vec3 col = vec3(0.0), path = vec3(0.0);
+    vec3 sunL = normalize(uSunDir);
+    // дорожки у низкого солнца и луны
+    if (uPath > 0.0) {
+      vec3 sunPath = uSunColor * uHalo * uSunPathK, moonPath = uMoonGlint * uMoonPathK;
+      if (dot(sunPath, sunPath) > 0.0) path += sunPath * glitterPath(n, p, v, sunL, fpxPath);
+      if (dot(moonPath, moonPath) > 0.0) path += moonPath * glitterPath(n, p, v, uMoonDir, fpxPath);
+    }
+    float rs = uHalo > 0.0 ? max(dot(rv, sunL), 0.0) : 0.0;
     float rm = dot(uMoonGlint, uMoonGlint) > 0.0 ? max(dot(rv, uMoonDir), 0.0) : 0.0;
-    // вне дорожек rl^16 ничтожно — шум не считаем
-    if (max(rs, rm) < 0.6) return vec3(0.0);
-    vec2 g = p.xz * 1.6;
-    vec2 cell = floor(g);
-    float h = hash12(cell);
-    if (h < 1.0 - uSparkleCount) return vec3(0.0);
-    vec2 c = vec2(hash12(cell + 17.0), hash12(cell + 31.0)) * 0.6 + 0.2;
-    float r = max(0.07, 0.6 * fpx);
-    float dot_ = (1.0 - smoothstep(r * 0.55, r * 1.4, length(fract(g) - c))) * min(1.0, pow(0.07 / r, 2.0) * 4.0);
-    float tw = max(0.0, sin(uTime * (3.0 + h * 6.0) + h * 40.0));
-    vec3 light = uSunColor * uHalo * pow(rs, 16.0) + uMoonGlint * pow(rm, 16.0);
-    return light * dot_ * tw * 3.0 * k * uSparkle;
+    // вне пятна rl^16 ничтожно — шум не считаем
+    if (uSparkle > 0.0 && max(rs, rm) >= 0.6) {
+      vec2 g = p.xz * 1.6;
+      vec2 cell = floor(g);
+      float h = hash12(cell);
+      if (h >= 1.0 - uSparkleCount) {
+        float tw = max(0.0, sin(uTime * (3.0 + h * 6.0) + h * 40.0));
+        col += (uSunColor * uHalo * pow(rs, 16.0) + uMoonGlint * pow(rm, 16.0)) * sparkDot(g, cell, fpx, 0.07) * tw;
+      }
+    }
+    return (col * uSparkle + path * uPath) * 3.0 * k;
   }
 `;

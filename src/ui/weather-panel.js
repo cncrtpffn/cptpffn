@@ -128,6 +128,13 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   // количество: до этого ветра четверть ячеек, дальше растёт на «рост» за каждый м/с
   fr.add(R, 'sparkleCalm', 0, 20, 0.5).name('Искры: ветер без роста, м/с');
   fr.add(R, 'sparkleGrowth', 0, 0.2, 0.005).name('Искры: рост на м/с');
+  // дорожка из искр у низкого солнца и луны; высоты светила — в sky.path
+  fr.add(R, 'path').name('Дорожка');
+  fr.add(R, 'pathStrength', 0, 3, 0.05).name('Сила дорожки');
+  fr.add(R, 'pathWidth', 0.3, 3, 0.05).name('Ширина дорожки');
+  const pathChanged = () => env.setTimeOfDay(state.timeOfDay);
+  fr.add(env.sky.path, 'full', 0, 30, 1).name('Дорожка: полная ниже, °').onChange(pathChanged);
+  fr.add(env.sky.path, 'start', 1, 60, 1).name('Дорожка: с высоты, °').onChange(pathChanged);
 
   const fp = gui.addFolder('Прибой');
   fp.add(water.surf, 'enabled').name('Прибой');

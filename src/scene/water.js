@@ -206,6 +206,8 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uRippleDir: { value: new THREE.Vector2(0, 1) },
     uSparkle: { value: 0 },
     uSparkleCount: { value: 0.25 },
+    uPath: { value: 0 },
+    uGlitterSlope: { value: 0.05 },
     uRidges: { value: 0 },
     uRidgeWidth: { value: 2 },
     uRidgeMin: { value: 0 },
@@ -214,7 +216,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uTroughColor: { value: new THREE.Color() },
   };
   // палитра неба и солнце — те же объекты, что у неба (uTime у воды свой)
-  for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo', 'uSunDir', 'uSunColor', 'uMoonDir', 'uMoonGlint']) uniforms[k] = sky.uniforms[k];
+  for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo', 'uSunDir', 'uSunColor', 'uMoonDir', 'uMoonGlint', 'uSunPathK', 'uMoonPathK']) uniforms[k] = sky.uniforms[k];
   // shadowFade — метров от предмета до воды, за которые тень слабеет в e раз;
   // shadowBlur — на сколько метров растёт радиус размытия на метр от предмета
   // wireframe — показать сетку волн (каркас того же материала); ripple — мелкая рябь, её сила растёт с ветром;
@@ -231,6 +233,8 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   // в штиль до sparkleStormStrength при sparkleStormWind (м/с), дальше не растёт. Количество: до sparkleCalm (м/с,
   // верх «умеренного») четверть ячеек, дальше растёт на sparkleGrowth (доля) за каждый м/с
   const reflection = { sky: true, strength: 0.3, fresnel: 19, objects: true, objectStrength: 1, distort: 0.03, resolution: 0.5, clouds: false,
+    // path — дорожка из искр у низкого солнца и луны: сила, ширина — множитель разброса наклона граней
+    path: true, pathStrength: 3, pathWidth: 1,
     sparkles: true, sparkleCalmStrength: 0.1, sparkleStormStrength: 3, sparkleStormWind: 19, sparkleCalm: 8, sparkleGrowth: 0.03 };
 
   const WAVE_UNIFORMS = `
@@ -399,6 +403,9 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     sparkleWind.v = sparkleWind.v === null ? v : sparkleWind.v + (v - sparkleWind.v) * (1 - Math.exp(-dt / 2));
     const t = Math.min(1, sparkleWind.v / Math.max(0.1, R.sparkleStormWind));
     uniforms.uSparkle.value = R.sparkles ? R.sparkleCalmStrength + (R.sparkleStormStrength - R.sparkleCalmStrength) * t : 0;
+    uniforms.uPath.value = R.path ? R.pathStrength : 0;
+    // разброс наклона граней дорожки: шире с ветром
+    uniforms.uGlitterSlope.value = Math.max(0.005, R.pathWidth * (0.03 + 0.004 * sparkleWind.v));
     uniforms.uSparkleCount.value = Math.min(1, 0.25 * (1 + R.sparkleGrowth * Math.max(0, sparkleWind.v - R.sparkleCalm)));
   }
 

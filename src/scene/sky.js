@@ -129,12 +129,18 @@ export function createSky({ radius = 2500 } = {}) {
     uMoonSize: { value: 0.02 },
     // искры луны на воде (SPARKLE_GLSL): цвет × сила, 0 — пока солнце не зашло
     uMoonGlint: { value: new THREE.Color(0) },
+    // сила дорожки из искр (SPARKLE_GLSL) по высоте светила
+    uSunPathK: { value: 0 },
+    uMoonPathK: { value: 0 },
   };
   // Луна (панель «Сцена»): полная, по азимуту напротив солнца; высота = lift − высота солнца (°), так что
   // в сумерках она над горизонтом, днём под ним. size — угловой радиус, ° (настоящая 0.26°, у нас крупнее);
   // glint — сила её искр на воде
   const moonCfg = { enabled: true, lift: 12, size: 1.2, glint: 0.8 };
   const moonGlintColor = new THREE.Color(0xdfe8ff);
+  // дорожка из искр у низкого светила: в полную силу ниже full (°), к start (°) исчезает
+  const pathCfg = { full: 8, start: 25 };
+  const pathK = (e) => 1 - THREE.MathUtils.smoothstep(e, pathCfg.full, Math.max(pathCfg.full + 0.1, pathCfg.start));
 
   const mesh = new THREE.Mesh(
     new THREE.SphereGeometry(radius, 48, 24),
@@ -211,6 +217,8 @@ export function createSky({ radius = 2500 } = {}) {
     uniforms.uMoon.value = moonVis;
     uniforms.uMoonSize.value = moonCfg.size * Math.PI / 180;
     // искры луны проступают, когда гаснут солнечные (uHalo: солнце ниже −4°…1°)
+    uniforms.uSunPathK.value = pathK(elev);
+    uniforms.uMoonPathK.value = pathK(mElev * 180 / Math.PI);
     uniforms.uMoonGlint.value.copy(moonGlintColor).multiplyScalar(moonCfg.glint * moonVis * (1 - THREE.MathUtils.smoothstep(elev, -4, 3)));
 
     // солнце под горизонтом не светит — иначе подсветка снизу
@@ -231,5 +239,5 @@ export function createSky({ radius = 2500 } = {}) {
     uniforms.uTime.value = time;
   }
 
-  return { mesh, update, setSun, uniforms, moon: moonCfg };
+  return { mesh, update, setSun, uniforms, moon: moonCfg, path: pathCfg };
 }
