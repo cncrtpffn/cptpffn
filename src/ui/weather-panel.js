@@ -100,6 +100,7 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   // барашки на гребнях с умеренного ветра; количество — множитель к силе от ветра
   fwater.add(water.settings, 'whitecaps').name('Барашки');
   fwater.add(water.settings, 'whitecapAmount', 0, 2, 0.05).name('Количество барашков');
+  fwater.add(water.settings, 'whitecapGroups').name('Подсвечивать группы барашков');
 
   const fr = gui.addFolder('Отражения');
   const R = water.reflection;

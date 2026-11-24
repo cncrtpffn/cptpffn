@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { MAX_COMP } from '../physics/waves.js';
-import { NOISE_GLSL, SHORE_DAMP_GLSL, SURF_GLSL, WAKE_GLSL, SKY_REFLECT_GLSL, RIPPLE_GLSL, WHITECAP_GLSL, whitecapForce } from './water-fx.js';
+import { NOISE_GLSL, SHORE_DAMP_GLSL, SURF_GLSL, WAKE_GLSL, SKY_REFLECT_GLSL, RIPPLE_GLSL, whitecapGlsl, whitecapForce } from './water-fx.js';
 import { G } from '../config.js';
 import { wrapPi } from '../physics/wind.js';
 import { SKY_UNIFORMS_GLSL, SKY_COLOR_GLSL } from './sky.js';
+
+// групп барашков в униформах (WHITECAP_GLSL); жизнь группы, с: сегменты зажигаются за 4 с и живут до 15 с
+const WC_GROUPS = 32, WC_GROUP_LIFE = 20;
 
 // Тень на воде по карте теней солнца (three r170: глубина упакована в RGBA, камера ортографическая —
 // глубина линейна, (z воды − z заслона) · uShadowDepth = метры от предмета до воды).
@@ -174,15 +177,21 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uWhitecap: { value: new THREE.Vector3() },
     uWhitecapComp: { value: 0 },
     uWhitecapEdge: { value: 0.25 },
+    uWhitecapTrail: { value: 0 },
+    uWcGroup: { value: Array.from({ length: WC_GROUPS }, () => new THREE.Vector4()) },
+    uWcGroupN: { value: 0 },
+    uWcNear: { value: new THREE.Vector3() },
+    uWcDebug: { value: 0 },
   };
   // палитра неба и солнце — те же объекты, что у неба (uTime у воды свой)
   for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo', 'uSunDir', 'uSunColor']) uniforms[k] = sky.uniforms[k];
   // shadowFade — метров от предмета до воды, за которые тень слабеет в e раз;
   // shadowBlur — на сколько метров растёт радиус размытия на метр от предмета
   // wireframe — показать сетку волн (каркас того же материала); ripple — мелкая рябь, её сила растёт с ветром (выключена);
-  // whitecaps — барашки на гребнях с умеренного ветра, whitecapAmount — множитель их силы
+  // whitecaps — барашки на гребнях с умеренного ветра, whitecapAmount — множитель их силы,
+  // whitecapGroups — подсветить их группы от точек срыва (отладка)
   const settings = { color: '#2f86b5', shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08, wireframe: false,
-    ripple: false, rippleStrength: 1, whitecaps: true, whitecapAmount: 1 };
+    ripple: false, rippleStrength: 1, whitecaps: true, whitecapAmount: 1, whitecapGroups: false };
   // прибой у берегов и бирюза мелководья (панель «Прибой»)
   const surf = { enabled: true, strength: 1, shallows: true };
   // отражения (панель «Отражения»): небо по Френелю; объекты — вторым рендером (planar-reflection.js),
@@ -194,7 +203,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniform float uWavePhase[${MAX_COMP}]; uniform float uWaveQ[${MAX_COMP}]; uniform int uWaveCount;
     varying vec2 vWaveP;`;
   // прибой: униформы карты берега даёт SHORE_DAMP_GLSL
-  const SURF_PARS = `uniform float uTime; uniform vec2 uWindDir; ${NOISE_GLSL} ${SURF_GLSL} ${RIPPLE_GLSL} ${WHITECAP_GLSL}`;
+  const SURF_PARS = `uniform float uTime; uniform vec2 uWindDir; ${NOISE_GLSL} ${SURF_GLSL} ${RIPPLE_GLSL} ${whitecapGlsl(WC_GROUPS)}`;
   const WAKE_PARS = `${WAKE_GLSL} uniform vec3 uWakeColor; uniform vec3 uWakeEdgeColor;`;
   const REFLECT_PARS = `uniform vec3 uSunDir; uniform vec3 uSunColor; ${SKY_UNIFORMS_GLSL} ${SKY_COLOR_GLSL} ${SKY_REFLECT_GLSL}`;
   const mat = new THREE.MeshLambertMaterial({ color: settings.color });
@@ -249,6 +258,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         diffuseColor.rgb = mix(diffuseColor.rgb, uWakeEdgeColor, wc.y);
         diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, wc.z);
         waterFoam = max(waterFoam, wc.x);
+        if (uWcDebug > 0.5) { vec4 wg = whitecapGroupsDebug(vWaveP); diffuseColor.rgb = mix(diffuseColor.rgb, wg.rgb, wg.a); }
         // кильватер: светлая лента с контуром перемычек, у кормы — белый бурун
         vec4 wk = wakeMask(vWaveP);
         diffuseColor.rgb = mix(diffuseColor.rgb, uWakeColor, wk.x);
@@ -312,6 +322,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
         diffuseColor.rgb = mix(diffuseColor.rgb, uWakeEdgeColor, wc.y);
         diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, wc.z);
         farFoam = max(farFoam, wc.x);
+        if (uWcDebug > 0.5) { vec4 wg = whitecapGroupsDebug(vWaveP); diffuseColor.rgb = mix(diffuseColor.rgb, wg.rgb, wg.a); }
         float rippleK = 1.0 - farFoam;`)
       .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
         ${WAVE_NORMAL_GLSL}`)
@@ -368,7 +379,66 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     const k = settings.whitecaps ? Math.min(1, caps.k * settings.whitecapAmount) : 0;
     uniforms.uWhitecap.value.set(k, caps.off, 2 * Math.PI / lambda);
     uniforms.uWhitecapComp.value = w.windSeaComp;
+    // шлейф — с сильного ветра: до 10.7 м/с (свежий) его нет, к 13 м/с полный (по ветру, без «Количества»)
+    uniforms.uWhitecapTrail.value = THREE.MathUtils.smoothstep(caps.k, 0.57, 0.8);
+    uploadGroups(w);
   }
+
+  // Группы барашков рождаются в точках срыва гребней (crest-spray.js). Группа хранится в координатах гребня:
+  // along — вдоль гребня, across — положение её гребня поперёк (минус пройденный гребнем путь), как точка гребня
+  // в шейдере, — и едет вместе с гребнем. Дальше radius от камеры шейдер рисует прежние группы по шуму.
+  const groups = [];
+  const near = { x: 0, z: 0, r: 80 };
+  const groupStats = { spawned: 0, merged: 0, get alive() { return groups.length; } };
+  let lastW = null;
+  function spawnGroup(x, z) {
+    const w = lastW;
+    if (!w || !caps.k) return;
+    const c = w.windSeaComp, k = uniforms.uWhitecap.value.z;
+    if (c >= w.count || !k) return;
+    const d = uniforms.uRippleDir.value;
+    // до гребня по ходу волн, м — как dc в шейдере
+    const th = w.k[c] * (w.dirX[c] * x + w.dirZ[c] * z) - w.phase[c];
+    let a = Math.atan2(Math.sin(th), Math.cos(th)) - Math.PI / 2;
+    if (a < -Math.PI) a += 2 * Math.PI;
+    const along = -d.y * x + d.x * z;
+    const across = d.x * x + d.y * z - a / k - caps.off;
+    const f = uniforms.uWhitecap.value.x;
+    const radius = (12 + 18 * f) * (0.75 + 0.5 * Math.random());
+    // группа — фрагмент одной волны: на этом же гребне уже есть группа рядом — новую не заводим, иначе они перекрываются и сегменты
+    // на стыке перескакивают с возраста одной на возраст другой
+    for (const g of groups) {
+      if (Math.abs(g.across - across) * k / (2 * Math.PI) < 0.5 && Math.abs(g.along - along) < 0.8 * (g.radius + radius)) {
+        groupStats.merged++;
+        return;
+      }
+    }
+    if (groups.length >= WC_GROUPS) groups.shift();
+    groups.push({ along, across, t0: w.time, radius });
+    groupStats.spawned++;
+  }
+  function uploadGroups(w) {
+    lastW = w;
+    const d = uniforms.uRippleDir.value, off = caps.off;
+    for (let i = groups.length - 1; i >= 0; i--) {
+      const g = groups[i];
+      // точка гребня группы в мире
+      const gx = -d.y * g.along + d.x * (g.across + off), gz = d.x * g.along + d.y * (g.across + off);
+      if (w.time - g.t0 > WC_GROUP_LIFE || Math.hypot(gx - near.x, gz - near.z) > near.r + g.radius + 20) groups.splice(i, 1);
+    }
+    const u = uniforms.uWcGroup.value;
+    groups.forEach((g, i) => u[i].set(g.along, g.across, g.t0, g.radius));
+    uniforms.uWcGroupN.value = groups.length;
+    uniforms.uWcNear.value.set(near.x, near.z, near.r);
+    uniforms.uWcDebug.value = settings.whitecapGroups ? 1 : 0;
+  }
+  const whitecapGroups = {
+    spawn: spawnGroup,
+    // круг вокруг камеры, где ищутся точки срыва: в нём группы от них, дальше — по шуму
+    center(x, z, r) { near.x = x; near.z = z; near.r = r; },
+    stats: groupStats,
+    list: groups,
+  };
 
   // windDir — вектор ветра {x, z}: наветренный берег пенится сильнее, рябь сильнее
   function update(w, cx, cz, windDir) {
@@ -416,5 +486,5 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uFoam.value.set(ws.foamColor);
   }
 
-  return { mesh, far, update, edgeAt, uniforms, settings, surf, reflection };
+  return { mesh, far, update, edgeAt, uniforms, settings, surf, reflection, whitecapGroups };
 }

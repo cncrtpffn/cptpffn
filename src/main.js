@@ -106,7 +106,7 @@ const particles = createParticles({ scale: isTouchDevice() ? 0.5 : 1, palette: w
 scene.add(...particles.meshes);
 const bowSpray = createBowSpray(particles);
 const shoreSpray = createShoreSpray(particles, shoreMap);
-const crestSpray = createCrestSpray(particles);
+const crestSpray = createCrestSpray(particles, water);
 const followCam = new FollowCamera(camera, canvas);
 // в отражение — крупное: суша, постройки, деревья, буи, облака, лодка без мелочи; свет — весь.
 // Трава, кусты и камни (прототип мельче 1.5 м) — почти миллион треугольников, в отражении на половинном разрешении не видны
