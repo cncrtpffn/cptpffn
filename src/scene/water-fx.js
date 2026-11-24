@@ -357,11 +357,12 @@ export const RIPPLE_GLSL = `
 `;
 
 // Искры солнца: мерцающие точки на солнечной дорожке. Точка — в случайном месте ячейки сетки
-// 1/1.6 м, горит только у четверти ячеек, мигает своим темпом. Вдали точка не тоньше ~пикселя
+// 1/1.6 м, горит у доли ячеек uSparkleCount (в штиль — четверть; растёт с ветром), мигает своим темпом.
+// uSparkle — сила (тоже растёт с ветром). Вдали точка не тоньше ~пикселя
 // (иначе пропадает между пикселями и рябит), яркость падает с её площадью. Солнце — uSunColor × uHalo:
 // ночью и в пасмурную погоду искр нет. Нужны hash12 (NOISE_GLSL), uTime, uSunDir, uSunColor, uHalo.
 export const SPARKLE_GLSL = `
-  uniform float uSparkle;
+  uniform float uSparkle; uniform float uSparkleCount;
   // n — мировая нормаль, p — мировая точка воды, k — доля (на пене 0)
   vec3 sparkle(vec3 n, vec3 p, float k) {
     float fpx = length(fwidth(p.xz)) * 1.6;
@@ -373,7 +374,7 @@ export const SPARKLE_GLSL = `
     vec2 g = p.xz * 1.6;
     vec2 cell = floor(g);
     float h = hash12(cell);
-    if (h < 0.75) return vec3(0.0);
+    if (h < 1.0 - uSparkleCount) return vec3(0.0);
     vec2 c = vec2(hash12(cell + 17.0), hash12(cell + 31.0)) * 0.6 + 0.2;
     float r = max(0.07, 0.6 * fpx);
     float dot_ = (1.0 - smoothstep(r * 0.55, r * 1.4, length(fract(g) - c))) * min(1.0, pow(0.07 / r, 2.0) * 4.0);

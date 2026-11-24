@@ -205,6 +205,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uRipple: { value: 0 },
     uRippleDir: { value: new THREE.Vector2(0, 1) },
     uSparkle: { value: 0 },
+    uSparkleCount: { value: 0.25 },
     uRidges: { value: 0 },
     uRidgeWidth: { value: 2 },
     uRidgeMin: { value: 0 },
@@ -226,9 +227,11 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   const surf = { enabled: true, strength: 1, shallows: true };
   // отражения (панель «Отражения»): небо по Френелю; объекты — вторым рендером (planar-reflection.js),
   // resolution — его доля разрешения; облака по умолчанию не отражаем: с френелем объектов они светятся у лодки;
-  // sparkles — мерцающие искры солнца на дорожке (SPARKLE_GLSL)
+  // sparkles — мерцающие искры солнца на дорожке (SPARKLE_GLSL). Сила по ветру линейно от sparkleCalmStrength
+  // в штиль до sparkleStormStrength при sparkleStormWind (м/с), дальше не растёт. Количество: до sparkleCalm (м/с,
+  // верх «умеренного») четверть ячеек, дальше растёт на sparkleGrowth (доля) за каждый м/с
   const reflection = { sky: true, strength: 0.3, fresnel: 19, objects: true, objectStrength: 1, distort: 0.03, resolution: 0.5, clouds: false,
-    sparkles: true, sparkleStrength: 1 };
+    sparkles: true, sparkleCalmStrength: 0.1, sparkleStormStrength: 3, sparkleStormWind: 19, sparkleCalm: 8, sparkleGrowth: 0.03 };
 
   const WAVE_UNIFORMS = `
     uniform vec2 uWaveDir[${MAX_COMP}]; uniform float uWaveA[${MAX_COMP}]; uniform float uWaveK[${MAX_COMP}];
@@ -387,7 +390,19 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uRipple.value = settings.ripple ? settings.rippleStrength * ripple.k : 0;
   }
 
-  // windDir — вектор ветра {x, z}: наветренный берег пенится сильнее, рябь сильнее
+  // искры: сила и количество от ветра; ветер сглажен — порыв не мигает всей дорожкой
+  const sparkleWind = { v: null, time: 0 };
+  function updateSparkle(w, windDir) {
+    const dt = Math.min(0.1, Math.max(0, w.time - sparkleWind.time));
+    sparkleWind.time = w.time;
+    const v = Math.hypot(windDir.x, windDir.z), R = reflection;
+    sparkleWind.v = sparkleWind.v === null ? v : sparkleWind.v + (v - sparkleWind.v) * (1 - Math.exp(-dt / 2));
+    const t = Math.min(1, sparkleWind.v / Math.max(0.1, R.sparkleStormWind));
+    uniforms.uSparkle.value = R.sparkles ? R.sparkleCalmStrength + (R.sparkleStormStrength - R.sparkleCalmStrength) * t : 0;
+    uniforms.uSparkleCount.value = Math.min(1, 0.25 * (1 + R.sparkleGrowth * Math.max(0, sparkleWind.v - R.sparkleCalm)));
+  }
+
+  // windDir — вектор ветра {x, z}: наветренный берег пенится сильнее, рябь сильнее, искр больше
   function update(w, cx, cz, windDir) {
     const sx = Math.round(cx / step) * step, sz = Math.round(cz / step) * step;
     mesh.position.set(sx, 0, sz);
@@ -423,7 +438,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uFresnelPow.value = reflection.fresnel;
     uniforms.uPlanar.value = reflection.objects ? reflection.objectStrength : 0;
     uniforms.uReflDistort.value = reflection.distort;
-    uniforms.uSparkle.value = reflection.sparkles ? reflection.sparkleStrength : 0;
+    updateSparkle(w, windDir);
     const ws = wake.settings;
     uniforms.uWakeOn.value = ws.enabled ? 1 : 0;
     uniforms.uWakeLace.value = ws.lace ? 1 : 0;

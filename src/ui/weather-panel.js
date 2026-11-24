@@ -121,7 +121,13 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   fr.add(R, 'clouds').name('Облака в отражении');
   // мерцающие искры солнца на дорожке
   fr.add(R, 'sparkles').name('Искры');
-  fr.add(R, 'sparkleStrength', 0, 3, 0.05).name('Сила искр');
+  // сила линейно по ветру: от «в штиль» до «в шторм» при ветре «шторма», дальше не растёт
+  fr.add(R, 'sparkleCalmStrength', 0, 3, 0.05).name('Сила искр в штиль');
+  fr.add(R, 'sparkleStormStrength', 0, 5, 0.05).name('Сила искр в шторм');
+  fr.add(R, 'sparkleStormWind', 1, 30, 0.5).name('Ветер шторма, м/с');
+  // количество: до этого ветра четверть ячеек, дальше растёт на «рост» за каждый м/с
+  fr.add(R, 'sparkleCalm', 0, 20, 0.5).name('Искры: ветер без роста, м/с');
+  fr.add(R, 'sparkleGrowth', 0, 0.2, 0.005).name('Искры: рост на м/с');
 
   const fp = gui.addFolder('Прибой');
   fp.add(water.surf, 'enabled').name('Прибой');
