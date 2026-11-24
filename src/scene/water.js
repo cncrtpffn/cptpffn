@@ -51,22 +51,39 @@ const WATER_SHADOW_GLSL = (taps) => `
 // геометрии волн нет вовсе, свет рисует их на плоскости. Компоненты, меняющиеся быстрее пикселя
 // (k·fwidth > 1..3), гаснут — без ряби; у горизонта гаснут все. У берега гаснут по глубине.
 // Сверху — мелкая рябь (RIPPLE_GLSL) с долей rippleK: её объявляет шейдер (на пене ряби нет); у берега не гаснет.
+// Сила ряби rippleMod — по положению на волне (компоненты длиннее uRippleModMin): на гребне и наветренном
+// склоне сильнее (uRippleHigh), в ложбине и на подветренном — слабее (uRippleLow); uRippleModH — доля высоты
+// против склона. Высота и склон нормированы суммой амплитуд, так что у берега и вдали не зависят от гашения.
 // waterN — мировая нормаль, по ней же отражения.
 const WAVE_NORMAL_GLSL = `
   vec3 waterN;
+  float rippleMod;
   {
     float fw = length(fwidth(vWaveP));
     vec3 nd = vec3(0.0);
+    float hs = 0.0, asum = 0.0, ak = 0.0; vec2 gs = vec2(0.0);
+    float kMod = 6.2831853 / max(uRippleModMin, 1e-3);
     for (int i = 0; i < ${MAX_COMP}; i++) {
       if (i >= uWaveCount) break;
-      float wa = uWaveK[i] * uWaveA[i] * (1.0 - smoothstep(1.0, 3.0, uWaveK[i] * fw));
+      float fade = 1.0 - smoothstep(1.0, 3.0, uWaveK[i] * fw);
+      float wa = uWaveK[i] * uWaveA[i] * fade;
       if (wa == 0.0) continue;
       float th = uWaveK[i] * dot(uWaveDir[i], vWaveP) - uWavePhase[i];
-      nd.xz += uWaveDir[i] * wa * cos(th);
-      nd.y += uWaveQ[i] * wa * sin(th);
+      float c = cos(th), s = sin(th);
+      nd.xz += uWaveDir[i] * wa * c;
+      nd.y += uWaveQ[i] * wa * s;
+      if (uWaveK[i] <= kMod) {
+        float a = uWaveA[i] * fade;
+        hs += a * s; asum += a;
+        gs += uWaveDir[i] * wa * c; ak += wa;
+      }
     }
     nd *= shoreDampAt(vWaveP);
-    nd.xz += rippleSlope(vWaveP) * rippleK;
+    float hn = asum > 1e-5 ? hs / asum : 0.0;
+    float sn = ak > 1e-5 ? dot(gs, uRippleDir) / ak : 0.0;
+    float rt = clamp(0.5 + 0.5 * (uRippleModH * hn + (1.0 - uRippleModH) * sn), 0.0, 1.0);
+    rippleMod = mix(uRippleLow, uRippleHigh, smoothstep(0.0, 1.0, rt));
+    nd.xz += rippleSlope(vWaveP) * rippleK * rippleMod;
     waterN = normalize(vec3(-nd.x, 1.0 - nd.y, -nd.z));
     normal = normalize((viewMatrix * vec4(waterN, 0.0)).xyz);
   }`;
@@ -204,6 +221,11 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uReflDistort: { value: 0 },
     uRipple: { value: 0 },
     uRippleDir: { value: new THREE.Vector2(0, 1) },
+    uRippleLow: { value: 1 },
+    uRippleHigh: { value: 1 },
+    uRippleModH: { value: 0.5 },
+    uRippleModMin: { value: 4 },
+    uRippleShow: { value: 0 },
     uSparkle: { value: 0 },
     uSparkleCount: { value: 0.25 },
     uPath: { value: 0 },
@@ -220,10 +242,13 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   // shadowFade — метров от предмета до воды, за которые тень слабеет в e раз;
   // shadowBlur — на сколько метров растёт радиус размытия на метр от предмета
   // wireframe — показать сетку волн (каркас того же материала); ripple — мелкая рябь, её сила растёт с ветром;
+  // rippleLow / rippleHigh — множитель ряби в ложбине и на подветренном склоне / на гребне и наветренном,
+  // rippleModH — доля высоты против склона (1 — только высота), rippleModMin — волны короче (м) не учитываются,
+  // rippleShow — отладка: множитель цветом (синий — rippleLow, красный — rippleHigh);
   // ridges — отладочные линии гребней и дна ложбин (RIDGE_GLSL): ridgeWidth в пикселях, ridgeMin — минимальная длина волны, м;
   // ridgeHatch — штрихи поперёк гребня по наветренному склону, ridgeHatchStep — шаг штрихов, м
   const settings = { color: '#2f86b5', shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08, wireframe: false,
-    ripple: true, rippleStrength: 1,
+    ripple: true, rippleStrength: 1, rippleLow: 0.3, rippleHigh: 1.5, rippleModH: 0.5, rippleModMin: 4, rippleShow: false,
     ridges: false, ridgeWidth: 2, ridgeMin: 3, ridgeHatch: true, ridgeHatchStep: 10, crestColor: '#ffd400', troughColor: '#ff2bd6' };
   // прибой у берегов и бирюза мелководья (панель «Прибой»)
   const surf = { enabled: true, strength: 1, shallows: true };
@@ -314,6 +339,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
           outgoingLight = mix(outgoingLight, uShadowColor, waterShadow());
         #endif
         // отладка — поверх света и тени, чтобы линии читались
+        outgoingLight = rippleModOverlay(outgoingLight, rippleMod * rippleK);
         outgoingLight = ridgeOverlay(outgoingLight, vWaveP);
         #include <opaque_fragment>`);
   };
@@ -357,6 +383,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
       .replace('#include <opaque_fragment>', `
         outgoingLight = skyReflect(outgoingLight, waterN, vec3(vWaveP.x, -0.08, vWaveP.y), 1.0 - farFoam);
         outgoingLight += sparkle(waterN, vec3(vWaveP.x, -0.08, vWaveP.y), 1.0 - farFoam);
+        outgoingLight = rippleModOverlay(outgoingLight, rippleMod * rippleK);
         outgoingLight = ridgeOverlay(outgoingLight, vWaveP);
         #include <opaque_fragment>`);
   };
@@ -392,6 +419,11 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     // «откуда» → вектор «куда», как у компонент волн
     uniforms.uRippleDir.value.set(-Math.sin(ripple.ang), Math.cos(ripple.ang));
     uniforms.uRipple.value = settings.ripple ? settings.rippleStrength * ripple.k : 0;
+    uniforms.uRippleLow.value = settings.rippleLow;
+    uniforms.uRippleHigh.value = settings.rippleHigh;
+    uniforms.uRippleModH.value = settings.rippleModH;
+    uniforms.uRippleModMin.value = settings.rippleModMin;
+    uniforms.uRippleShow.value = settings.rippleShow ? 1 : 0;
   }
 
   // искры: сила и количество от ветра; ветер сглажен — порыв не мигает всей дорожкой

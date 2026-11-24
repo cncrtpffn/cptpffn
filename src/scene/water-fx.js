@@ -321,8 +321,17 @@ export const SKY_REFLECT_GLSL = `
 // вытянутого вдоль гребня. Гребни поперёк направления ветровых волн uRippleDir (вектор «куда»), октавы
 // чуть разведены по углу и бегут по направлению с фазовой скоростью глубокой воды √(gλ/2π).
 // Октава гаснет, когда её длина меньше ~2–4 пикселей. Нужны hash12 (NOISE_GLSL) и uTime.
+// Множитель силы по положению на волне (rippleMod) считает нормаль по пикселю в water.js по uRippleLow/High/ModH/ModMin;
+// rippleModOverlay — его отладочный показ цветом (синий — uRippleLow, красный — uRippleHigh).
 export const RIPPLE_GLSL = `
   uniform float uRipple; uniform vec2 uRippleDir;
+  uniform float uRippleLow; uniform float uRippleHigh; uniform float uRippleModH; uniform float uRippleModMin;
+  uniform float uRippleShow;
+  vec3 rippleModOverlay(vec3 col, float m) {
+    if (uRippleShow <= 0.0) return col;
+    float t = clamp((m - uRippleLow) / max(uRippleHigh - uRippleLow, 1e-3), 0.0, 1.0);
+    return mix(col, mix(vec3(0.1, 0.3, 1.0), vec3(1.0, 0.15, 0.1), t), 0.6);
+  }
   // xy — градиент, z — значение
   vec3 vnoised(vec2 p) {
     vec2 i = floor(p), f = fract(p);

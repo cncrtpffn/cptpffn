@@ -97,6 +97,13 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   // мелкая рябь по направлению ветровых волн, сила — множитель к силе от ветра
   fwater.add(water.settings, 'ripple').name('Рябь');
   fwater.add(water.settings, 'rippleStrength', 0, 3, 0.05).name('Сила ряби');
+  // по положению на волне: ложбина и подветренный склон слабее, гребень и наветренный — сильнее
+  fwater.add(water.settings, 'rippleLow', 0, 2, 0.05).name('Рябь в ложбине/подветр.');
+  fwater.add(water.settings, 'rippleHigh', 0, 3, 0.05).name('Рябь на гребне/наветр.');
+  // 1 — только по высоте, 0 — только по склону
+  fwater.add(water.settings, 'rippleModH', 0, 1, 0.05).name('Гребень ↔ склон');
+  fwater.add(water.settings, 'rippleModMin', 0, 20, 0.5).name('Рябь: мин. длина волны, м');
+  fwater.add(water.settings, 'rippleShow').name('Показать силу ряби');
   // отладка: линии по гребням и по дну ложбин, волны короче «Мин. длины» не учитываются
   fwater.add(water.settings, 'ridges').name('Гребни и ложбины');
   fwater.add(water.settings, 'ridgeWidth', 0.5, 6, 0.5).name('Толщина линий, px');
