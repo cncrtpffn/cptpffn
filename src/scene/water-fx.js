@@ -360,17 +360,19 @@ export const RIPPLE_GLSL = `
 // 1/1.6 м, горит у доли ячеек uSparkleCount (в штиль — четверть; растёт с ветром), мигает своим темпом.
 // uSparkle — сила (тоже растёт с ветром). Вдали точка не тоньше ~пикселя
 // (иначе пропадает между пикселями и рябит), яркость падает с её площадью. Солнце — uSunColor × uHalo:
-// ночью и в пасмурную погоду искр нет. Нужны hash12 (NOISE_GLSL), uTime, uSunDir, uSunColor, uHalo.
+// ночью и в пасмурную погоду солнечных искр нет. В сумерках — искры луны: те же точки, свет uMoonGlint
+// по направлению uMoonDir (sky.js). Нужны hash12 (NOISE_GLSL), uTime, uSunDir, uSunColor, uHalo.
 export const SPARKLE_GLSL = `
-  uniform float uSparkle; uniform float uSparkleCount;
+  uniform float uSparkle; uniform float uSparkleCount; uniform vec3 uMoonDir; uniform vec3 uMoonGlint;
   // n — мировая нормаль, p — мировая точка воды, k — доля (на пене 0)
   vec3 sparkle(vec3 n, vec3 p, float k) {
     float fpx = length(fwidth(p.xz)) * 1.6;
     if (uSparkle <= 0.0 || k <= 0.0) return vec3(0.0);
-    vec3 vd = normalize(cameraPosition - p);
-    float rl = max(dot(reflect(-vd, n), normalize(uSunDir)), 0.0);
-    // вне дорожки rl^16 ничтожно — шум не считаем
-    if (rl < 0.6) return vec3(0.0);
+    vec3 rv = reflect(-normalize(cameraPosition - p), n);
+    float rs = uHalo > 0.0 ? max(dot(rv, normalize(uSunDir)), 0.0) : 0.0;
+    float rm = dot(uMoonGlint, uMoonGlint) > 0.0 ? max(dot(rv, uMoonDir), 0.0) : 0.0;
+    // вне дорожек rl^16 ничтожно — шум не считаем
+    if (max(rs, rm) < 0.6) return vec3(0.0);
     vec2 g = p.xz * 1.6;
     vec2 cell = floor(g);
     float h = hash12(cell);
@@ -379,6 +381,7 @@ export const SPARKLE_GLSL = `
     float r = max(0.07, 0.6 * fpx);
     float dot_ = (1.0 - smoothstep(r * 0.55, r * 1.4, length(fract(g) - c))) * min(1.0, pow(0.07 / r, 2.0) * 4.0);
     float tw = max(0.0, sin(uTime * (3.0 + h * 6.0) + h * 40.0));
-    return uSunColor * uHalo * dot_ * tw * pow(rl, 16.0) * 3.0 * k * uSparkle;
+    vec3 light = uSunColor * uHalo * pow(rs, 16.0) + uMoonGlint * pow(rm, 16.0);
+    return light * dot_ * tw * 3.0 * k * uSparkle;
   }
 `;

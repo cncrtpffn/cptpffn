@@ -56,9 +56,10 @@ export function createPerf(renderer) {
 
 // Адаптивное разрешение: держит GPU-время кадра в бюджете, меняя pixelRatio ступенями.
 // Без таймера GPU (iOS) ориентируется на интервал кадров и умеет только снижать разрешение:
-// по интервалу, упёртому в vsync, запас не виден.
+// по интервалу, упёртому в vsync, запас не виден. По умолчанию выключено: полное разрешение max,
+// включается галкой «Авто-разрешение» в панели «Производительность».
 export function createAdaptiveResolution(renderer, perf, { max, min = 1, step = 0.25, budget = 11 }) {
-  const state = { auto: true, ratio: max, max, min };
+  const state = { auto: false, ratio: max, max, min };
   let wait = 0;
   const apply = (r) => {
     state.ratio = r;

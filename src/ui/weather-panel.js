@@ -168,6 +168,12 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   const fc = gui.addFolder('Сцена');
   fc.add(state, 'timeOfDay', 0, 1, 0.01).name('Время суток').onChange((v) => env.setTimeOfDay(v));
   fc.add(state, 'clouds', env.cloudTypes).name('Облачность').onChange((v) => env.setCloudType(v));
+  // луна в сумерках напротив солнца и её искры на воде
+  const moonChanged = () => env.setTimeOfDay(state.timeOfDay);
+  fc.add(env.sky.moon, 'enabled').name('Луна').onChange(moonChanged);
+  fc.add(env.sky.moon, 'lift', 0, 40, 1).name('Высота луны, °').onChange(moonChanged);
+  fc.add(env.sky.moon, 'size', 0.3, 3, 0.05).name('Размер луны, °').onChange(moonChanged);
+  fc.add(env.sky.moon, 'glint', 0, 3, 0.05).name('Искры луны').onChange(moonChanged);
   fc.add({ f: actions.righten }, 'f').name('Поставить лодку');
   fc.add({ f: actions.resetBoat }, 'f').name('Вернуть в начало');
 

@@ -214,7 +214,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uTroughColor: { value: new THREE.Color() },
   };
   // палитра неба и солнце — те же объекты, что у неба (uTime у воды свой)
-  for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo', 'uSunDir', 'uSunColor']) uniforms[k] = sky.uniforms[k];
+  for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo', 'uSunDir', 'uSunColor', 'uMoonDir', 'uMoonGlint']) uniforms[k] = sky.uniforms[k];
   // shadowFade — метров от предмета до воды, за которые тень слабеет в e раз;
   // shadowBlur — на сколько метров растёт радиус размытия на метр от предмета
   // wireframe — показать сетку волн (каркас того же материала); ripple — мелкая рябь, её сила растёт с ветром;
