@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MAX_COMP } from '../physics/waves.js';
-import { NOISE_GLSL, SHORE_DAMP_GLSL, SURF_GLSL, WAKE_GLSL, SKY_REFLECT_GLSL, RIPPLE_GLSL } from './water-fx.js';
+import { NOISE_GLSL, SHORE_DAMP_GLSL, SURF_GLSL, WAKE_GLSL, SKY_REFLECT_GLSL, RIPPLE_GLSL, SPARKLE_GLSL } from './water-fx.js';
 import { wrapPi } from '../physics/wind.js';
 import { SKY_UNIFORMS_GLSL, SKY_COLOR_GLSL } from './sky.js';
 
@@ -69,6 +69,55 @@ const WAVE_NORMAL_GLSL = `
     nd.xz += rippleSlope(vWaveP) * rippleK;
     waterN = normalize(vec3(-nd.x, 1.0 - nd.y, -nd.z));
     normal = normalize((viewMatrix * vec4(waterN, 0.0)).xyz);
+  }`;
+
+// Отладка: линии гребней и дна ложбин (галка «Гребни и ложбины» в панели «Вода»). По тем же компонентам,
+// что нормаль (короткие, мельче пикселя, гаснут), в точке параметризации — гребень Герстнера, смещённый
+// по горизонтали, получается сам. Гессиан высоты H и градиент g; e — главное направление кривизны
+// (собственный вектор H с наибольшим |λ|). Линия — где g·e = 0: λ < 0 — гребень, λ > 0 — ложбина.
+// Расстояние до линии в метрах |g·e| / |λ| — без fwidth от e (знак e скачет между пикселями).
+// Компоненты короче uRidgeMin (м) не учитываются, иначе мелкие волны дробят линии; слабая кривизна
+// (пологие места на стыке систем) отсекается порогом от средней кривизны поля.
+// Штрихи по наветренному склону — цветом гребня, через uRidgeHatch метров (0 — нет): прямые по направлению
+// ветровых волн uRippleDir (RIPPLE_GLSL), т. е. поперёк гребня, пока гребень поперёк ветрового волнения.
+// Наветренный склон — где вода поднимается по ходу волн (g·dir > 0): от дна ложбины до гребня.
+const RIDGE_GLSL = `
+  uniform float uRidges; uniform float uRidgeWidth; uniform float uRidgeMin; uniform float uRidgeHatch;
+  uniform vec3 uCrestColor; uniform vec3 uTroughColor;
+  vec3 ridgeOverlay(vec3 col, vec2 p) {
+    if (uRidges <= 0.0) return col;
+    float fpx = max(length(fwidth(p)), 1e-4);
+    vec2 g = vec2(0.0); vec3 h = vec3(0.0); float kk = 0.0, gk = 0.0; // h = (Hxx, Hxy, Hzz)
+    for (int i = 0; i < ${MAX_COMP}; i++) {
+      if (i >= uWaveCount) break;
+      if (uWaveK[i] * uRidgeMin > 6.2831853) continue;
+      float a = uWaveA[i] * (1.0 - smoothstep(1.0, 3.0, uWaveK[i] * fpx));
+      if (a == 0.0) continue;
+      vec2 d = uWaveDir[i];
+      float th = uWaveK[i] * dot(d, p) - uWavePhase[i];
+      g += d * a * uWaveK[i] * cos(th);
+      gk += a * uWaveK[i];
+      float c2 = -a * uWaveK[i] * uWaveK[i];
+      h += c2 * sin(th) * vec3(d.x * d.x, d.x * d.y, d.y * d.y);
+      kk += -c2;
+    }
+    float m = 0.5 * (h.x + h.z), r = length(vec2(0.5 * (h.x - h.z), h.y));
+    float lam = m < 0.0 ? m - r : m + r;
+    vec2 e1 = vec2(h.y, lam - h.x), e2 = vec2(lam - h.z, h.y);
+    vec2 e = dot(e1, e1) > dot(e2, e2) ? e1 : e2;
+    if (uRidgeHatch > 0.0 && gk > 0.0) {
+      vec2 tang = vec2(-uRippleDir.y, uRippleDir.x);
+      float hd = abs(fract(dot(p, tang) / uRidgeHatch + 0.5) - 0.5) * uRidgeHatch;
+      float hatch = 1.0 - smoothstep(0.5 * uRidgeWidth, 0.5 * uRidgeWidth + 1.0, hd / fpx);
+      hatch *= smoothstep(0.05, 0.15, dot(g, uRippleDir) / gk);
+      col = mix(col, uCrestColor, hatch * uRidges);
+    }
+    if (dot(e, e) < 1e-12 || kk <= 0.0) return col;
+    e = normalize(e);
+    float dist = abs(dot(g, e)) / max(abs(lam), 1e-6);
+    float line = 1.0 - smoothstep(0.5 * uRidgeWidth, 0.5 * uRidgeWidth + 1.0, dist / fpx);
+    line *= smoothstep(0.15, 0.35, abs(lam) / kk);
+    return mix(col, lam < 0.0 ? uCrestColor : uTroughColor, line * uRidges);
   }`;
 
 // Вода: один цвет, только рассеянный свет (Lambert, без бликов), без текстур (эксперимент, панель «Вода»).
@@ -155,19 +204,31 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uReflDistort: { value: 0 },
     uRipple: { value: 0 },
     uRippleDir: { value: new THREE.Vector2(0, 1) },
+    uSparkle: { value: 0 },
+    uRidges: { value: 0 },
+    uRidgeWidth: { value: 2 },
+    uRidgeMin: { value: 0 },
+    uRidgeHatch: { value: 0 },
+    uCrestColor: { value: new THREE.Color() },
+    uTroughColor: { value: new THREE.Color() },
   };
   // палитра неба и солнце — те же объекты, что у неба (uTime у воды свой)
   for (const k of ['uZenith', 'uHorizon', 'uAntiHorizon', 'uSunGlow', 'uBelt', 'uHalo', 'uSunDir', 'uSunColor']) uniforms[k] = sky.uniforms[k];
   // shadowFade — метров от предмета до воды, за которые тень слабеет в e раз;
   // shadowBlur — на сколько метров растёт радиус размытия на метр от предмета
-  // wireframe — показать сетку волн (каркас того же материала); ripple — мелкая рябь, её сила растёт с ветром
+  // wireframe — показать сетку волн (каркас того же материала); ripple — мелкая рябь, её сила растёт с ветром;
+  // ridges — отладочные линии гребней и дна ложбин (RIDGE_GLSL): ridgeWidth в пикселях, ridgeMin — минимальная длина волны, м;
+  // ridgeHatch — штрихи поперёк гребня по наветренному склону, ridgeHatchStep — шаг штрихов, м
   const settings = { color: '#2f86b5', shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08, wireframe: false,
-    ripple: true, rippleStrength: 1 };
+    ripple: true, rippleStrength: 1,
+    ridges: false, ridgeWidth: 2, ridgeMin: 3, ridgeHatch: true, ridgeHatchStep: 10, crestColor: '#ffd400', troughColor: '#ff2bd6' };
   // прибой у берегов и бирюза мелководья (панель «Прибой»)
   const surf = { enabled: true, strength: 1, shallows: true };
   // отражения (панель «Отражения»): небо по Френелю; объекты — вторым рендером (planar-reflection.js),
-  // resolution — его доля разрешения; облака по умолчанию не отражаем: с френелем объектов они светятся у лодки
-  const reflection = { sky: true, strength: 0.3, fresnel: 19, objects: true, objectStrength: 1, distort: 0.03, resolution: 0.5, clouds: false };
+  // resolution — его доля разрешения; облака по умолчанию не отражаем: с френелем объектов они светятся у лодки;
+  // sparkles — мерцающие искры солнца на дорожке (SPARKLE_GLSL)
+  const reflection = { sky: true, strength: 0.3, fresnel: 19, objects: true, objectStrength: 1, distort: 0.03, resolution: 0.5, clouds: false,
+    sparkles: true, sparkleStrength: 1 };
 
   const WAVE_UNIFORMS = `
     uniform vec2 uWaveDir[${MAX_COMP}]; uniform float uWaveA[${MAX_COMP}]; uniform float uWaveK[${MAX_COMP}];
@@ -176,7 +237,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   // прибой: униформы карты берега даёт SHORE_DAMP_GLSL
   const SURF_PARS = `uniform float uTime; uniform vec2 uWindDir; ${NOISE_GLSL} ${SURF_GLSL} ${RIPPLE_GLSL}`;
   const WAKE_PARS = `${WAKE_GLSL} uniform vec3 uWakeColor; uniform vec3 uWakeEdgeColor;`;
-  const REFLECT_PARS = `uniform vec3 uSunDir; uniform vec3 uSunColor; ${SKY_UNIFORMS_GLSL} ${SKY_COLOR_GLSL} ${SKY_REFLECT_GLSL}`;
+  const REFLECT_PARS = `uniform vec3 uSunDir; uniform vec3 uSunColor; ${SKY_UNIFORMS_GLSL} ${SKY_COLOR_GLSL} ${SKY_REFLECT_GLSL} ${SPARKLE_GLSL} ${RIDGE_GLSL}`;
   const mat = new THREE.MeshLambertMaterial({ color: settings.color });
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
@@ -241,9 +302,12 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
       // отражения — до тени: тень на воде остаётся читаемой
       .replace('#include <opaque_fragment>', `
         outgoingLight = skyReflect(outgoingLight, waterN, vWaterPos, 1.0 - waterFoam);
+        outgoingLight += sparkle(waterN, vWaterPos, 1.0 - waterFoam);
         #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
           outgoingLight = mix(outgoingLight, uShadowColor, waterShadow());
         #endif
+        // отладка — поверх света и тени, чтобы линии читались
+        outgoingLight = ridgeOverlay(outgoingLight, vWaveP);
         #include <opaque_fragment>`);
   };
   // чтобы кэш шейдера различал материал с инъекцией
@@ -285,6 +349,8 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
       // те же отражения, иначе на стыке с ближней водой видна граница яркости
       .replace('#include <opaque_fragment>', `
         outgoingLight = skyReflect(outgoingLight, waterN, vec3(vWaveP.x, -0.08, vWaveP.y), 1.0 - farFoam);
+        outgoingLight += sparkle(waterN, vec3(vWaveP.x, -0.08, vWaveP.y), 1.0 - farFoam);
+        outgoingLight = ridgeOverlay(outgoingLight, vWaveP);
         #include <opaque_fragment>`);
   };
   farMat.customProgramCacheKey = () => 'cozy-water-far';
@@ -347,10 +413,17 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uShallows.value = surf.shallows ? 1 : 0;
     uniforms.uSurfAmp.value = w.maxAmplitude();
     updateRipple(w, windDir);
+    uniforms.uRidges.value = settings.ridges ? 1 : 0;
+    uniforms.uRidgeWidth.value = settings.ridgeWidth;
+    uniforms.uRidgeMin.value = settings.ridgeMin;
+    uniforms.uRidgeHatch.value = settings.ridgeHatch ? settings.ridgeHatchStep : 0;
+    uniforms.uCrestColor.value.set(settings.crestColor);
+    uniforms.uTroughColor.value.set(settings.troughColor);
     uniforms.uReflect.value = reflection.sky ? reflection.strength : 0;
     uniforms.uFresnelPow.value = reflection.fresnel;
     uniforms.uPlanar.value = reflection.objects ? reflection.objectStrength : 0;
     uniforms.uReflDistort.value = reflection.distort;
+    uniforms.uSparkle.value = reflection.sparkles ? reflection.sparkleStrength : 0;
     const ws = wake.settings;
     uniforms.uWakeOn.value = ws.enabled ? 1 : 0;
     uniforms.uWakeLace.value = ws.lace ? 1 : 0;

@@ -97,6 +97,15 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   // мелкая рябь по направлению ветровых волн, сила — множитель к силе от ветра
   fwater.add(water.settings, 'ripple').name('Рябь');
   fwater.add(water.settings, 'rippleStrength', 0, 3, 0.05).name('Сила ряби');
+  // отладка: линии по гребням и по дну ложбин, волны короче «Мин. длины» не учитываются
+  fwater.add(water.settings, 'ridges').name('Гребни и ложбины');
+  fwater.add(water.settings, 'ridgeWidth', 0.5, 6, 0.5).name('Толщина линий, px');
+  fwater.add(water.settings, 'ridgeMin', 0, 20, 0.5).name('Мин. длина волны, м');
+  // штрихи поперёк гребня по наветренному склону, цветом гребня
+  fwater.add(water.settings, 'ridgeHatch').name('Штрихи на склоне');
+  fwater.add(water.settings, 'ridgeHatchStep', 1, 40, 0.5).name('Шаг штрихов, м');
+  fwater.addColor(water.settings, 'crestColor').name('Цвет гребней');
+  fwater.addColor(water.settings, 'troughColor').name('Цвет ложбин');
 
   const fr = gui.addFolder('Отражения');
   const R = water.reflection;
@@ -110,6 +119,9 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   fr.add(R, 'distort', 0, 0.1, 0.005).name('Искажение волнами');
   fr.add(R, 'resolution', { '¼': 0.25, '½': 0.5, 'полное': 1 }).name('Разрешение');
   fr.add(R, 'clouds').name('Облака в отражении');
+  // мерцающие искры солнца на дорожке
+  fr.add(R, 'sparkles').name('Искры');
+  fr.add(R, 'sparkleStrength', 0, 3, 0.05).name('Сила искр');
 
   const fp = gui.addFolder('Прибой');
   fp.add(water.surf, 'enabled').name('Прибой');
