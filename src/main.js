@@ -27,11 +27,15 @@ import { setupFullscreen } from './ui/fullscreen.js';
 import { applyIcons } from './ui/icons.js';
 import { createPerf, createAdaptiveResolution, createPerfOverlay } from './perf.js';
 import { readParams } from './params.js';
+import { register, optional, critical, tick, guardFrame, installShaderGuard, processShaderErrors, compileAndCheck } from './diag/features.js';
 import './debug/polar.js';
 
 const STEP = 1 / 120;
 // стартовый сетап: время суток, погода, положение лодки
-const START = await (await fetch('start.json')).json();
+const START = await fetch('start.json').then((r) => {
+  if (!r.ok) throw new Error(`start.json: HTTP ${r.status}`);
+  return r.json();
+});
 // URL-параметры — реестр src/params.js (он же таблица на tools.html).
 // ?map=<id> — карта по полю высот (src/maps/index.js), без него — демо; ?pos=x,z[,курс°] — старт лодки
 // (без него — старт карты map.start, иначе start.json); туда же возвращает «Вернуть лодку»
@@ -53,6 +57,18 @@ renderer.shadowMap.type = isTouchDevice() ? THREE.PCFShadowMap : THREE.PCFSoftSh
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.localClippingEnabled = true;
+// шапка лога: версия three и GPU — первое, что нужно при разборе ошибок шейдеров
+{
+  const gl = renderer.getContext();
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  diag.info('three', `r${THREE.REVISION}, ${renderer.capabilities.isWebGL2 ? 'WebGL2' : 'WebGL1'}`);
+  diag.info('GPU', dbg ? `${gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL)} / ${gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)}` : gl.getParameter(gl.RENDERER));
+  diag.info('MAX_TEXTURE_SIZE', gl.getParameter(gl.MAX_TEXTURE_SIZE));
+}
+// ошибки шейдеров — не в консоль three, а в лог с отключением фичи-владельца (processShaderErrors)
+installShaderGuard(renderer);
+canvas.addEventListener('webglcontextlost', () => diag.fail('WebGL', 'потерян контекст WebGL (нехватка памяти GPU или сброс драйвера)'));
+canvas.addEventListener('webglcontextrestored', () => console.warn('[WebGL] контекст восстановлен'));
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.3, 5000);
@@ -73,41 +89,54 @@ const sea = { ...SEA, ...START.weather.sea };
 // --- сцена ---
 // мир — до окружения: буи берутся из него (ручные из описания карты и навигационные знаки плана);
 // тень — окном вокруг камеры (на таче меньше и грубее)
-const world = buildWorld(MAP, { density: P.veg ?? 1 });
-const env = createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 4096,
-  buoys: world.buoys, shadowRange: isTouchDevice() ? 70 : 120 });
+// без мира, окружения (небо, свет), карты берега, кильватера и воды игры нет: при ошибке — экран с логами.
+// Остальное необязательно: при ошибке создаётся заглушка с тем же API (src/diag/features.js)
+const world = critical('world', 'мир', () => buildWorld(MAP, { density: P.veg ?? 1 }));
+const env = critical('env', 'окружение', () => createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 4096,
+  buoys: world.buoys, shadowRange: isTouchDevice() ? 70 : 120 }));
 scene.add(world.group);
 console.log(world.summary());
 const bakeT0 = performance.now();
 // карта берега — на весь мир: тексель ≈0.4 м у демо 1.5 км, ≈0.75 м у карты 3 км (на таче вдвое крупнее)
-const shoreMap = bakeShoreMap([world.shore], { maxSize: isTouchDevice() ? 2048 : 4096 });
+const shoreMap = critical('shore', 'карта берега', () => bakeShoreMap([world.shore], { maxSize: isTouchDevice() ? 2048 : 4096 }));
 const bakeMs = performance.now() - bakeT0;
 // физика гасит волны у берега так же, как вершинный шейдер воды
 waves.damp = (x, z) => shoreDamp(shoreMap.depthAt(x, z));
-const wake = createWake();
-const planar = createPlanarReflection(renderer);
-const water = createWater(waves, {
+const wake = critical('wake', 'кильватер', () => createWake());
+// без отражения объектов вода живёт: пустая текстура и render-пустышка, галка «Объекты» снята
+const planar = optional('planar', 'отражение объектов', () => createPlanarReflection(renderer),
+  () => ({ texture: null, matrix: new THREE.Matrix4(), render() {}, state: { scale: 0.5 }, failed: true }));
+const water = critical('water', 'вода', () => createWater(waves, {
   size: SCENE.waterSize, segments: SCENE.waterSegments, shoreMap, wake, sky: env.sky, planar,
   shadowCamera: env.sun.shadow.camera,
-});
+}));
 // второй рендер дорог: на телефонах и планшетах отражение объектов по умолчанию выключено
-water.reflection.objects = !isTouchDevice();
+water.reflection.objects = !isTouchDevice() && !planar.failed;
 scene.add(water.mesh, water.far);
-const boatMesh = createBoatMesh();
+const boatMesh = critical('boat', 'лодка', () => createBoatMesh());
 scene.add(boatMesh.group);
 // бурун у носа, вдоль борта и у кормы
-const bowWave = createBowWave(wake, hullGeometry());
-scene.add(bowWave.mesh, bowWave.lines);
+const bowWave = optional('bowwave', 'бурун', () => createBowWave(wake, hullGeometry()), () => ({
+  mesh: null, lines: null, waterline: { contour: null }, settings: { enabled: false, bow: 1, lumps: 1, waterline: false },
+  update() {}, reset() {},
+}));
+if (bowWave.mesh) scene.add(bowWave.mesh, bowWave.lines);
 // ?bowl=N — N открытых «мисок» на воде рядом со стартом: проверка контура ватерлинии, дырки в воде и цены
 const bowl = P.bowl ? createTestBowls(Math.max(1, Math.round(P.bowl)), startBoat.x + 6, startBoat.z - 6) : null;
 if (bowl) scene.add(...bowl.objects);
 // брызги: общая система частиц и эмиттеры; на таче частиц вдвое меньше
-const particles = createParticles({ scale: isTouchDevice() ? 0.5 : 1 });
-scene.add(...particles.meshes);
-const bowSpray = createBowSpray(particles);
-const shoreSpray = createShoreSpray(particles, shoreMap);
-const crestSpray = createCrestSpray(particles);
-const followCam = new FollowCamera(camera, canvas);
+const particles = optional('particles', 'брызги', () => createParticles({ scale: isTouchDevice() ? 0.5 : 1 }), () => ({
+  meshes: [], settings: { enabled: false, strength: 1, bow: true, shore: true, crest: true },
+  update() {}, clear() {}, stats: { drops: 0, mist: 0, lod: 0, ms: 0 }, failed: true,
+}));
+if (particles.meshes.length) scene.add(...particles.meshes);
+// эмиттеры без системы частиц не создаются: она уже в тосте
+const noEmitter = () => ({ update() {}, stats: {} });
+const emitter = (id, label, create) => (particles.failed ? noEmitter() : optional(id, label, create, noEmitter));
+const bowSpray = emitter('bowspray', 'брызги от носа', () => createBowSpray(particles));
+const shoreSpray = emitter('shorespray', 'брызги прибоя', () => createShoreSpray(particles, shoreMap));
+const crestSpray = emitter('crestspray', 'срыв гребней', () => createCrestSpray(particles));
+const followCam = critical('camera', 'камера', () => new FollowCamera(camera, canvas));
 // в отражение — крупное: суша, постройки, деревья, буи, облака, лодка без мелочи; свет — весь.
 // Трава, кусты и камни (прототип мельче 1.5 м) — почти миллион треугольников, в отражении на половинном разрешении не видны
 scene.traverse((o) => { if (o.isLight) markReflected(o); });
@@ -120,23 +149,48 @@ markReflected(boatMesh.group, { minRadius: 0.25 });
 markReflected(boatMesh.sailor.group, { minRadius: 0.1 }); // моряк мельче, но заметен: тело, голова, шапка
 const cloudsHidden = [env.clouds.group], noHide = [];
 
+// фичи для мягкой деградации: корни объектов (по ним сломанный шейдер находит владельца) и как выключить.
+// Без своего disable прячутся только объекты со сломанным шейдером
+register('water', 'вода (простая заливка)', [water.mesh, water.far], () => water.degrade());
+register('sky', 'небо', [env.sky.mesh], () => { env.sky.mesh.visible = false; scene.background = scene.fog.color; });
+register('clouds', 'облака', [env.clouds.group], () => { env.clouds.group.visible = false; });
+const hideAll = (list) => { for (const o of list) o.visible = false; };
+register('particles', 'брызги', particles.meshes, () => { particles.settings.enabled = false; particles.clear(); hideAll(particles.meshes); });
+for (const [id, label] of [['bowspray', 'брызги от носа'], ['shorespray', 'брызги прибоя'], ['crestspray', 'срыв гребней']]) register(id, label);
+register('bowwave', 'бурун', [bowWave.mesh, bowWave.lines], () => {
+  Object.assign(bowWave.settings, { enabled: false, waterline: false });
+  if (bowWave.mesh) hideAll([bowWave.mesh, bowWave.lines]);
+});
+register('wake', 'кильватер', [], () => { wake.settings.enabled = false; wake.reset(); });
+register('planar', 'отражение объектов', [], () => { water.reflection.objects = false; });
+register('world', 'суша, постройки, растительность', [world.group]);
+register('buoys', 'буи', env.buoys);
+register('boat', 'лодка (часть модели)', [boatMesh.group]);
+
 // --- замеры и разрешение ---
 // вода — самое дорогое на GPU, и цена растёт с числом пикселей: на таче потолок DPR 1.5,
 // дальше разрешение подстраивается под бюджет GPU (?dpr=1.5 — зафиксировать вручную)
 const perf = createPerf(renderer);
 const resolution = createAdaptiveResolution(renderer, perf, { max: Math.min(window.devicePixelRatio, isTouchDevice() ? 1.5 : 2) });
 if ('dpr' in P) { resolution.state.auto = false; resolution.state.ratio = P.dpr; }
-const perfOverlay = createPerfOverlay(perf, resolution, renderer, { visible: !!P.perf });
+const perfOverlay = optional('perfoverlay', 'счётчик кадра', () => createPerfOverlay(perf, resolution, renderer, { visible: !!P.perf }),
+  () => ({ state: { visible: false }, update() {} }));
+register('perfoverlay', 'счётчик кадра', [], () => { perfOverlay.state.visible = false; });
 
 // --- UI ---
-const input = new Input();
-const hud = new Hud();
+const input = critical('input', 'управление', () => new Input());
+// без HUD — только справка по паузе
+const hud = optional('hud', 'приборы', () => new Hud(), () => ({
+  update() {},
+  showHelp(v, min = false) { document.getElementById('help').classList.toggle('hidden', !v || min); },
+}));
+register('hud', 'приборы');
 let paused = false;
 const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
   resetBoat: () => { placeBoat(); wake.reset(); bowWave.reset(); },
 };
-createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave, particles, actions, start: START, resolution, perfOverlay });
+optional('panel', 'панель настроек', () => createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave, particles, actions, start: START, resolution, perfOverlay }));
 input.on('reef', (d) => boat.sail.reef(d));
 input.on('crew', (a) => { if (boat.crewPos) boat.crewPos = crewMove(boat.crewPos, a); });
 input.on('camera', () => followCam.nextMode());
@@ -150,6 +204,7 @@ input.on('righten', actions.righten);
 document.getElementById('btn-righten').addEventListener('click', actions.righten);
 document.getElementById('btn-pause').addEventListener('click', () => input.trigger('pause'));
 document.getElementById('btn-resume').addEventListener('click', () => setPaused(false));
+document.getElementById('btn-logs').addEventListener('click', () => diag.open());
 document.getElementById('btn-help-close').addEventListener('click', () => setPaused(false));
 document.getElementById('btn-help-min').addEventListener('click', () => setPaused(true, true));
 document.getElementById('btn-help-expand').addEventListener('click', () => setPaused(true));
@@ -157,25 +212,27 @@ document.getElementById('btn-resume-chip').addEventListener('click', () => setPa
 document.getElementById('help').addEventListener('click', (e) => { if (e.target.id === 'help') setPaused(false); });
 
 // тач-управление и сворачиваемые панели
-applyIcons();
-createTouchControls(input);
+optional('icons', 'иконки', () => applyIcons());
+optional('touch', 'тач-управление', () => createTouchControls(input));
 const touch = isTouchDevice();
-setupFullscreen([...document.querySelectorAll('.btn-fullscreen')], { lockPortrait: touch });
+optional('fullscreen', 'полный экран', () => setupFullscreen([...document.querySelectorAll('.btn-fullscreen')], { lockPortrait: touch }));
 // на телефонах только портрет: в ландшафте поверх игры заглушка (CSS #rotate), симуляция стоит
 const phoneLandscape = matchMedia('(orientation: landscape) and (max-height: 500px)');
-const hudMain = document.getElementById('hud-main'), hudControls = document.getElementById('hud-controls');
-makeCollapsible(hudMain, { key: 'main', title: 'Приборы' });
-const controlsPanel = makeCollapsible(hudControls, { key: 'controls', title: 'Органы управления', ...(touch && { defaultCollapsed: true }) });
-if (touch) {
-  // на таче приборы и состояние лодки — полоса вдоль верхнего края; пока одна
-  // панель развёрнута, вторая скрыта (CSS), поэтому развёрнутой бывает только одна
-  const bar = document.createElement('div');
-  bar.id = 'top-bar';
-  bar.append(hudMain, hudControls);
-  document.getElementById('hud').prepend(bar);
-  if (!hudMain.classList.contains('collapsed') && !hudControls.classList.contains('collapsed')) controlsPanel.set(true);
-}
-makeCollapsible(document.getElementById('hint'), { key: 'hint', title: 'Подсказка', ...(touch && { defaultCollapsed: true }) });
+optional('collapse', 'сворачивание панелей', () => {
+  const hudMain = document.getElementById('hud-main'), hudControls = document.getElementById('hud-controls');
+  makeCollapsible(hudMain, { key: 'main', title: 'Приборы' });
+  const controlsPanel = makeCollapsible(hudControls, { key: 'controls', title: 'Органы управления', ...(touch && { defaultCollapsed: true }) });
+  if (touch) {
+    // на таче приборы и состояние лодки — полоса вдоль верхнего края; пока одна
+    // панель развёрнута, вторая скрыта (CSS), поэтому развёрнутой бывает только одна
+    const bar = document.createElement('div');
+    bar.id = 'top-bar';
+    bar.append(hudMain, hudControls);
+    document.getElementById('hud').prepend(bar);
+    if (!hudMain.classList.contains('collapsed') && !hudControls.classList.contains('collapsed')) controlsPanel.set(true);
+  }
+  makeCollapsible(document.getElementById('hint'), { key: 'hint', title: 'Подсказка', ...(touch && { defaultCollapsed: true }) });
+});
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -227,6 +284,11 @@ let last = performance.now();
 let acc = 0;
 function frame(now) {
   requestAnimationFrame(frame);
+  // ошибка в кадре не останавливает цикл: необязательные фичи выключаются в tick, остальное — в лог (guardFrame)
+  guardFrame(() => step(now));
+  processShaderErrors(renderer, scene);
+}
+function step(now) {
   perf.begin(now);
   // метка rAF бывает раньше last (долгая загрузка, компиляция шейдеров) — отрицательный dt разгоняет сглаживание камеры
   let dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
@@ -250,35 +312,38 @@ function frame(now) {
   }
   boatMesh.update(boat, simTime);
   if (!halted) {
-    bowSpray.update(dt, boat, waves, boatMesh);
-    bowWave.update(dt, simTime, boat, waves, boatMesh, env);
+    tick('bowspray', () => bowSpray.update(dt, boat, waves, boatMesh));
+    tick('bowwave', () => bowWave.update(dt, simTime, boat, waves, boatMesh, env));
     bowl?.update(waves, boat.x, boat.z, water.edgeAt);
-    shoreSpray.update(dt, waves, wind, camera);
-    crestSpray.update(dt, waves, wind, camera);
+    tick('shorespray', () => shoreSpray.update(dt, waves, wind, camera));
+    tick('crestspray', () => crestSpray.update(dt, waves, wind, camera));
   }
-  particles.update(halted ? 0 : dt, { waves, wind, env, camera });
+  tick('particles', () => particles.update(halted ? 0 : dt, { waves, wind, env, camera }));
   // волна у борта — лента кильватера вдоль корпуса по контуру ватерлинии буруна
-  if (!halted) wake.update(simTime, boat, bowWave.waterline.contour);
+  if (!halted) tick('wake', () => wake.update(simTime, boat, bowWave.waterline.contour));
   water.update(waves, boat.x, boat.z, wind.vector());
   env.update(halted ? 0 : dt, waves, wind, boat, camera);
   followCam.update(dt || 0.016, boat, boatMesh);
   world.update(camera.position);
   if (camPitch) camera.rotateX(camPitch);
-  hud.update({ boat, wind, cameraMode: followCam.mode });
+  tick('hud', () => hud.update({ boat, wind, cameraMode: followCam.mode }));
   const R = water.reflection;
-  if (R.objects) {
+  if (R.objects) tick('planar', () => {
     planar.state.scale = R.resolution;
     planar.render(scene, camera, R.clouds ? noHide : cloudsHidden);
-  }
+  });
   renderer.render(scene, camera);
   perf.end();
   resolution.update(dt);
-  perfOverlay.update(dt);
+  tick('perfoverlay', () => perfOverlay.update(dt));
   if (debugLog && Math.floor(simTime) !== Math.floor(simTime - dt)) {
     console.log(`[sim] t=${simTime.toFixed(1)} boat=(${boat.x.toFixed(1)},${boat.y.toFixed(2)},${boat.z.toFixed(1)}) u=${boat.u.toFixed(2)} heel=${(boat.phi / DEG).toFixed(1)} cam=(${camera.position.x.toFixed(1)},${camera.position.y.toFixed(1)},${camera.position.z.toFixed(1)}) tws=${wind.speed.toFixed(1)} H=${waves.sigHeight.toFixed(2)} spray=${particles.stats.drops}/${particles.stats.mist} lod=${particles.stats.lod} ${particles.stats.ms.toFixed(2)}мс`);
   }
 }
+// шейдеры — до первого кадра, пока видна «Загрузка…»: сломанные фичи выключаются заранее
+await compileAndCheck(renderer, scene, camera);
 document.getElementById('loading').remove();
+diag.started();
 requestAnimationFrame(frame);
 
 // отладка из консоли

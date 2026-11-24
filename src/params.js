@@ -35,6 +35,8 @@ export const GAME_PARAMS = [
   { name: 'auto', kind: 'flag', group: 'Отладка', example: '1', desc: 'оставить автопилот включённым (с t — всегда)' },
   { name: 'perf', kind: 'flag', group: 'Отладка', example: '1', desc: 'счётчик кадра: GPU/CPU, draw call’ы, треугольники' },
   { name: 'log', kind: 'flag', group: 'Отладка', example: '1', desc: 'отладочный лог в консоль' },
+  { name: 'fail', kind: 'str', group: 'Отладка', values: 'id[:init|:tick],…', example: 'water,bowwave:init',
+    desc: 'проверка мягкой деградации: сломать шейдер (id), создание (:init) или обновление в кадре (:tick) фичи; id — register(…) в main.js' },
   { name: 'bowl', kind: 'num', group: 'Отладка', example: '30', desc: 'N открытых «мисок» на воде у старта: контур ватерлинии, дырка в воде, цена' },
 ];
 

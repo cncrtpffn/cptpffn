@@ -15,6 +15,8 @@
   <meta name="apple-mobile-web-app-title" content="Кэтбот">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <!-- лог и ошибки — до модулей, чтобы поймать и падение их загрузки -->
+  <script src="src/diag/diag.js"></script>
   <script type="importmap">
   {
     "imports": {
@@ -138,7 +140,7 @@
           <p class="manual-link"><a href="manual.html" target="_blank" rel="noopener">Подробный учебник: термины, схемы, повороты →</a></p>
         </div>
       </div>
-      <div class="actions"><button id="btn-resume">▶ Продолжить <kbd class="kbd-only">Space</kbd></button></div>
+      <div class="actions"><button id="btn-logs" class="secondary" title="Лог игры — пригодится, если что-то сломалось">Логи</button><button id="btn-resume">▶ Продолжить <kbd class="kbd-only">Space</kbd></button></div>
     </div>
   </div>
 

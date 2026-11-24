@@ -210,6 +210,8 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   fq.add(rs, 'ratio', 0.75, Math.max(1, rs.max), 0.25).name('Плотность пикселей').listen()
     .onChange(() => { rs.auto = false; gui.controllersRecursive().forEach((c) => c.updateDisplay()); });
   fq.add(perfOverlay.state, 'visible').name('Счётчик кадра');
+  // лог игры с копированием и «поделиться» — для телефонов без консоли (src/diag/diag.js)
+  fq.add({ f: () => window.diag.open() }, 'f').name('Логи');
 
   // папки по умолчанию свёрнуты, их состояние запоминается между сессиями
   const path = (f) => (f.parent && f.parent !== gui ? `${path(f.parent)}/` : '') + f._title;

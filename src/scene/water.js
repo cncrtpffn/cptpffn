@@ -513,5 +513,17 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uniforms.uWakeEdgeColor.value.set(ws.edgeColor);
   }
 
-  return { mesh, far, update, edgeAt, uniforms, settings, surf, reflection };
+  // запасная вода, если шейдер не собрался (src/diag/features.js): стандартный Lambert того же цвета —
+  // плоская, без волн, пены и отражений; физика волн не меняется. Стенсил — тот же: дырка в лодках остаётся
+  function degrade() {
+    const plain = (src) => {
+      const m = new THREE.MeshLambertMaterial({ color: settings.color });
+      for (const k of ['stencilWrite', 'stencilRef', 'stencilFunc', 'stencilFail', 'stencilZFail', 'stencilZPass']) m[k] = src[k];
+      return m;
+    };
+    mesh.material = plain(mat);
+    far.material = plain(farMat);
+  }
+
+  return { mesh, far, update, edgeAt, degrade, uniforms, settings, surf, reflection };
 }
