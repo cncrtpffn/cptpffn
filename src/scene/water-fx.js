@@ -322,14 +322,15 @@ export const SKY_REFLECT_GLSL = `
 // чуть разведены по углу и бегут по направлению с фазовой скоростью глубокой воды √(gλ/2π).
 // Октава гаснет, когда её длина меньше ~2–4 пикселей. Нужны hash12 (NOISE_GLSL) и uTime.
 // Множитель силы по положению на волне (rippleMod) считает нормаль по пикселю в water.js по uRippleLow/High/ModH/ModMin;
-// rippleModOverlay — его отладочный показ цветом (синий — uRippleLow, красный — uRippleHigh).
+// rippleModOverlay — его отладочный показ цветом по шкале настроек uRippleShowRange (синий — «в ложбине»,
+// красный — «на гребне»): в слабый ветер, когда контраст снижен, вода сиреневая.
 export const RIPPLE_GLSL = `
   uniform float uRipple; uniform vec2 uRippleDir;
   uniform float uRippleLow; uniform float uRippleHigh; uniform float uRippleModH; uniform float uRippleModMin;
-  uniform float uRippleShow;
+  uniform float uRippleShow; uniform vec2 uRippleShowRange;
   vec3 rippleModOverlay(vec3 col, float m) {
     if (uRippleShow <= 0.0) return col;
-    float t = clamp((m - uRippleLow) / max(uRippleHigh - uRippleLow, 1e-3), 0.0, 1.0);
+    float t = clamp((m - uRippleShowRange.x) / max(uRippleShowRange.y - uRippleShowRange.x, 1e-3), 0.0, 1.0);
     return mix(col, mix(vec3(0.1, 0.3, 1.0), vec3(1.0, 0.15, 0.1), t), 0.6);
   }
   // xy — градиент, z — значение

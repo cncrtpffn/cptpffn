@@ -226,6 +226,7 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     uRippleModH: { value: 0.5 },
     uRippleModMin: { value: 4 },
     uRippleShow: { value: 0 },
+    uRippleShowRange: { value: new THREE.Vector2(0.3, 1.5) },
     uSparkle: { value: 0 },
     uSparkleCount: { value: 0.25 },
     uPath: { value: 0 },
@@ -244,11 +245,15 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   // wireframe — показать сетку волн (каркас того же материала); ripple — мелкая рябь, её сила растёт с ветром;
   // rippleLow / rippleHigh — множитель ряби в ложбине и на подветренном склоне / на гребне и наветренном,
   // rippleModH — доля высоты против склона (1 — только высота), rippleModMin — волны короче (м) не учитываются,
+  // rippleContrastCalm — доля этого контраста в штиль, полный — при rippleContrastWind (м/с);
+  // rippleCalmPow — степень роста силы ряби до 10 м/с; rippleStormGain — сила при rippleStormWind (м/с)
+  // относительно 10 м/с, rippleStormExp — крутизна экспоненты между ними;
   // rippleShow — отладка: множитель цветом (синий — rippleLow, красный — rippleHigh);
   // ridges — отладочные линии гребней и дна ложбин (RIDGE_GLSL): ridgeWidth в пикселях, ridgeMin — минимальная длина волны, м;
   // ridgeHatch — штрихи поперёк гребня по наветренному склону, ridgeHatchStep — шаг штрихов, м
   const settings = { color: '#2f86b5', shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08, wireframe: false,
-    ripple: true, rippleStrength: 1, rippleLow: 0.3, rippleHigh: 1.5, rippleModH: 0.5, rippleModMin: 4, rippleShow: false,
+    ripple: true, rippleStrength: 1, rippleLow: 0.3, rippleHigh: 1.5, rippleModH: 0.5, rippleModMin: 4,
+    rippleContrastCalm: 0.2, rippleContrastWind: 15, rippleCalmPow: 1.5, rippleStormGain: 2.5, rippleStormExp: 1.5, rippleStormWind: 19, rippleShow: false,
     ridges: false, ridgeWidth: 2, ridgeMin: 3, ridgeHatch: true, ridgeHatchStep: 10, crestColor: '#ffd400', troughColor: '#ff2bd6' };
   // прибой у берегов и бирюза мелководья (панель «Прибой»)
   const surf = { enabled: true, strength: 1, shallows: true };
@@ -406,21 +411,33 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     return 1 - t * t * (3 - 2 * t);
   }
 
-  // рябь: направление за ветровыми волнами (без скачка при рождении новой системы), сила за ветром с порывами
-  const ripple = { ang: null, k: 0, time: 0 };
+  // рябь: направление за ветровыми волнами (без скачка при рождении новой системы), сила за ветром с порывами.
+  // Сила: от 1 до 10 м/с растёт до 1 по ((v − 1)/9)^rippleCalmPow (в слабый ветер рябь едва видна), дальше
+  // по экспоненте (e^(a·x) − 1)/(e^a − 1), a = rippleStormExp, до rippleStormGain при rippleStormWind, выше не растёт.
+  // Контраст гребень/ложбина — по ветру, сглаженному τ = 2 с (порыв не мигает пятнами): доля rippleContrastCalm
+  // в штиль → 1 при rippleContrastWind; low/high тянутся к 1 (ровная рябь) пропорционально
+  const ripple = { ang: null, k: 0, wind: 0, time: 0 };
   function updateRipple(w, windDir) {
     const dt = Math.min(0.1, Math.max(0, w.time - ripple.time));
     ripple.time = w.time;
     const target = w.windSeaDir;
-    const f = Math.min(1, Math.max(0.05, (Math.hypot(windDir.x, windDir.z) - 1) / 9));
-    if (ripple.ang === null) { ripple.ang = target; ripple.k = f; }
+    const v = Math.hypot(windDir.x, windDir.z);
+    const storm = Math.max(10.01, settings.rippleStormWind);
+    const a = Math.max(0.01, settings.rippleStormExp);
+    const f = v <= 10 ? Math.max(0.02, Math.pow(Math.max(0, (v - 1) / 9), settings.rippleCalmPow))
+      : 1 + (settings.rippleStormGain - 1) * Math.expm1(a * Math.min(1, (v - 10) / (storm - 10))) / Math.expm1(a);
+    if (ripple.ang === null) { ripple.ang = target; ripple.k = f; ripple.wind = v; }
     ripple.ang += wrapPi(target - ripple.ang) * (1 - Math.exp(-dt / 2));
     ripple.k += (f - ripple.k) * (1 - Math.exp(-dt / 0.5));
+    ripple.wind += (v - ripple.wind) * (1 - Math.exp(-dt / 2));
+    const calm = settings.rippleContrastCalm;
+    const c = calm + (1 - calm) * Math.min(1, ripple.wind / Math.max(0.1, settings.rippleContrastWind));
     // «откуда» → вектор «куда», как у компонент волн
     uniforms.uRippleDir.value.set(-Math.sin(ripple.ang), Math.cos(ripple.ang));
     uniforms.uRipple.value = settings.ripple ? settings.rippleStrength * ripple.k : 0;
-    uniforms.uRippleLow.value = settings.rippleLow;
-    uniforms.uRippleHigh.value = settings.rippleHigh;
+    uniforms.uRippleLow.value = 1 + (settings.rippleLow - 1) * c;
+    uniforms.uRippleHigh.value = 1 + (settings.rippleHigh - 1) * c;
+    uniforms.uRippleShowRange.value.set(settings.rippleLow, settings.rippleHigh);
     uniforms.uRippleModH.value = settings.rippleModH;
     uniforms.uRippleModMin.value = settings.rippleModMin;
     uniforms.uRippleShow.value = settings.rippleShow ? 1 : 0;
