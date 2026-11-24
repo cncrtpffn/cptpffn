@@ -103,9 +103,10 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   // 1 — только по высоте, 0 — только по склону
   fwater.add(water.settings, 'rippleModH', 0, 1, 0.05).name('Гребень ↔ склон');
   fwater.add(water.settings, 'rippleModMin', 0, 20, 0.5).name('Рябь: мин. длина волны, м');
-  // контраст гребень/ложбина растёт с ветром: доля в штиль → полный при «ветре полного контраста»
-  fwater.add(water.settings, 'rippleContrastCalm', 0, 1, 0.05).name('Контраст ряби в штиль');
-  fwater.add(water.settings, 'rippleContrastWind', 1, 30, 0.5).name('Полный контраст, м/с');
+  // контраст гребень/ложбина полный до «полный до» (лёгкий бриз), дальше убывает до «в шторм» при «шторм с»
+  fwater.add(water.settings, 'rippleContrastFrom', 0, 15, 0.1).name('Контраст полный до, м/с');
+  fwater.add(water.settings, 'rippleContrastTo', 5, 30, 0.5).name('Контраст: шторм с, м/с');
+  fwater.add(water.settings, 'rippleContrastStorm', 0, 1, 0.05).name('Контраст ряби в шторм');
   // до 10 м/с сила ряби растёт по степени (больше — слабее в слабый ветер),
   // выше — по экспоненте до «в шторм» при «ветре шторма»
   fwater.add(water.settings, 'rippleCalmPow', 1, 3, 0.1).name('Рябь: степень до 10 м/с');

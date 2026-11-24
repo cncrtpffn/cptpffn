@@ -245,15 +245,15 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   // wireframe — показать сетку волн (каркас того же материала); ripple — мелкая рябь, её сила растёт с ветром;
   // rippleLow / rippleHigh — множитель ряби в ложбине и на подветренном склоне / на гребне и наветренном,
   // rippleModH — доля высоты против склона (1 — только высота), rippleModMin — волны короче (м) не учитываются,
-  // rippleContrastCalm — доля этого контраста в штиль, полный — при rippleContrastWind (м/с);
+  // контраст полный до rippleContrastFrom (м/с, лёгкий бриз), дальше убывает до доли rippleContrastStorm при rippleContrastTo;
   // rippleCalmPow — степень роста силы ряби до 10 м/с; rippleStormGain — сила при rippleStormWind (м/с)
   // относительно 10 м/с, rippleStormExp — крутизна экспоненты между ними;
   // rippleShow — отладка: множитель цветом (синий — rippleLow, красный — rippleHigh);
   // ridges — отладочные линии гребней и дна ложбин (RIDGE_GLSL): ridgeWidth в пикселях, ridgeMin — минимальная длина волны, м;
   // ridgeHatch — штрихи поперёк гребня по наветренному склону, ridgeHatchStep — шаг штрихов, м
   const settings = { color: '#2f86b5', shadowColor: '#0b2a44', shadowStrength: 0.85, shadowFade: 10, shadowBlur: 0.08, wireframe: false,
-    ripple: true, rippleStrength: 1, rippleLow: 0.3, rippleHigh: 1.5, rippleModH: 0.5, rippleModMin: 4,
-    rippleContrastCalm: 0.2, rippleContrastWind: 15, rippleCalmPow: 1.5, rippleStormGain: 2.5, rippleStormExp: 1.5, rippleStormWind: 19, rippleShow: false,
+    ripple: true, rippleStrength: 1, rippleLow: 0, rippleHigh: 1.5, rippleModH: 0.5, rippleModMin: 4,
+    rippleContrastFrom: 3.3, rippleContrastTo: 19, rippleContrastStorm: 0.5, rippleCalmPow: 1.5, rippleStormGain: 2.5, rippleStormExp: 1.5, rippleStormWind: 19, rippleShow: false,
     ridges: false, ridgeWidth: 2, ridgeMin: 3, ridgeHatch: true, ridgeHatchStep: 10, crestColor: '#ffd400', troughColor: '#ff2bd6' };
   // прибой у берегов и бирюза мелководья (панель «Прибой»)
   const surf = { enabled: true, strength: 1, shallows: true };
@@ -414,8 +414,9 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   // рябь: направление за ветровыми волнами (без скачка при рождении новой системы), сила за ветром с порывами.
   // Сила: от 1 до 10 м/с растёт до 1 по ((v − 1)/9)^rippleCalmPow (в слабый ветер рябь едва видна), дальше
   // по экспоненте (e^(a·x) − 1)/(e^a − 1), a = rippleStormExp, до rippleStormGain при rippleStormWind, выше не растёт.
-  // Контраст гребень/ложбина — по ветру, сглаженному τ = 2 с (порыв не мигает пятнами): доля rippleContrastCalm
-  // в штиль → 1 при rippleContrastWind; low/high тянутся к 1 (ровная рябь) пропорционально
+  // Контраст гребень/ложбина — по ветру, сглаженному τ = 2 с (порыв не мигает пятнами): полный в штиль и лёгкий
+  // бриз (до rippleContrastFrom: гладкие ложбины, рябь на гребнях), дальше линейно до доли rippleContrastStorm
+  // при rippleContrastTo; low/high тянутся к 1 (ровная рябь) пропорционально
   const ripple = { ang: null, k: 0, wind: 0, time: 0 };
   function updateRipple(w, windDir) {
     const dt = Math.min(0.1, Math.max(0, w.time - ripple.time));
@@ -430,8 +431,8 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
     ripple.ang += wrapPi(target - ripple.ang) * (1 - Math.exp(-dt / 2));
     ripple.k += (f - ripple.k) * (1 - Math.exp(-dt / 0.5));
     ripple.wind += (v - ripple.wind) * (1 - Math.exp(-dt / 2));
-    const calm = settings.rippleContrastCalm;
-    const c = calm + (1 - calm) * Math.min(1, ripple.wind / Math.max(0.1, settings.rippleContrastWind));
+    const from = settings.rippleContrastFrom, to = Math.max(from + 0.1, settings.rippleContrastTo);
+    const c = 1 - (1 - settings.rippleContrastStorm) * Math.min(1, Math.max(0, (ripple.wind - from) / (to - from)));
     // «откуда» → вектор «куда», как у компонент волн
     uniforms.uRippleDir.value.set(-Math.sin(ripple.ang), Math.cos(ripple.ang));
     uniforms.uRipple.value = settings.ripple ? settings.rippleStrength * ripple.k : 0;
