@@ -28,6 +28,17 @@ const tick = (a, r1, r2) => {
   return `<line x1="${(sx * r1).toFixed(1)}" y1="${(cy * r1).toFixed(1)}" x2="${(sx * r2).toFixed(1)}" y2="${(cy * r2).toFixed(1)}"/>`;
 };
 const cardinal = (a, r) => `<text transform="rotate(${a}) translate(0,${-r})" class="rose-label ${'nesw'[a / 90]}" dy="0.35em">${'NESW'[a / 90]}</text>`;
+// большая картушка: риски через 10°, буквы на 90°, цифры через 30° (в десятках градусов, как на шлюпочном компасе).
+// Та же разметка — в статичном компасе экрана загрузки (src/debug/gen-loading-anim.mjs)
+export function roseTicks() {
+  let s = '';
+  for (let a = 0; a < 360; a += 10) {
+    const major = a % 30 === 0;
+    s += tick(a, a % 90 === 0 ? 47 : major ? 50 : 53, 56);
+    if (major) s += a % 90 === 0 ? cardinal(a, 39) : `<text transform="rotate(${a}) translate(0,-42)" class="rose-num" dy="0.35em">${a / 10}</text>`;
+  }
+  return s;
+}
 const ROSE_K = 6.5;
 const deg = (rad) => (Math.round(rad / DEG * 2) / 2).toFixed(1); // до 0.5°, чтобы атрибут не менялся каждый кадр // ед. viewBox розы на метр, как в разметке #rose
 
@@ -46,17 +57,10 @@ export class Hud {
       status: $('sail-status'), statusBox: $('sail-status').parentElement, warnings: $('warnings'),
       camera: $('hud-camera'), help: $('help'), pausedChip: $('paused-chip'), root: $('hud'), capsize: $('capsize'), capsizeText: $('capsize-text'),
     };
-    // большая картушка: риски через 10°, буквы на 90°, цифры через 30° (в десятках градусов, как на шлюпочном компасе)
-    let s = '';
-    for (let a = 0; a < 360; a += 10) {
-      const major = a % 30 === 0;
-      s += tick(a, a % 90 === 0 ? 47 : major ? 50 : 53, 56);
-      if (major) s += a % 90 === 0 ? cardinal(a, 39) : `<text transform="rotate(${a}) translate(0,-42)" class="rose-num" dy="0.35em">${a / 10}</text>`;
-    }
-    $('rose-ticks').innerHTML = s;
+    $('rose-ticks').innerHTML = roseTicks();
     // мини: только риски через 45° и буквы
     // буквы — отдельной группой поверх стрелки ветра, крутятся вместе с картушкой
-    s = '';
+    let s = '';
     for (let a = 0; a < 360; a += 45) s += tick(a, a % 90 === 0 ? 44 : 46, 54);
     $('rose-mini-ticks').innerHTML = s;
     $('rose-mini-letters').innerHTML = [0, 90, 180, 270].map((a) => cardinal(a, 33)).join('');

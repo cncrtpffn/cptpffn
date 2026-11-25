@@ -55,6 +55,17 @@ export function critical(id, label, create) {
   }
 }
 
+// то же для асинхронного создания (мир собирается с паузами для экрана загрузки)
+export async function criticalAsync(id, label, create) {
+  try {
+    failTest(id, 'init');
+    return await create();
+  } catch (e) {
+    diag.fail(label, e, { fatal: true });
+    throw diag.handled(e);
+  }
+}
+
 // обновление фичи в кадре: первое исключение выключает её, дальше вызовы пропускаются
 export function tick(id, fn) {
   const f = features.get(id);

@@ -15,7 +15,7 @@ import { createTestBowls } from './debug/test-bowl.js';
 import { createShoreSpray } from './scene/shore-spray.js';
 import { createCrestSpray } from './scene/crest-spray.js';
 import { createEnvironment } from './scene/environment.js';
-import { buildWorld } from './scene/terrain/world.js';
+import { buildWorldAsync } from './scene/terrain/world.js';
 import { MAPS } from './maps/index.js';
 import { FollowCamera } from './scene/camera.js';
 import { Input } from './input.js';
@@ -27,10 +27,20 @@ import { setupFullscreen } from './ui/fullscreen.js';
 import { applyIcons } from './ui/icons.js';
 import { createPerf, createAdaptiveResolution, createPerfOverlay } from './perf.js';
 import { readParams } from './params.js';
-import { register, optional, critical, tick, guardFrame, installShaderGuard, processShaderErrors, compileAndCheck } from './diag/features.js';
+import { createLoading } from './ui/loading.js';
+import { register, optional, critical, criticalAsync, tick, guardFrame, installShaderGuard, processShaderErrors, compileAndCheck } from './diag/features.js';
 import './debug/polar.js';
 
 const STEP = 1 / 120;
+// экран загрузки: этапы и их веса для полосы (≈ мс на десктопе, демо). Между этапами — await loading.frame():
+// старт — синхронный код, без паузы браузер не покажет новый текст
+const loading = createLoading({
+  'Настройки': 10, 'Рендерер': 15, 'Поле высот': 320, 'Биомы': 60, 'План поселений': 220, 'Рельеф': 35,
+  'Поселения': 175, 'Растительность': 30, 'Небо и свет': 5, 'Карта берега': 440, 'Вода': 5,
+  'Лодка и брызги': 70, 'Интерфейс': 10, 'Промотка': 0, 'Шейдеры': 150, 'Первый кадр': 70,
+});
+const WORLD_STEPS = { heights: 'Поле высот', biomes: 'Биомы', plan: 'План поселений', terrain: 'Рельеф', settlements: 'Поселения', vegetation: 'Растительность' };
+loading.step('Настройки');
 // стартовый сетап: время суток, погода, положение лодки
 const START = await fetch('start.json').then((r) => {
   if (!r.ok) throw new Error(`start.json: HTTP ${r.status}`);
@@ -47,6 +57,8 @@ if (P.pos) {
   Object.assign(startBoat, { x, z }, Number.isFinite(h) && { headingDeg: h });
 }
 
+loading.step('Рендерер');
+await loading.frame();
 const canvas = document.getElementById('c');
 // стенсил — «дырка» в воде внутри открытых лодок (waterline.js, createWaterlineCap)
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true });
@@ -91,17 +103,26 @@ const sea = { ...SEA, ...START.weather.sea };
 // тень — окном вокруг камеры (на таче меньше и грубее)
 // без мира, окружения (небо, свет), карты берега, кильватера и воды игры нет: при ошибке — экран с логами.
 // Остальное необязательно: при ошибке создаётся заглушка с тем же API (src/diag/features.js)
-const world = critical('world', 'мир', () => buildWorld(MAP, { density: P.veg ?? 1 }));
+const world = await criticalAsync('world', 'мир', () => buildWorldAsync(MAP, { density: P.veg ?? 1 }, (k) => {
+  loading.step(WORLD_STEPS[k]);
+  return loading.frame();
+}));
+loading.step('Небо и свет');
+await loading.frame();
 const env = critical('env', 'окружение', () => createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 4096,
   buoys: world.buoys, shadowRange: isTouchDevice() ? 70 : 120 }));
 scene.add(world.group);
 console.log(world.summary());
+loading.step('Карта берега');
+await loading.frame();
 const bakeT0 = performance.now();
 // карта берега — на весь мир: тексель ≈0.4 м у демо 1.5 км, ≈0.75 м у карты 3 км (на таче вдвое крупнее)
 const shoreMap = critical('shore', 'карта берега', () => bakeShoreMap([world.shore], { maxSize: isTouchDevice() ? 2048 : 4096 }));
 const bakeMs = performance.now() - bakeT0;
 // физика гасит волны у берега так же, как вершинный шейдер воды
 waves.damp = (x, z) => shoreDamp(shoreMap.depthAt(x, z));
+loading.step('Вода');
+await loading.frame();
 const wake = critical('wake', 'кильватер', () => createWake());
 // без отражения объектов вода живёт: пустая текстура и render-пустышка, галка «Объекты» снята
 const planar = optional('planar', 'отражение объектов', () => createPlanarReflection(renderer),
@@ -113,6 +134,8 @@ const water = critical('water', 'вода', () => createWater(waves, {
 // второй рендер дорог: на телефонах и планшетах отражение объектов по умолчанию выключено
 water.reflection.objects = !isTouchDevice() && !planar.failed;
 scene.add(water.mesh, water.far);
+loading.step('Лодка и брызги');
+await loading.frame();
 const boatMesh = critical('boat', 'лодка', () => createBoatMesh());
 scene.add(boatMesh.group);
 // бурун у носа, вдоль борта и у кормы
@@ -149,6 +172,8 @@ markReflected(boatMesh.group, { minRadius: 0.25 });
 markReflected(boatMesh.sailor.group, { minRadius: 0.1 }); // моряк мельче, но заметен: тело, голова, шапка
 const cloudsHidden = [env.clouds.group], noHide = [];
 
+loading.step('Интерфейс');
+await loading.frame();
 // фичи для мягкой деградации: корни объектов (по ним сломанный шейдер находит владельца) и как выключить.
 // Без своего disable прячутся только объекты со сломанным шейдером
 register('water', 'вода (простая заливка)', [water.mesh, water.far], () => water.degrade());
@@ -264,6 +289,8 @@ function autopilotControls() {
   return { rudderAngle, sheetAngle, crewPos: 2 * Math.sign(boat.aw.twa || 1), board: 0, rudder: 0, sheet: 0 };
 }
 if ('t' in P) {
+  loading.step('Промотка');
+  await loading.frame();
   const secs = P.t;
   for (let i = 0; i < secs / STEP; i++) {
     wind.update(STEP);
@@ -340,9 +367,18 @@ function step(now) {
     console.log(`[sim] t=${simTime.toFixed(1)} boat=(${boat.x.toFixed(1)},${boat.y.toFixed(2)},${boat.z.toFixed(1)}) u=${boat.u.toFixed(2)} heel=${(boat.phi / DEG).toFixed(1)} cam=(${camera.position.x.toFixed(1)},${camera.position.y.toFixed(1)},${camera.position.z.toFixed(1)}) tws=${wind.speed.toFixed(1)} H=${waves.sigHeight.toFixed(2)} spray=${particles.stats.drops}/${particles.stats.mist} lod=${particles.stats.lod} ${particles.stats.ms.toFixed(2)}мс`);
   }
 }
-// шейдеры — до первого кадра, пока видна «Загрузка…»: сломанные фичи выключаются заранее
+// шейдеры — до первого кадра, пока виден экран загрузки: сломанные фичи выключаются заранее
+loading.step('Шейдеры');
+await loading.frame();
 await compileAndCheck(renderer, scene, camera);
-document.getElementById('loading').remove();
+// прогревочный кадр под заставкой: загрузка геометрии и текстур в GPU, карта теней, отражение.
+// dt ≈ 0 — симуляция не сдвигается. Без него фризом был первый кадр после заставки
+loading.step('Первый кадр');
+await loading.frame();
+last = performance.now();
+guardFrame(() => step(last));
+processShaderErrors(renderer, scene);
+loading.done();
 diag.started();
 requestAnimationFrame(frame);
 

@@ -15,19 +15,45 @@ import { buildVegetation } from './vegetation.js';
 // opts: regions — области биомов вместо map.biomeRegions (инструмент стенда), tstep — шаг меша рельефа,
 //       density — плотность растительности.
 // group — всё видимое; shore — «берег» на весь мир для bakeShoreMap; update(camPos, lod) — LOD растительности.
-export function buildWorld(map, { regions, tstep, density = 1 } = {}) {
+export function buildWorld(map, opts) {
+  const it = worldSteps(map, opts);
+  for (;;) {
+    const r = it.next();
+    if (r.done) return r.value;
+  }
+}
+
+// то же с паузами между шагами: await onStep(шаг) перед каждым — экран загрузки успевает показать этап
+export async function buildWorldAsync(map, opts, onStep) {
+  const it = worldSteps(map, opts);
+  for (;;) {
+    const r = it.next();
+    if (r.done) return r.value;
+    await onStep(r.value);
+  }
+}
+
+// шаги сборки — генератор: отдаёт имя шага перед его запуском, время шага — в ms (без пауз между шагами)
+function* worldSteps(map, { regions, tstep, density = 1 } = {}) {
   const ms = {};
-  let t = performance.now();
-  const lap = (k) => { const n = performance.now(); ms[k] = n - t; t = n; };
-  const hf = buildHeightfield(map); lap('heights');
-  const bio = classifyBiomes(hf, map, regions ?? map.biomeRegions ?? []); lap('biomes');
+  function* stage(k, fn) {
+    yield k;
+    const t = performance.now();
+    const r = fn();
+    ms[k] = performance.now() - t;
+    return r;
+  }
+  const hf = yield* stage('heights', () => buildHeightfield(map));
+  const bio = yield* stage('biomes', () => classifyBiomes(hf, map, regions ?? map.biomeRegions ?? []));
   // новая сеть улиц — пока только у карт с plan: 'v2' (демо); остальные — замороженный план шага 3а
-  const plan = (map.plan === 'v2' ? planSettlements : planSettlementsV1)(hf, bio, map, { footprint: (id) => STRUCTURES[id].footprint }); lap('plan');
-  markSettle(bio, hf, plan);
-  const terrain = buildTerrain(hf, bio.paint, { ...(tstep ? { step: tstep } : {}), smooth: !!map.smoothTerrain }); lap('terrain');
+  const plan = yield* stage('plan', () => (map.plan === 'v2' ? planSettlements : planSettlementsV1)(hf, bio, map, { footprint: (id) => STRUCTURES[id].footprint }));
+  const terrain = yield* stage('terrain', () => {
+    markSettle(bio, hf, plan);
+    return buildTerrain(hf, bio.paint, { ...(tstep ? { step: tstep } : {}), smooth: !!map.smoothTerrain });
+  });
   // строитель по плану — тоже только у plan: 'v2'; у остальных — замороженный строитель со своей сеткой улиц
-  const settle = map.plan === 'v2' ? buildSettlements(hf, bio, map, plan, { ground: terrain.userData.heightAt }) : buildSettlementsV1(hf, bio, map); lap('settlements');
-  const veg = buildVegetation(hf, bio, settle.occ, { density, bare: new Set(map.islands.flatMap((isl, i) => (isl.bare ? [i] : []))) }); lap('vegetation');
+  const settle = yield* stage('settlements', () => (map.plan === 'v2' ? buildSettlements(hf, bio, map, plan, { ground: terrain.userData.heightAt }) : buildSettlementsV1(hf, bio, map)));
+  const veg = yield* stage('vegetation', () => buildVegetation(hf, bio, settle.occ, { density, bare: new Set(map.islands.flatMap((isl, i) => (isl.bare ? [i] : []))) }));
   const group = new THREE.Group();
   group.name = map.name;
   group.add(terrain, settle.group, veg.group);
