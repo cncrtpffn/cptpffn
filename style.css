@@ -101,10 +101,9 @@ kbd[data-key]:active { background: var(--bar); transform: translateY(1px); }
 #paused-chip button { font: 800 14px 'Nunito', system-ui, sans-serif; color: #fff; background: var(--ink); border: 0; padding: 6px 14px; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.15); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 #paused-chip button:first-child { border-radius: 999px 0 0 999px; }
 #paused-chip button:last-child { border-radius: 0 999px 999px 0; background: var(--accent); }
-#btn-pause { position: absolute; right: 16px; bottom: 56px; pointer-events: auto; }
-#btn-fullscreen { position: absolute; right: 68px; bottom: 56px; pointer-events: auto; }
+#btn-pause { position: absolute; right: 16px; bottom: 16px; pointer-events: auto; }
+#btn-fullscreen { position: absolute; right: 68px; bottom: 16px; pointer-events: auto; }
 .btn-fullscreen svg { width: 22px; height: 22px; display: block; margin: auto; }
-#hint { position: absolute; right: 16px; bottom: 16px; font-size: 12px; color: var(--ink); background: var(--card); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--card-border); }
 
 .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(30, 40, 60, 0.35); z-index: 1100; } /* выше lil-gui (1001) */
 .overlay.hidden { display: none; }
@@ -112,6 +111,8 @@ kbd[data-key]:active { background: var(--bar); transform: translateY(1px); }
 .card.small { max-width: 420px; text-align: center; }
 .card h2 { margin: 0 0 6px; font-size: 26px; }
 .card h3 { margin: 10px 0 6px; font-size: 15px; color: var(--ink-soft); }
+.card h4 { margin: 10px 0 4px; font-size: 13px; color: var(--ink-soft); }
+.card .cam-now { margin: 0 0 4px; font-size: 13px; }
 .card .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .card table td { padding: 2px 8px 2px 0; vertical-align: top; }
 .card table td:first-child { white-space: nowrap; }
@@ -168,13 +169,6 @@ kbd[data-key]:active { background: var(--bar); transform: translateY(1px); }
 #hud-controls { padding-right: 38px; }
 #hud-controls.collapsed .ctl:not(.status):not(:has(#bar-sheet)) { display: none; }
 #hud-controls.collapsed .ctl.status { margin-top: 6px; }
-#hint { padding-right: 34px; }
-#hint .collapse-btn { top: 50%; transform: translateY(-50%); right: 3px; width: 24px; height: 24px; line-height: 24px; font-size: 12px; }
-#hint .collapse-btn::before { content: '✕'; }
-#hint.collapsed { padding: 0; width: 30px; height: 30px; }
-#hint.collapsed .hint-text { display: none; }
-#hint.collapsed .collapse-btn { right: 2px; }
-#hint.collapsed .collapse-btn::before { content: 'i'; }
 
 .touch-only { display: none; }
 body.touch .touch-only { display: revert; }
@@ -283,7 +277,6 @@ body.touch #warnings, body.touch #paused-chip { top: calc(max(8px, env(safe-area
 .t-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; }
 .t-slider.h .t-label { left: 18px; top: 5px; }
 .t-slider.v .t-label { left: 50%; top: 6px; transform: translateX(-50%); }
-body.touch #hint { bottom: auto; top: max(56px, calc(env(safe-area-inset-top) + 48px)); right: max(12px, env(safe-area-inset-right)); }
 
 /* ---------- панель «Погода и сцена» ---------- */
 .lil-gui.root > .title { display: flex; align-items: center; gap: 4px; }

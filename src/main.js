@@ -259,7 +259,6 @@ optional('collapse', 'сворачивание панелей', () => {
     makeCollapsible(hudControls, { key: 'controls', title: 'Органы управления' });
   }
   makeCollapsible(hudMain, { key: 'main', title: 'Приборы' });
-  makeCollapsible(document.getElementById('hint'), { key: 'hint', title: 'Подсказка', ...(touch && { defaultCollapsed: true }) });
 });
 
 window.addEventListener('resize', () => {

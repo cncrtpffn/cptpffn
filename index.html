@@ -95,7 +95,6 @@
     </div>
     <button id="btn-fullscreen" class="ui-btn soft kbd-only btn-fullscreen"></button>
     <button id="btn-pause" class="ui-btn soft kbd-only" title="Пауза и справка (Space)" aria-label="Пауза и справка">❚❚</button>
-    <div id="hint"><span class="hint-text">Камера: <b id="hud-camera">орбита</b><span class="kbd-only"> · <kbd data-key="KeyV">V</kbd> вид · <kbd data-key="Space">Space</kbd> пауза и справка · мышь — обзор, колесо — зум</span><span class="touch-only"> · палец — обзор, щипок — зум</span></span></div>
   </div>
 
   <div id="help" class="overlay hidden">
@@ -108,7 +107,21 @@
       <div class="cols">
         <div>
           <h3>Управление</h3>
-          <table class="touch-only">
+          <p class="cam-now">Камера сейчас: <b id="hud-camera">орбита</b></p>
+          <h4>Клавиатура и мышь</h4>
+          <table>
+            <tr><td><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd></td><td>руль (сам возвращается в ДП)</td></tr>
+            <tr><td><kbd>↑</kbd> <kbd>↓</kbd> / <kbd>W</kbd> <kbd>S</kbd></td><td>грота-шкот: выбрать / потравить</td></tr>
+            <tr><td><kbd>Q</kbd> <kbd>E</kbd></td><td>шверт: поднять / опустить</td></tr>
+            <tr><td><kbd>R</kbd> <kbd>F</kbd></td><td>взять риф / отдать риф; после 2 рифов — спустить парус</td></tr>
+            <tr><td><kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd></td><td>рулевой: на шаг к левому борту / на другой борт / на шаг к правому борту (откренка ← банка ⇄ банка → откренка)</td></tr>
+            <tr><td><kbd>V</kbd></td><td>вид камеры: орбита → за кормой → сверху → с палубы</td></tr>
+            <tr><td>мышь / колесо</td><td>обзор камерой / зум</td></tr>
+            <tr><td><kbd>Enter</kbd></td><td>поставить лодку после переворота</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>пауза и эта справка</td></tr>
+          </table>
+          <h4>Сенсорный экран</h4>
+          <table>
             <tr><td>слайдер «руль»</td><td>отклоните палец влево/вправо — руль перекладывается тем быстрее, чем дальше; отпустите — вернётся в ДП</td></tr>
             <tr><td>слайдер «шкот»</td><td>вверх — выбрать, вниз — потравить</td></tr>
             <tr><td><i class="ico" data-icon="board"></i> шверт ▲ ▼</td><td>держите, чтобы поднять / опустить</td></tr>
@@ -116,16 +129,6 @@
             <tr><td><i class="ico" data-icon="crew"></i> рулевой ◀ ⇄ ▶</td><td>на шаг к левому борту / на другой борт / на шаг к правому борту</td></tr>
             <tr><td>🎥 ❚❚</td><td>вид камеры; пауза и эта справка</td></tr>
             <tr><td>палец / щипок</td><td>обзор камерой / зум</td></tr>
-          </table>
-          <table class="kbd-only">
-            <tr><td><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd></td><td>руль (сам возвращается в ДП)</td></tr>
-            <tr><td><kbd>↑</kbd> <kbd>↓</kbd> / <kbd>W</kbd> <kbd>S</kbd></td><td>грота-шкот: выбрать / потравить</td></tr>
-            <tr><td><kbd>Q</kbd> <kbd>E</kbd></td><td>шверт: поднять / опустить</td></tr>
-            <tr><td><kbd>R</kbd> <kbd>F</kbd></td><td>взять риф / отдать риф; после 2 рифов — спустить парус</td></tr>
-            <tr><td><kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd></td><td>рулевой: на шаг к левому борту / на другой борт / на шаг к правому борту (откренка ← банка ⇄ банка → откренка)</td></tr>
-            <tr><td><kbd>V</kbd></td><td>вид камеры</td></tr>
-            <tr><td><kbd>Enter</kbd></td><td>поставить лодку после переворота</td></tr>
-            <tr><td><kbd>Space</kbd></td><td>пауза и эта справка</td></tr>
           </table>
         </div>
         <div>
