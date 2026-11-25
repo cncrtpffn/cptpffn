@@ -71,6 +71,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd3ec; col
 .ctl label { display: flex; gap: 4px; align-items: center; color: var(--ink-soft); font-weight: 700; margin-bottom: 3px; }
 .ctl label em { font-style: normal; margin-left: auto; color: var(--ink); font-weight: 800; }
 kbd { font-family: inherit; font-size: 10px; background: #fff; border: 1px solid #cfc5b2; border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--ink); }
+/* подсказки с клавишами на плашках HUD кликабельны (Input.bindKeyHints) */
+kbd[data-key] { pointer-events: auto; cursor: pointer; user-select: none; }
+kbd[data-key]:hover { border-color: #a89c84; }
+kbd[data-key]:active { background: var(--bar); transform: translateY(1px); }
 .bar { position: relative; height: 10px; background: var(--bar); border-radius: 6px; overflow: hidden; }
 .bar .fill { position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: var(--bar-fill); border-radius: 6px; transition: width 0.08s linear, left 0.08s linear; }
 .bar.centered .fill { left: 50%; width: 0; }

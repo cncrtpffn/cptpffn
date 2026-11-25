@@ -15,8 +15,14 @@ export class Input {
 
   _down(e) {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
-    if (!e.repeat) {
-      switch (e.code) {
+    this._press(e.code, e.repeat);
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
+  }
+
+  // одиночные события по первому нажатию; оси читает controls из keys
+  _press(code, repeat) {
+    if (!repeat) {
+      switch (code) {
         case 'KeyR': this._emit('reef', +1); break;
         case 'KeyF': this._emit('reef', -1); break;
         case 'KeyZ': this._emit('crew', 'left'); break;
@@ -26,11 +32,27 @@ export class Input {
         case 'KeyH': this._emit('help'); break;
         case 'Escape': this._emit('escape'); break;
         case 'Enter': this._emit('righten'); break;
-        case 'Space': this._emit('pause'); e.preventDefault(); break;
+        case 'Space': this._emit('pause'); break;
       }
     }
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
-    this.keys.add(e.code);
+    this.keys.add(code);
+  }
+
+  // подсказки <kbd data-key="KeyR"> на плашках HUD: нажатие мышью = нажатие клавиши, удержание = удержание
+  bindKeyHints(root) {
+    root.querySelectorAll('kbd[data-key]').forEach((el) => {
+      const code = el.dataset.key;
+      el.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        try { el.setPointerCapture(e.pointerId); } catch { /* указатель уже отпущен */ }
+        this._press(code, false);
+      });
+      const up = () => this.keys.delete(code);
+      el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
+      el.addEventListener('lostpointercapture', up);
+    });
   }
 
   has(...codes) { return codes.some((c) => this.keys.has(c)); }

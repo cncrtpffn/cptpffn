@@ -216,6 +216,7 @@ const actions = {
   resetBoat: () => { placeBoat(); wake.reset(); bowWave.reset(); },
 };
 optional('panel', 'панель настроек', () => createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave, particles, actions, start: START, resolution, perfOverlay }));
+input.bindKeyHints(document.getElementById('hud'));
 input.on('reef', (d) => boat.sail.reef(d));
 input.on('crew', (a) => { if (boat.crewPos) boat.crewPos = crewMove(boat.crewPos, a); });
 input.on('camera', () => followCam.nextMode());
