@@ -1,4 +1,5 @@
 :root {
+  --edge: 16px; /* отступ кнопок от края экрана; на таче и маленьких экранах 8px */
   --ink: #2c3440;
   --ink-soft: #5c6675;
   --card: rgba(255, 250, 240, 0.86);
@@ -101,8 +102,11 @@ kbd[data-key]:active { background: var(--bar); transform: translateY(1px); }
 #paused-chip button { font: 800 14px 'Nunito', system-ui, sans-serif; color: #fff; background: var(--ink); border: 0; padding: 6px 14px; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.15); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 #paused-chip button:first-child { border-radius: 999px 0 0 999px; }
 #paused-chip button:last-child { border-radius: 0 999px 999px 0; background: var(--accent); }
-#btn-pause { position: absolute; right: 16px; bottom: 16px; pointer-events: auto; }
-#btn-fullscreen { position: absolute; right: 68px; bottom: 16px; pointer-events: auto; }
+/* полный экран, камера, пауза — колонкой под кнопкой-облачком погоды (44 px + 8 px зазор) */
+#side-btns {
+  position: absolute; top: calc(max(var(--edge), env(safe-area-inset-top)) + 52px); right: max(var(--edge), env(safe-area-inset-right));
+  display: flex; flex-direction: column; gap: 8px; pointer-events: auto;
+}
 .btn-fullscreen svg { width: 22px; height: 22px; display: block; margin: auto; }
 
 .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(30, 40, 60, 0.35); z-index: 1100; } /* выше lil-gui (1001) */
@@ -146,7 +150,7 @@ kbd[data-key]:active { background: var(--bar); transform: translateY(1px); }
   .ld-rose { width: 150px; height: 150px; }
 }
 
-.lil-gui { --background-color: rgba(255,250,240,0.9) !important; --text-color: #2c3440 !important; --title-background-color: #eee6d5 !important; --title-text-color: #2c3440 !important; --widget-color: #e6dcc8 !important; --hover-color: #d9cfb8 !important; --focus-color: #cbbfa4 !important; --number-color: #2f7fd1 !important; --string-color: #8d2b19 !important; --font-family: 'Nunito', system-ui, sans-serif !important; --font-size: 12px !important; --input-font-size: 12px !important; border-radius: 14px; overflow: hidden; box-shadow: 0 6px 24px rgba(40,30,10,0.12); top: 16px !important; right: 16px !important; }
+.lil-gui { --background-color: rgba(255,250,240,0.9) !important; --text-color: #2c3440 !important; --title-background-color: #eee6d5 !important; --title-text-color: #2c3440 !important; --widget-color: #e6dcc8 !important; --hover-color: #d9cfb8 !important; --focus-color: #cbbfa4 !important; --number-color: #2f7fd1 !important; --string-color: #8d2b19 !important; --font-family: 'Nunito', system-ui, sans-serif !important; --font-size: 12px !important; --input-font-size: 12px !important; border-radius: 14px; overflow: hidden; box-shadow: 0 6px 24px rgba(40,30,10,0.12); top: max(var(--edge), env(safe-area-inset-top)) !important; right: max(var(--edge), env(safe-area-inset-right)) !important; }
 @media (max-width: 900px) {
   .card .cols { grid-template-columns: 1fr; }
   #hud-controls { width: 240px; }
@@ -184,7 +188,7 @@ body.touch #hud-controls kbd { display: none; }
 
 /* ---------- тач-управление ---------- */
 #c, #touch-ui { touch-action: none; }
-body.touch { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.touch { --edge: 8px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 #touch-ui { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
 .t-left, .t-right { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); display: flex; gap: 8px; }
 .t-left { --t-w: min(46vw, 320px); left: max(12px, env(safe-area-inset-left)); flex-direction: column; align-items: flex-start; }
@@ -230,8 +234,6 @@ body.touch #top-bar > #hud-main .rose-legend { padding: 6px 4px 0; }
 #hud-main.collapsed #hud-controls.merged .ctl:not(.status) { display: none; }
 #hud-main.collapsed #hud-controls.merged .ctl.status { margin: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.touch #warnings, body.touch #paused-chip { top: calc(max(8px, env(safe-area-inset-top)) + 110px); }
-.t-buttons { display: flex; gap: 6px; }
-.t-buttons.col { flex-direction: column; }
 /* шверт, рифы и экипаж — один блок шириной с руль */
 .t-panel {
   display: flex; width: var(--t-w); padding: 4px 6px 6px;
@@ -261,7 +263,7 @@ body.touch #warnings, body.touch #paused-chip { top: calc(max(8px, env(safe-area
   background: var(--card); border: 1px solid var(--card-border); border-radius: 999px; box-shadow: 0 6px 24px rgba(40, 30, 10, 0.12);
 }
 .t-slider.h .t-track { width: var(--t-w); height: 60px; }
-/* портрет: кнопки камеры над слайдером шкота, слева больше места под руль */
+/* портрет: слева больше места под руль */
 @media (orientation: portrait) {
   .t-right { flex-direction: column; align-items: center; }
   .t-left { --t-w: min(320px, calc(100vw - 100px)); }
@@ -281,15 +283,16 @@ body.touch #warnings, body.touch #paused-chip { top: calc(max(8px, env(safe-area
 /* ---------- панель «Погода и сцена» ---------- */
 .lil-gui.root > .title { display: flex; align-items: center; gap: 4px; }
 .lil-gui.root > .title .ico svg { width: 16px; height: 16px; }
-/* тач: свёрнутая — кнопка-облачко справа вверху */
-body.touch .lil-gui.root.closed {
-  width: 44px !important; height: 44px; top: max(8px, env(safe-area-inset-top)) !important;
+/* свёрнутая — кнопка-облачко справа вверху */
+.lil-gui.root.closed {
+  width: 44px !important; height: 44px;
   border-radius: 12px; border: 1px solid var(--card-border); overflow: hidden;
 }
-body.touch .lil-gui.root.closed > .title { justify-content: center; height: 44px; padding: 0; background: var(--card); backdrop-filter: blur(6px); }
-body.touch .lil-gui.root.closed > .title::before, body.touch .lil-gui.root.closed .gui-title-text { display: none; }
-body.touch .lil-gui.root.closed > .title .ico svg { width: 24px; height: 24px; }
-/* тач: развёрнутая — диалог по центру поверх оверлеев */
+.lil-gui.root.closed > .title { justify-content: center; height: 44px; padding: 0; background: var(--card); backdrop-filter: blur(6px); }
+.lil-gui.root.closed > .title::before, .lil-gui.root.closed .gui-title-text { display: none; }
+.lil-gui.root.closed > .title .ico svg { width: 24px; height: 24px; }
+/* развёрнутая: на десктопе — панель справа вверху, как раньше; на таче — диалог по центру поверх оверлеев */
+body:not(.touch) .lil-gui.root:not(.closed) { max-height: calc(100% - 2 * var(--edge)); overflow: auto; }
 body.touch .lil-gui.root:not(.closed) {
   top: 50% !important; right: auto !important; left: 50%; transform: translate(-50%, -50%);
   width: min(340px, calc(100vw - 24px)) !important; max-height: calc(100% - 24px); overflow: auto; z-index: 1160;
@@ -314,13 +317,9 @@ body.touch .lil-gui.root:not(.closed) > .title { height: 40px; padding: 0 12px; 
   #hud-controls { left: max(8px, env(safe-area-inset-left)); bottom: max(8px, env(safe-area-inset-bottom)); }
   #warnings, #paused-chip { top: max(8px, env(safe-area-inset-top)); max-width: 50vw; }
   #warnings .w { font-size: 12px; padding: 4px 10px; text-align: center; }
-  .lil-gui.root { top: max(8px, env(safe-area-inset-top)) !important; right: max(8px, env(safe-area-inset-right)) !important; width: min(270px, 60vw) !important; max-height: calc(100% - 16px); overflow: auto; }
+  :root { --edge: 8px; }
   .card { padding: 16px 18px; font-size: 13px; }
   .card h2 { font-size: 22px; padding-right: 40px; }
-}
-/* узкий портрет: погода и подсказка уходят под приборы */
-@media (orientation: portrait) and (max-width: 500px) {
-  body:not(.touch) .lil-gui { top: calc(max(8px, env(safe-area-inset-top)) + 88px) !important; }
 }
 
 

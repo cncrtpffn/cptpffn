@@ -229,6 +229,7 @@ input.on('escape', () => setPaused(false));
 input.on('righten', actions.righten);
 document.getElementById('btn-righten').addEventListener('click', actions.righten);
 document.getElementById('btn-pause').addEventListener('click', () => input.trigger('pause'));
+document.getElementById('btn-camera').addEventListener('click', () => input.trigger('camera'));
 document.getElementById('btn-resume').addEventListener('click', () => setPaused(false));
 document.getElementById('btn-logs').addEventListener('click', () => diag.open());
 document.getElementById('btn-help-close').addEventListener('click', () => setPaused(false));

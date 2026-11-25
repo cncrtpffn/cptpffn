@@ -74,23 +74,16 @@ export function createTouchControls(input) {
       <div class="t-slider h" id="t-rudder"><div class="t-track"><div class="t-knob"></div></div><span class="t-label">руль</span></div>
     </div>
     <div class="t-right">
-      <div class="t-buttons col t-btns">
-        <button class="btn-fullscreen"></button>
-        <button data-act="camera" title="Вид камеры">🎥</button>
-        <button data-act="pause" title="Пауза и справка">❚❚</button>
-      </div>
       <div class="t-slider v" id="t-sheet"><div class="t-track"><div class="t-knob"></div></div><span class="t-label">шкот</span></div>
     </div>`;
   document.body.appendChild(ui);
   ui.querySelectorAll('.t-btns button').forEach((b) => b.classList.add('ui-btn'));
-  ui.querySelectorAll('.t-buttons.col button').forEach((b) => b.classList.add('soft'));
 
   slider(ui.querySelector('#t-rudder'), false, (v) => { input.touch.rudder = v; });
   slider(ui.querySelector('#t-sheet'), true, (v) => { input.touch.sheet = v; });
 
   ui.querySelectorAll('[data-board]').forEach((b) => hold(b, () => { input.touch.board = +b.dataset.board; }, () => { input.touch.board = 0; }));
   ui.querySelectorAll('[data-reef]').forEach((b) => b.addEventListener('click', () => input.trigger('reef', +b.dataset.reef)));
-  ui.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => input.trigger(b.dataset.act)));
   ui.querySelectorAll('[data-crew]').forEach((b) => b.addEventListener('click', () => input.trigger('crew', b.dataset.crew)));
   return ui;
 }
