@@ -46,6 +46,21 @@ export class FollowCamera {
     }, { passive: true });
   }
 
+  // стартовая настройка (start.json → camera): mode — тип, angleDeg — угол от носа по часовой
+  // (90 — правый борт, 180 — за кормой; на палубе — куда смотрит рулевой), distance — зум, м
+  configure({ mode, angleDeg, distance } = {}, psi = 0) {
+    if (MODES.includes(mode)) {
+      this.mode = mode;
+      if (mode === 'deck') { this.polar = 1.45; this.deckYaw = 0; }
+    }
+    if (Number.isFinite(angleDeg)) {
+      const a = THREE.MathUtils.degToRad(angleDeg);
+      if (this.mode === 'deck') this.deckYaw = a;
+      else this.azimuth = psi + a;
+    }
+    if (Number.isFinite(distance)) this.distance = THREE.MathUtils.clamp(distance, 5, 70);
+  }
+
   nextMode() {
     this.mode = MODES[(MODES.indexOf(this.mode) + 1) % MODES.length];
     if (this.mode === 'deck') { this.polar = 1.45; this.deckYaw = 0; }

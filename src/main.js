@@ -270,6 +270,7 @@ let simTime = 0;
 const debugAuto = !!P.auto || 't' in P;
 if ('wind' in P) wind.baseSpeed = P.wind;
 if ('winddir' in P) wind.baseDirDeg = P.winddir;
+followCam.configure(START.camera, boat.psi);
 if ('cam' in P) followCam.mode = P.cam;
 if ('camaz' in P) followCam.azimuth = P.camaz * DEG;
 if ('campolar' in P) followCam.polar = P.campolar;

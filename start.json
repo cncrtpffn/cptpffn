@@ -6,5 +6,6 @@
     "wind": { "speed": 7, "dirDeg": 0, "gusts": true, "gustStrength": 0.3, "shiftDeg": 12 },
     "sea": { "auto": true, "state": 0.3 }
   },
-  "boat": { "x": 160, "z": -90, "headingDeg": 90, "reefs": 0, "board": 1 }
+  "boat": { "x": 160, "z": -90, "headingDeg": 90, "reefs": 0, "board": 1 },
+  "camera": { "mode": "orbit", "angleDeg": 45, "distance": 16 }
 }
