@@ -240,7 +240,8 @@ document.getElementById('help').addEventListener('click', (e) => { if (e.target.
 
 // тач-управление и сворачиваемые панели
 optional('icons', 'иконки', () => applyIcons());
-optional('touch', 'тач-управление', () => createTouchControls(input));
+const touchUi = optional('touch', 'тач-управление', () => createTouchControls(input));
+register('touchind', 'индикаторы руля и шкота');
 const touch = isTouchDevice();
 optional('fullscreen', 'полный экран', () => setupFullscreen([...document.querySelectorAll('.btn-fullscreen')], { lockPortrait: touch }));
 // на телефонах только портрет: в ландшафте поверх игры заглушка (CSS #rotate), симуляция стоит
@@ -358,6 +359,7 @@ function step(now) {
   world.update(camera.position);
   if (camPitch) camera.rotateX(camPitch);
   tick('hud', () => hud.update({ boat, wind, cameraMode: followCam.mode }));
+  if (touchUi) tick('touchind', () => touchUi.update(boat));
   const R = water.reflection;
   if (R.objects) tick('planar', () => {
     planar.state.scale = R.resolution;

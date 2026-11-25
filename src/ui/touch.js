@@ -1,6 +1,7 @@
 // Экранное управление для тачскринов: аналоговые слайдеры руля и шкота + кнопки.
 // Слайдер работает как джойстик: точка касания — центр, отклонение пальца задаёт
-// скорость перекладки (как удержание клавиши, только плавно).
+// скорость перекладки (как удержание клавиши, только плавно). Под ручкой — индикатор текущего
+// положения руля и шкота (как бары органов управления на десктопе).
 
 import { ICONS } from './icons.js';
 import { readParams } from '../params.js';
@@ -71,10 +72,10 @@ export function createTouchControls(input) {
         <div class="t-sec" style="--n:2"><span class="t-ico" role="img" aria-label="Рифы" title="Рифы">${ICONS.reef}</span><div class="t-row"><button data-reef="1">+</button><button data-reef="-1">−</button></div></div>
         <div class="t-sec" style="--n:3"><span class="t-ico" role="img" aria-label="Экипаж" title="Экипаж">${ICONS.crew}</span><div class="t-row"><button data-crew="left" aria-label="на шаг к левому борту">◀</button><button data-crew="swap" aria-label="на другой борт">⇄</button><button data-crew="right" aria-label="на шаг к правому борту">▶</button></div></div>
       </div>
-      <div class="t-slider h" id="t-rudder"><div class="t-track"><div class="t-knob"></div></div><span class="t-label">руль</span></div>
+      <div class="t-slider h" id="t-rudder"><div class="t-track"><div class="t-ind centered"><div class="t-fill"></div><div class="t-mid"></div></div><div class="t-knob"></div></div><span class="t-label">руль</span></div>
     </div>
     <div class="t-right">
-      <div class="t-slider v" id="t-sheet"><div class="t-track"><div class="t-knob"></div></div><span class="t-label">шкот</span></div>
+      <div class="t-slider v" id="t-sheet"><div class="t-track"><div class="t-ind"><div class="t-fill"></div></div><div class="t-knob"></div></div><span class="t-label">шкот</span></div>
     </div>`;
   document.body.appendChild(ui);
   ui.querySelectorAll('.t-btns button').forEach((b) => b.classList.add('ui-btn'));
@@ -85,5 +86,19 @@ export function createTouchControls(input) {
   ui.querySelectorAll('[data-board]').forEach((b) => hold(b, () => { input.touch.board = +b.dataset.board; }, () => { input.touch.board = 0; }));
   ui.querySelectorAll('[data-reef]').forEach((b) => b.addEventListener('click', () => input.trigger('reef', +b.dataset.reef)));
   ui.querySelectorAll('[data-crew]').forEach((b) => b.addEventListener('click', () => input.trigger('crew', b.dataset.crew)));
-  return ui;
+
+  // индикаторы: руль — от середины в сторону перекладки, шкот — снизу вверх, сколько выбран
+  const rudFill = ui.querySelector('#t-rudder .t-fill').style, sheetFill = ui.querySelector('#t-sheet .t-fill').style;
+  let lastRud = NaN, lastSheet = NaN;
+  const update = (boat) => {
+    const rud = Math.round(boat.rudder / boat.cfg.rudderMax * 200) / 2;
+    if (rud !== lastRud) {
+      lastRud = rud;
+      rudFill.left = `${50 + Math.min(rud, 0)}%`;
+      rudFill.width = `${Math.abs(rud)}%`;
+    }
+    const sheet = Math.round((boat.cfg.sheetMax - boat.sail.sheet) / (boat.cfg.sheetMax - boat.cfg.sheetMin) * 200) / 2;
+    if (sheet !== lastSheet) { lastSheet = sheet; sheetFill.height = `${sheet}%`; }
+  };
+  return { el: ui, update };
 }

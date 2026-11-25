@@ -269,9 +269,14 @@ body.touch #warnings, body.touch #paused-chip { top: calc(max(8px, env(safe-area
   .t-left { --t-w: min(320px, calc(100vw - 100px)); }
 }
 .t-slider.v .t-track { width: 60px; height: min(42vh, 220px); }
-.t-track::before { content: ''; position: absolute; background: var(--bar); border-radius: 4px; }
-.t-slider.h .t-track::before { left: 22px; right: 22px; height: 6px; }
-.t-slider.v .t-track::before { top: 22px; bottom: 22px; width: 6px; }
+/* индикатор положения руля / шкота под ручкой */
+.t-ind { position: absolute; background: var(--bar); border-radius: 5px; overflow: hidden; }
+.t-slider.h .t-ind { left: 22px; right: 22px; height: 10px; }
+.t-slider.v .t-ind { top: 22px; bottom: 22px; width: 10px; }
+.t-fill { position: absolute; background: var(--bar-fill); border-radius: 5px; }
+.t-slider.h .t-fill { top: 0; bottom: 0; left: 50%; width: 0; }
+.t-slider.v .t-fill { left: 0; right: 0; bottom: 0; height: 0; }
+.t-mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink-soft); opacity: 0.5; }
 .t-knob { position: relative; width: 46px; height: 46px; border-radius: 50%; background: #fff; border: 2px solid var(--bar-fill); box-shadow: 0 3px 10px rgba(40, 30, 10, 0.18); }
 .t-slider.active .t-knob { background: var(--bar-fill); }
 .t-slider:not(.active) .t-knob { transition: transform 0.15s ease-out; }
