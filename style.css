@@ -196,31 +196,45 @@ body.touch { -webkit-user-select: none; user-select: none; -webkit-touch-callout
 .t-left { --t-w: min(46vw, 320px); left: max(12px, env(safe-area-inset-left)); flex-direction: column; align-items: flex-start; }
 .t-right { right: max(12px, env(safe-area-inset-right)); align-items: flex-end; }
 .t-left > *, .t-right > * { pointer-events: auto; }
-/* верхняя полоса: [приборы] [состояние лодки] … [☁] */
+/* верхняя полоса: [приборы + органы управления] … [☁] */
 body.touch #top-bar {
   position: absolute; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left));
   right: calc(max(8px, env(safe-area-inset-right)) + 52px); display: flex; gap: 8px; align-items: flex-start;
 }
 body.touch #top-bar > .panel {
   position: relative; left: auto; top: auto; bottom: auto; width: auto;
-  flex: 1 1 0; min-width: 0; max-width: max-content; overflow: hidden; pointer-events: auto;
+  flex: 1 1 0; min-width: 0; overflow: hidden; pointer-events: auto;
 }
 body.touch #top-bar > .panel:not(.collapsed) { max-height: calc(100vh - 170px); overflow: auto; }
-body.touch #top-bar:has(> .panel:not(.collapsed)) > .panel.collapsed { display: none; }
-body.touch #top-bar .collapse-btn { top: 4px; right: 4px; width: 24px; height: 24px; line-height: 24px; font-size: 12px; }
-body.touch #top-bar > #hud-main { padding-right: 30px; }
-body.touch #top-bar > #hud-main.collapsed { padding: 4px 30px 4px 4px; gap: 6px; }
+body.touch #top-bar .collapse-btn { top: 6px; right: 6px; width: 24px; height: 24px; line-height: 24px; font-size: 12px; }
+/* плашка от левого края до кнопки погоды, отступы со всех сторон одинаковые */
+body.touch #top-bar > #hud-main.collapsed { padding: 6px; gap: 8px; }
+/* в свёрнутой кнопка стоит в ряду последней, а не поверх статуса */
+body.touch #top-bar > #hud-main.collapsed > .collapse-btn { position: static; flex: none; }
 body.touch #top-bar > #hud-main.collapsed #rose-mini { width: 48px; height: 48px; }
+body.touch #top-bar > #hud-main.collapsed .readouts { flex: none; }
 body.touch #top-bar > #hud-main.collapsed .readouts .big { font-size: 22px; }
-body.touch #top-bar > #hud-controls { padding: 6px 30px 6px 10px; }
-body.touch #top-bar > #hud-controls.collapsed .ctl { margin: 2px 0; }
-body.touch #top-bar > #hud-controls.collapsed .ctl.status { margin-top: 4px; padding: 4px 8px; font-size: 12px; }
-body.touch #top-bar > #hud-main:not(.collapsed) { padding: 6px 30px 6px 4px; gap: 6px; }
+/* в развёрнутой роза — треть ширины */
+body.touch #top-bar > #hud-main:not(.collapsed) { padding: 6px; gap: 6px 8px; grid-template-columns: 34% minmax(0, 1fr); }
+body.touch #top-bar > #hud-main:not(.collapsed) #rose { width: 100%; max-width: 220px; height: auto; }
+/* планшет: развёрнутая — по содержимому (роза 220 px, показания фиксированной ширины, чтобы плашка
+   не дёргалась от меняющихся цифр), свёрнутая — 40% экрана, тоже не зависит от текста статуса */
+@media (min-width: 701px) {
+  body.touch #top-bar > #hud-main:not(.collapsed) { flex: 0 1 auto; grid-template-columns: auto 200px; }
+  body.touch #top-bar > #hud-main:not(.collapsed) #rose { width: 220px; }
+  body.touch #top-bar > #hud-main.collapsed { flex: none; width: 40vw; box-sizing: border-box; }
+}
 body.touch #top-bar > #hud-main:not(.collapsed) .readouts { min-width: 0; }
 body.touch #top-bar > #hud-main .readouts .row b { white-space: nowrap; }
-@media (orientation: portrait) {
-  body.touch #top-bar > #hud-main:not(.collapsed) #rose { width: 84px; height: 84px; }
-}
+body.touch #top-bar > #hud-main .rose-legend { padding: 6px 4px 0; }
+/* органы управления внутри приборов: во всю ширину под легендой, ширину плашки не задают */
+#hud-controls.merged { grid-column: 1 / -1; width: 0; min-width: 100%; box-sizing: border-box; padding: 2px 4px 0; border-top: 1px solid var(--card-border); font-size: 12px; }
+#hud-controls.merged .ctl { margin: 4px 0; }
+#hud-controls.merged .ctl.status { margin: 6px 0 0; padding: 4px 8px; }
+/* в свёрнутой от органов управления остаётся статус — справа от скорости и курса, на всю оставшуюся ширину */
+#hud-main.collapsed #hud-controls.merged { flex: 1 1 0; width: auto; min-width: 0; padding: 0; border: 0; }
+#hud-main.collapsed #hud-controls.merged .ctl:not(.status) { display: none; }
+#hud-main.collapsed #hud-controls.merged .ctl.status { margin: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.touch #warnings, body.touch #paused-chip { top: calc(max(8px, env(safe-area-inset-top)) + 110px); }
 .t-buttons { display: flex; gap: 6px; }
 .t-buttons.col { flex-direction: column; }

@@ -246,17 +246,19 @@ optional('fullscreen', 'полный экран', () => setupFullscreen([...docu
 const phoneLandscape = matchMedia('(orientation: landscape) and (max-height: 500px)');
 optional('collapse', 'сворачивание панелей', () => {
   const hudMain = document.getElementById('hud-main'), hudControls = document.getElementById('hud-controls');
-  makeCollapsible(hudMain, { key: 'main', title: 'Приборы' });
-  const controlsPanel = makeCollapsible(hudControls, { key: 'controls', title: 'Органы управления', ...(touch && { defaultCollapsed: true }) });
   if (touch) {
-    // на таче приборы и состояние лодки — полоса вдоль верхнего края; пока одна
-    // панель развёрнута, вторая скрыта (CSS), поэтому развёрнутой бывает только одна
+    // на таче приборы и органы управления — одна плашка у верхнего края: органы управления
+    // встают внутрь приборов после легенды, в свёрнутом виде от них остаётся только статус (CSS)
+    hudControls.classList.replace('panel', 'merged');
+    hudMain.querySelector('.rose-legend').after(hudControls);
     const bar = document.createElement('div');
     bar.id = 'top-bar';
-    bar.append(hudMain, hudControls);
+    bar.append(hudMain);
     document.getElementById('hud').prepend(bar);
-    if (!hudMain.classList.contains('collapsed') && !hudControls.classList.contains('collapsed')) controlsPanel.set(true);
+  } else {
+    makeCollapsible(hudControls, { key: 'controls', title: 'Органы управления' });
   }
+  makeCollapsible(hudMain, { key: 'main', title: 'Приборы' });
   makeCollapsible(document.getElementById('hint'), { key: 'hint', title: 'Подсказка', ...(touch && { defaultCollapsed: true }) });
 });
 

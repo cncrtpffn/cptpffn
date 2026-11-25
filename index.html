@@ -64,10 +64,10 @@
       <div class="readouts">
         <div class="big"><span id="hud-speed">0.0</span><small>уз</small></div>
         <div class="row"><span>Курс</span><b id="hud-heading">000°</b></div>
-        <div class="row"><span class="dot true"></span><span>Истинный</span><b><span id="hud-tws">0</span> м/с · <span id="hud-twa">0°</span></b></div>
-        <div class="row"><span class="dot app"></span><span>Вымпельный</span><b><span id="hud-aws">0</span> м/с · <span id="hud-awa">0°</span></b></div>
-        <div class="row"><span>Крен</span><b id="hud-heel">0°</b></div>
-        <div class="row"><span>Дрейф</span><b id="hud-leeway">0°</b></div>
+        <div class="row"><span class="dot true"></span><span>Истинный</span><b><span id="hud-tws">0</span> м/с<span class="kbd-only"> · <span id="hud-twa">0°</span></span></b></div>
+        <div class="row"><span class="dot app"></span><span>Вымпельный</span><b><span id="hud-aws">0</span> м/с<span class="kbd-only"> · <span id="hud-awa">0°</span></span></b></div>
+        <div class="row kbd-only"><span>Крен</span><b id="hud-heel">0°</b></div>
+        <div class="row kbd-only"><span>Дрейф</span><b id="hud-leeway">0°</b></div>
         <div class="row muted"><span id="hud-beaufort">—</span></div>
       </div>
       <div class="rose-legend">
@@ -80,7 +80,7 @@
     </div>
 
     <div class="panel" id="hud-controls">
-      <div class="ctl"><label>Руль <kbd data-key="ArrowLeft">←</kbd><kbd data-key="ArrowRight">→</kbd></label><div class="bar centered"><div class="fill" id="bar-rudder"></div><div class="mid"></div></div></div>
+      <div class="ctl kbd-only"><label>Руль <kbd data-key="ArrowLeft">←</kbd><kbd data-key="ArrowRight">→</kbd></label><div class="bar centered"><div class="fill" id="bar-rudder"></div><div class="mid"></div></div></div>
       <div class="ctl"><label>Грота-шкот <kbd data-key="ArrowUp">↑</kbd><kbd data-key="ArrowDown">↓</kbd> <em id="lbl-sheet">выбран</em></label><div class="bar"><div class="fill" id="bar-sheet"></div></div></div>
       <div class="ctl"><label><i class="ico" data-icon="board"></i>Шверт <kbd data-key="KeyQ">Q</kbd><kbd data-key="KeyE">E</kbd> <em id="lbl-board"></em></label><div class="bar"><div class="fill" id="bar-board"></div></div></div>
       <div class="ctl"><label><i class="ico" data-icon="crew"></i>Экипаж <kbd data-key="KeyZ">Z</kbd><kbd data-key="KeyX">X</kbd><kbd data-key="KeyC">C</kbd></label><div class="bar centered crew"><div class="marker" id="crew-marker"></div><div class="mid"></div></div></div>
