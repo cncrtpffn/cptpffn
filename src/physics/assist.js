@@ -3,23 +3,17 @@
 // на острых курсах: на полных парус тянет при любом шкоте.
 // Без three и DOM: тестируется в jsc (src/debug/run-assist.mjs).
 import { BOAT, DEG } from '../config.js';
+import { ALPHA, heelLead, crewSide, sheetTarget, boardTarget } from './trim.js';
 
 export const TELEGRAPH = ['стоп', 'средний', 'полный'];
-const ALPHA = [null, 7 * DEG, 24 * DEG]; // угол атаки грота по телеграфу; стоп — шкот потравлен до упора
-const HEEL_EASE = 24 * DEG;  // выше этого крена шкот травится…
-const EASE_K = 2.5;          // …на столько градусов гика за градус крена
+// цели шкота, шверта и борта — src/physics/trim.js; ALPHA[0] = null — стоп, шкот потравлен до упора
 const HEEL_PANIC = 38 * DEG; // отдать шкот: угроза заливания
-const HEEL_LEAD = 0.3;       // с
-const BOARD_RUN = 0.3;       // шверт на полных курсах
-const RUN_TWA = 110 * DEG;   // полнее — шверт поднят
-const CREW_BOOM_TWA = 150 * DEG; // полнее — борт рулевого по гику, а не по ветру (не скачет у фордевинда)
-// рифы по сглаженному ветру: [взять, отдать] для 1 и 2 рифов, м/с
-const REEF_AT = [[11, 10], [14, 13]];
 const REEF_DELAY = 4;        // с: условие должно держаться
 const HINT_TIME = 3;
 export const HINT_TURN = 'Развернитесь к ветру, чтобы уменьшить скорость';
 
 export function createAssist(cfg = BOAT) {
+  const REEF_AT = cfg.reefTws.fast; // рифы по сглаженному ветру
   const out = { rudder: 0, rudderAngle: undefined, sheet: 0, board: 0, crewPos: 0 };
   let tws = -1, reefTimer = 0, groundTimer = 0, hintTimer = 0;
   const a = {
@@ -43,13 +37,11 @@ export function createAssist(cfg = BOAT) {
       out.rudderAngle = base.rudderAngle;
       const sail = boat.sail, aw = boat.aw;
       const absAwa = Math.abs(aw.awa), absTwa = Math.abs(aw.twa);
-      // крен с упреждением по скорости крена: в порыв травим раньше, чем лодка ляжет
-      const heel = Math.abs(boat.phi + HEEL_LEAD * boat.phiDot);
+      const heel = heelLead(boat);
 
       // шкот: угол атаки по телеграфу, травим при крене, в панике — до упора
       const alpha = ALPHA[a.telegraph];
-      let target = alpha === null ? cfg.sheetMax : absAwa - alpha;
-      if (heel > HEEL_EASE) target += (heel - HEEL_EASE) * EASE_K;
+      let target = alpha === null ? cfg.sheetMax : sheetTarget(absAwa, heel, alpha);
       if (heel > HEEL_PANIC || boat.water > 0.15) target = cfg.sheetMax;
       target = Math.max(cfg.sheetMin, Math.min(cfg.sheetMax, target));
       out.sheet = Math.max(-1, Math.min(1, (sail.sheet - target) / (2 * DEG)));
@@ -57,12 +49,11 @@ export function createAssist(cfg = BOAT) {
       a.locked = a.limited || (a.telegraph > 0 && !reachable(a.telegraph - 1, absAwa));
 
       // рулевой: наветренная банка; у фордевинда — против гика
-      const side = absTwa < CREW_BOOM_TWA || !sail.boom ? Math.sign(aw.twa || 1) : -Math.sign(sail.boom);
-      out.crewPos = side;
+      out.crewPos = crewSide(boat);
 
       // шверт: опущен на острых, приподнят на полных; задели дно — поднять и подождать
       groundTimer = boat.boardAground ? 5 : Math.max(0, groundTimer - dt);
-      const boardGoal = groundTimer > 0 ? 0 : absTwa < RUN_TWA ? 1 : BOARD_RUN;
+      const boardGoal = groundTimer > 0 ? 0 : boardTarget(absTwa);
       out.board = Math.max(-1, Math.min(1, (boardGoal - boat.board) / 0.05));
 
       // рифы: по ветру, сглаженному за ~8 с, с гистерезисом и задержкой. Парус не спускаем

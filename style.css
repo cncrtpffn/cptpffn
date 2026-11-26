@@ -11,6 +11,7 @@
   --warn: #e9553b;
   --bar: #e6dcc8;
   --bar-fill: #7fb6d9;
+  --opt: #1f9d55;          /* отметка оптимального положения на индикаторах */
   font-family: 'Nunito', system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
@@ -81,6 +82,10 @@ kbd[data-key]:active { background: var(--bar); transform: translateY(1px); }
 .bar.centered .fill { left: 50%; width: 0; }
 .bar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: rgba(0,0,0,0.25); transform: translateX(-1px); }
 .bar.crew { height: 14px; }
+/* оптимальное положение органа управления (src/physics/trim.js): зелёная риска поверх полосы, чип рифов — рамкой */
+.bar .opt { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--opt); border-radius: 2px; left: -10px; transition: left 0.15s linear; }
+.chip.opt { box-shadow: inset 0 0 0 2px var(--opt); }
+.chip.on.opt { box-shadow: inset 0 0 0 2px var(--opt), inset 0 0 0 3px #fff; }
 .bar .marker { position: absolute; top: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); left: 50%; transform: translateX(-50%); transition: left 0.1s linear; }
 .chips { display: flex; gap: 4px; }
 .chip { padding: 2px 7px; white-space: nowrap; border-radius: 999px; background: #eee6d5; color: var(--ink-soft); font-weight: 700; }
@@ -184,7 +189,8 @@ kbd[data-key]:active { background: var(--bar); transform: translateY(1px); }
 #hud-main.collapsed .readouts .row:not(:nth-child(2)) { display: none; }
 #hud-main.collapsed .readouts .big { font-size: 26px; margin-bottom: 2px; }
 #hud-controls { padding-right: 38px; }
-#hud-controls.collapsed .ctl:not(.status):not(:has(#bar-sheet)):not(.telegraph):not(.pos) { display: none; }
+#hud-controls.collapsed .ctl:not(.status):not(:has(#bar-sheet)):not(.telegraph):not(.pos):not(.hint) { display: none; }
+/* ряд, который пора тронуть, виден и в свёрнутой панели */
 #hud-controls.collapsed .ctl.status { margin-top: 6px; }
 
 .touch-only { display: none; }
@@ -277,6 +283,16 @@ body.touch #warnings, body.touch #paused-chip { top: calc(max(8px, env(safe-area
 #btn-assist.on { animation: assist-pulse 2.4s ease-in-out infinite; }
 @keyframes assist-pulse { 0%, 100% { background: #fffaf0; color: var(--ink); } 50% { background: var(--true); color: #fff; } }
 @media (prefers-reduced-motion: reduce) { #btn-assist.on { animation: none; background: var(--true); color: #fff; } }
+/* подсказка «пора тронуть» (src/physics/trim.js, только без авто-матроса): ряд HUD и трек слайдера пульсируют
+   синим кольцом, тач-кнопки — как кнопка авто-матроса, но чаще */
+.ctl.hint { border-radius: 8px; animation: hint-ring 1.2s ease-in-out infinite; }
+.t-slider.hint .t-track { animation: hint-ring 1.2s ease-in-out infinite; }
+.t-sec.hint .ui-btn { animation: assist-pulse 1.2s ease-in-out infinite; }
+@keyframes hint-ring { 0%, 100% { box-shadow: 0 0 0 0 rgba(47, 127, 209, 0); } 50% { box-shadow: 0 0 0 5px rgba(47, 127, 209, 0.55); background-color: rgba(47, 127, 209, 0.16); } }
+@media (prefers-reduced-motion: reduce) {
+  .ctl.hint, .t-slider.hint .t-track { animation: none; box-shadow: 0 0 0 3px rgba(47, 127, 209, 0.7); }
+  .t-sec.hint .ui-btn { animation: none; background: var(--true); color: #fff; }
+}
 /* при авто-матросе ряды шкота, шверта, экипажа и рифов только показывают состояние: без клавиш и кликов */
 body:not(.assist) .ctl.telegraph, body.assist #touch-ui .t-btns, body.assist .ctl.manual kbd { display: none; }
 body.assist #hud-controls.collapsed .ctl.manual { display: none; }
@@ -303,14 +319,28 @@ body.assist #hud-controls.collapsed .ctl.manual { display: none; }
 .t-slider.v .t-fill { left: 0; right: 0; bottom: 0; height: 0; }
 .t-slider.locked .t-fill { background: var(--warn); }
 .t-slider.locked .t-knob { opacity: 0.5; }
+/* отметка оптимума шкота на тач-слайдере: рейка с теми же отступами, что индикатор, риска шире его */
+.t-optrail { position: absolute; top: 22px; bottom: 22px; left: 50%; width: 0; pointer-events: none; }
+.t-opt { position: absolute; left: -11px; width: 22px; height: 3px; margin-bottom: -1.5px; border-radius: 2px; background: var(--opt); bottom: -10px; transition: bottom 0.15s linear; }
+body.assist .t-optrail { display: none; }
 .t-mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink-soft); opacity: 0.5; }
-.t-knob { position: relative; width: 46px; height: 46px; border-radius: 50%; background: #fff; border: 2px solid var(--bar-fill); box-shadow: 0 3px 10px rgba(40, 30, 10, 0.18); }
+/* ручка 35 px (было 46): касания ловит весь трек, поэтому область нажатия прежняя */
+.t-knob { position: relative; width: 35px; height: 35px; border-radius: 50%; background: #fff; border: 2px solid var(--bar-fill); box-shadow: 0 3px 10px rgba(40, 30, 10, 0.18); }
 .t-slider.active .t-knob { background: var(--bar-fill); }
 .t-slider:not(.active) .t-knob { transition: transform 0.15s ease-out; }
 .t-label { position: absolute; font-size: 11px; font-weight: 800; color: var(--ink-soft); pointer-events: none; }
 .t-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; }
-.t-slider.h .t-label { left: 18px; top: 5px; }
-.t-slider.v .t-label { left: 50%; top: 6px; transform: translateX(-50%); }
+/* подписи сторон для новичков: руль — лево/право по краям, шкот — выбрать вверху, травить внизу */
+.t-hint { position: absolute; font-size: 9px; font-weight: 800; color: var(--ink-soft); opacity: 0.65; pointer-events: none; white-space: nowrap; }
+.t-slider.h .t-label { left: 50%; top: 3px; transform: translateX(-50%); }
+.t-slider.h .t-hint { top: 3px; }
+.t-slider.h .t-hint.a { left: 18px; }
+.t-slider.h .t-hint.b { right: 18px; }
+/* у вертикального трека концы заняты подписями — название над треком */
+.t-slider.v .t-label { left: 50%; top: -18px; transform: translateX(-50%); padding: 1px 6px; border-radius: 999px; background: var(--card); opacity: 1; }
+.t-slider.v .t-hint { left: 50%; transform: translateX(-50%); }
+.t-slider.v .t-hint.a { top: 5px; }
+.t-slider.v .t-hint.b { bottom: 5px; }
 
 /* ---------- панель «Погода и сцена» ---------- */
 .lil-gui.root > .title { display: flex; align-items: center; gap: 4px; }

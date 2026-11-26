@@ -4,6 +4,7 @@ import { Wind } from './physics/wind.js';
 import { Waves } from './physics/waves.js';
 import { Boat, crewMove } from './physics/boat.js';
 import { createAssist } from './physics/assist.js';
+import { createTrimAdvisor } from './physics/trim.js';
 import { createWater } from './scene/water.js';
 import { createPlanarReflection, markReflected } from './scene/planar-reflection.js';
 import { createWake } from './scene/wake.js';
@@ -215,13 +216,13 @@ register('hud', 'приборы');
 let paused = false;
 const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
-  resetBoat: () => { placeBoat(); wake.reset(); bowWave.reset(); },
+  resetBoat: () => { placeBoat(); wake.reset(); bowWave.reset(); advisor.reset(); },
   // снять с мели (кнопка рядом с сообщением о мели): на глубину рядом, кормой к берегу;
   // шкот потравлен, у ассистента — «стоп»
   rescue: () => {
     if (boat.capsized) return;
     if (!boat.rescue(shoreMap)) { hud.toast('Не нашли глубину рядом', ''); return; }
-    wake.reset(); bowWave.reset();
+    wake.reset(); bowWave.reset(); advisor.reset();
     if (assistOn) { assist.reset(); assist.telegraph = 0; }
     hud.toast('Лодку вывели на глубину');
   },
@@ -231,6 +232,10 @@ input.bindKeyHints(document.getElementById('hud'));
 // ассистент («авто-матрос», src/physics/assist.js): ведёт всё, кроме руля; шкот заменяет телеграф.
 // По умолчанию выключен, выбор помнится; ?assist=0|1 — задать на этот запуск
 const assist = createAssist();
+// советчик настройки (тот же источник целей, что у ассистента): отметки оптимума и подсказки в HUD
+const advisor = createTrimAdvisor();
+let advice = null;
+register('advice', 'подсказки настройки', [], () => { advice = null; document.querySelectorAll('.ctl.hint, #touch-ui .hint').forEach((el) => el.classList.remove('hint')); });
 const ASSIST_KEY = 'catboat.assist';
 let assistOn = false;
 try { assistOn = localStorage.getItem(ASSIST_KEY) === '1'; } catch { /* хранилище недоступно */ }
@@ -400,8 +405,9 @@ function step(now) {
   followCam.update(dt || 0.016, boat, boatMesh);
   world.update(camera.position);
   if (camPitch) camera.rotateX(camPitch);
-  tick('hud', () => hud.update({ boat, wind, cameraMode: followCam.mode, assist: assistOn ? assist : null }));
-  if (touchUi) tick('touchind', () => touchUi.update(boat, assistOn ? assist : null));
+  if (!halted) tick('advice', () => { advice = advisor.update(dt, boat, wind); });
+  tick('hud', () => hud.update({ boat, wind, cameraMode: followCam.mode, assist: assistOn ? assist : null, advice }));
+  if (touchUi) tick('touchind', () => touchUi.update(boat, assistOn ? assist : null, advice));
   const R = water.reflection;
   if (R.objects) tick('planar', () => {
     planar.state.scale = R.resolution;

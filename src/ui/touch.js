@@ -77,13 +77,13 @@ export function createTouchControls(input) {
     <div class="t-left">
       <div class="t-panel t-btns">
         <div class="t-sec" style="--n:2"><span class="t-ico" role="img" aria-label="Шверт" title="Шверт">${ICONS.board}</span><div class="t-row"><button data-board="-1">▲</button><button data-board="1">▼</button></div></div>
-        <div class="t-sec" style="--n:2"><span class="t-ico" role="img" aria-label="Рифы" title="Рифы">${ICONS.reef}</span><div class="t-row"><button data-reef="1">+</button><button data-reef="-1">−</button></div></div>
-        <div class="t-sec" style="--n:3"><span class="t-ico" role="img" aria-label="Экипаж" title="Экипаж">${ICONS.crew}</span><div class="t-row"><button data-crew="left" aria-label="на шаг к левому борту">◀</button><button data-crew="swap" aria-label="на другой борт">⇄</button><button data-crew="right" aria-label="на шаг к правому борту">▶</button></div></div>
+        <div class="t-sec" id="t-sec-reef" style="--n:2"><span class="t-ico" role="img" aria-label="Рифы" title="Рифы">${ICONS.reef}</span><div class="t-row"><button data-reef="1">+</button><button data-reef="-1">−</button></div></div>
+        <div class="t-sec" id="t-sec-crew" style="--n:3"><span class="t-ico" role="img" aria-label="Экипаж" title="Экипаж">${ICONS.crew}</span><div class="t-row"><button data-crew="left" aria-label="на шаг к левому борту">◀</button><button data-crew="swap" aria-label="на другой борт">⇄</button><button data-crew="right" aria-label="на шаг к правому борту">▶</button></div></div>
       </div>
-      <div class="t-slider h" id="t-rudder"><div class="t-track"><div class="t-ind centered"><div class="t-fill"></div><div class="t-mid"></div></div><div class="t-knob"></div></div><span class="t-label">руль</span></div>
+      <div class="t-slider h" id="t-rudder"><div class="t-track"><div class="t-ind centered"><div class="t-fill"></div><div class="t-mid"></div></div><div class="t-knob"></div></div><span class="t-label">руль</span><span class="t-hint a">лево</span><span class="t-hint b">право</span></div>
     </div>
     <div class="t-right">
-      <div class="t-slider v" id="t-sheet"><div class="t-track"><div class="t-ind"><div class="t-fill"></div></div><div class="t-knob"></div></div><span class="t-label">шкот</span></div>
+      <div class="t-slider v" id="t-sheet"><div class="t-track"><div class="t-ind"><div class="t-fill"></div></div><div class="t-optrail"><div class="t-opt"></div></div><div class="t-knob"></div></div><span class="t-label">шкот</span><span class="t-hint a">выбрать</span><span class="t-hint b">травить</span></div>
     </div>`;
   document.body.appendChild(ui);
   ui.querySelectorAll('.t-btns button').forEach((b) => b.classList.add('ui-btn'));
@@ -98,11 +98,20 @@ export function createTouchControls(input) {
   // индикаторы: руль — от середины в сторону перекладки, шкот — снизу вверх, сколько выбран
   const rudFill = ui.querySelector('#t-rudder .t-fill').style, sheetFill = ui.querySelector('#t-sheet .t-fill').style;
   const sheetLabel = ui.querySelector('#t-sheet .t-label');
-  let lastRud = NaN, lastSheet = NaN, lastAssist = false;
+  const sheetUp = ui.querySelector('#t-sheet .t-hint.a'), sheetDown = ui.querySelector('#t-sheet .t-hint.b');
+  const sheetEl = ui.querySelector('#t-sheet'), reefSec = ui.querySelector('#t-sec-reef'), crewSec = ui.querySelector('#t-sec-crew');
+  const optStyle = ui.querySelector('#t-sheet .t-opt').style;
+  let lastRud = NaN, lastSheet = NaN, lastAssist = false, lastOpt = NaN;
   // assist — ассистент, когда включён: слайдер шкота задаёт ход (телеграф), индикатор — его ступень.
   // На полном курсе ход не сбавить — слайдер заблокирован, индикатор красный
-  const update = (boat, assist) => {
-    if (!!assist !== lastAssist) { lastAssist = !!assist; sheetLabel.textContent = assist ? 'ход' : 'шкот'; }
+  // advice — советчик src/physics/trim.js: риска оптимума шкота и мигание того, что пора тронуть (без ассистента)
+  const update = (boat, assist, advice) => {
+    if (!!assist !== lastAssist) {
+      lastAssist = !!assist;
+      sheetLabel.textContent = assist ? 'ход' : 'шкот';
+      sheetUp.textContent = assist ? 'быстрее' : 'выбрать';
+      sheetDown.textContent = assist ? 'тише' : 'травить';
+    }
     sheetSlider.lock(!!assist && assist.locked);
     const rud = Math.round(boat.rudder / boat.cfg.rudderMax * 200) / 2;
     if (rud !== lastRud) {
@@ -113,6 +122,15 @@ export function createTouchControls(input) {
     const sheet = assist ? assist.telegraph * 50
       : Math.round((boat.cfg.sheetMax - boat.sail.sheet) / (boat.cfg.sheetMax - boat.cfg.sheetMin) * 200) / 2;
     if (sheet !== lastSheet) { lastSheet = sheet; sheetFill.height = `${sheet}%`; }
+    if (advice) {
+      const c = boat.cfg;
+      const opt = Math.round((c.sheetMax - advice.sheet) / (c.sheetMax - c.sheetMin) * 200) / 2;
+      if (opt !== lastOpt) { lastOpt = opt; optStyle.bottom = `${opt}%`; }
+      const n = advice.need, hints = !assist;
+      sheetEl.classList.toggle('hint', hints && n.sheet);
+      crewSec.classList.toggle('hint', hints && n.crew);
+      reefSec.classList.toggle('hint', hints && n.reef);
+    }
   };
   return { el: ui, update };
 }
