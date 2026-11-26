@@ -111,6 +111,7 @@ function ring(st, bands) {
 }
 
 const pushV = (arr, p) => arr.push(p.x, p.y, p.z);
+const tri = (arr, a, b, c) => { pushV(arr, a); pushV(arr, b); pushV(arr, c); };
 const quad = (arr, a, b, c, d) => { pushV(arr, a); pushV(arr, b); pushV(arr, c); pushV(arr, a); pushV(arr, c); pushV(arr, d); };
 // лента между двумя рядами точек одинаковой длины
 const ribbon = (arr, A, B) => { for (let i = 0; i < A.length - 1; i++) quad(arr, A[i], A[i + 1], B[i + 1], B[i]); };
@@ -144,8 +145,10 @@ function buildHull() {
   // каждая в цвет своего пояса — пояса на транце продолжают борта; верх повторяет погибь палубы
   const st0 = STATIONS[0], r0 = rings[0];
   for (let k = 0; k < half; k++) quad(parts[bandOfSeg(k)], r0[k], r0[k + 1], r0[n - 2 - k], r0[n - 1 - k]);
+  // верх транца по точкам ряда палубы у транца (борт, полпалубы, ДП), иначе между погибью и прямой щель
   const topC = pt(st0.x, deckY(st0, 0), 0);
-  pushV(parts.top, r0[0]); pushV(parts.top, r0[n - 1]); pushV(parts.top, topC);
+  const [topL, topR] = [-1, 1].map((s) => pt(st0.x, deckY(st0, 0.5 * st0.b), s * 0.5 * st0.b));
+  for (const p of [r0[0], topL, topC, topC, topR, r0[n - 1], r0[0], topC, r0[n - 1]]) pushV(parts.top, p);
   const out = {};
   for (const key of Object.keys(parts)) out[key] = toGeo(parts[key]);
   return out;
@@ -179,7 +182,7 @@ function buildKeel() {
 // Кокпит и рубка — один вырез в палубе: контур подковой, сзади кокпит, спереди рубка.
 const CK = {
   x0: -2.78, x1: 1.68, // корма и нос выреза (по плану палубы CatBoat 16)
-  xc: -0.70,           // переборка рубки
+  xc: -0.30,           // переборка рубки
   side: 0.28,          // ширина бокового прохода
   r0: 0.6, p0: 2.6,    // скругление кормы кокпита
   r1: 0.8, p1: 2.2,    // лоб рубки — почти полуцилиндр в плане
@@ -228,17 +231,35 @@ function buildDeck() {
   const pos = [];
   const xs = [...new Set([...STATIONS.map((s) => s.x), ...OX])].sort((a, b) => a - b);
   const inside = (x) => x > CK.x0 + 1e-9 && x < CK.x1 - 1e-9;
+  // кромка выреза между узлами OX — по хорде, как низ стенки (на станциях внутри выреза иначе щель у стенки)
+  const chord = (x) => {
+    const i = OX.findIndex((v) => v >= x);
+    if (OX[i] === x) return edge(x, 1);
+    const a = edge(OX[i - 1], 1), b = edge(OX[i], 1), t = (x - a.x) / (b.x - a.x);
+    return { z: a.z + (b.z - a.z) * t, y: a.y + (b.y - a.y) * t };
+  };
   // ряд палубы поперёк: борт, кромка выреза (или середина полупалубы), ДП, кромка, борт
   const rows = xs.map((x) => {
     const st = lerpSt(x);
-    const w = inside(x) ? outlineW(x) : (x === CK.x0 || x === CK.x1 ? 0 : 0.5 * st.b);
+    if (inside(x)) {
+      const e = chord(x);
+      return [pt(x, st.s, -st.b), pt(x, e.y, -e.z), pt(x, deckY(st, 0), 0), pt(x, e.y, e.z), pt(x, st.s, st.b)];
+    }
+    // вне выреза (и на его концах) — ряд с погибью через середину полупалубы; если на концах свести кромку в ДП,
+    // профиль ряда станет прямым и на палубе у лба рубки и кормы кокпита выйдет излом
+    const w = 0.5 * st.b;
     return [-st.b, -w, 0, w, st.b].map((z) => pt(x, deckY(st, z), z));
   });
+  // концы выреза — с допуском: последний узел косинусной сетки OX = 1.6800000000000002
+  const isEnd = (x) => Math.abs(x - CK.x0) < 1e-9 || Math.abs(x - CK.x1) < 1e-9;
   for (let i = 0; i < rows.length - 1; i++) {
     const A = rows[i], B = rows[i + 1];
     quad(pos, A[0], B[0], B[1], A[1]);
     quad(pos, A[3], B[3], B[4], A[4]);
     if (!inside((xs[i] + xs[i + 1]) / 2)) { quad(pos, A[1], B[1], B[2], A[2]); quad(pos, A[2], B[2], B[3], A[3]); }
+    // у конца выреза: треугольники от середины полупалубы до вершины выреза на ДП
+    else if (isEnd(xs[i])) { tri(pos, A[1], B[1], A[2]); tri(pos, A[2], B[3], A[3]); }
+    else if (isEnd(xs[i + 1])) { tri(pos, A[1], B[1], B[2]); tri(pos, A[3], B[2], B[3]); }
   }
   return toGeo(pos);
 }
@@ -257,7 +278,7 @@ function buildCockpit() {
   // банки вдоль бортов
   const seatY = CK.floorY + CK.seatH;
   for (const side of [-1, 1]) {
-    const xs = OXC.filter((x) => x > CK.x0 + 0.45 && x < CK.xc - 0.04);
+    const xs = OXC.filter((x) => x > CK.x0 + 0.45); // до переборки включительно
     const outer = xs.map((x) => pt(x, seatY, side * (outlineW(x) - 0.035)));
     const edgeIn = xs.map((x) => pt(x, seatY, side * Math.max(0.15, outlineW(x) - CK.seatW)));
     const foot = xs.map((x) => pt(x, CK.floorY, side * Math.max(0.15, outlineW(x) - CK.seatW + 0.04)));
