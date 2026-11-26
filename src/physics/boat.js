@@ -84,6 +84,39 @@ export class Boat {
     this.sail.gybing = false;
   }
 
+  // Снять с мели: перенести на ближайшую глубину рядом (кольца до 80 м), кормой к берегу, шкот потравлен.
+  // Точка годится, если середина, нос и корма далеко от кромки и глубже опущенного шверта.
+  // Рифы, шверт, вода и экипаж остаются. false — подходящей точки нет
+  rescue(shore) {
+    const c = this.cfg, half = c.length / 2 - 0.3;
+    const ok = (s) => s.dist >= c.shoreClearance + 3 && s.depth >= c.boardDraft + 0.4;
+    for (let r = 4; r <= 80; r += 2) {
+      for (let i = 0; i < 24; i++) {
+        const a = (i / 24) * 2 * Math.PI;
+        const x = this.x + r * Math.cos(a), z = this.z + r * Math.sin(a);
+        const s = shore.info(x, z);
+        if (!ok(s)) continue;
+        // нос по нормали от берега; вдали от берега нормали нет — курс прежний
+        const psi = s.nx || s.nz ? Math.atan2(s.nx, -s.nz) : this.psi;
+        const fx = Math.sin(psi) * half, fz = -Math.cos(psi) * half;
+        if (!ok(shore.info(x + fx, z + fz)) || !ok(shore.info(x - fx, z - fz))) continue;
+        this.x = x; this.z = z; this.psi = psi;
+        this.u = 0; this.v = 0; this.r = 0;
+        this.phi = 0; this.phiDot = 0;
+        this.theta = 0; this.thetaDot = 0; this.yDot = 0;
+        this._wavePrev.ok = false;
+        this.rudder = 0;
+        this.aground = false;
+        this.boardAground = false;
+        this.sail.sheet = c.sheetMax;
+        this.sail.boom = 0;
+        this.sail.gybing = false;
+        return true;
+      }
+    }
+    return false;
+  }
+
   righten(windDir) {
     this.capsized = false;
     this.phi = 0; this.phiDot = 0;

@@ -68,7 +68,7 @@ export class Hud {
       rudder: $('bar-rudder'), sheet: $('bar-sheet'), board: $('bar-board'), crew: $('crew-marker'),
       lblSheet: $('lbl-sheet'), lblBoard: $('lbl-board'), reefs: [$('reef-0'), $('reef-1'), $('reef-2'), $('reef-3')],
       telegraph: [$('tg-0'), $('tg-1'), $('tg-2')], pos: $('hud-pos'), posTack: $('hud-pos-tack'), posDeg: $('hud-pos-deg'),
-      status: $('sail-status'), statusBox: $('sail-status').parentElement, warnings: $('warnings'),
+      status: $('sail-status'), statusBox: $('sail-status').parentElement, warnings: $('warn-list'), rescue: $('btn-rescue'),
       camera: $('hud-camera'), help: $('help'), pausedChip: $('paused-chip'), root: $('hud'), capsize: $('capsize'), capsizeText: $('capsize-text'),
     };
     $('rose-ticks').innerHTML = roseTicks();
@@ -82,6 +82,7 @@ export class Hud {
     // короткие и частые, без задержки надпись мерцает
     this._agroundUntil = 0;
     this._agroundMsg = '';
+    this._agroundHull = false; // сел корпусом — показать кнопку «Вывести на глубину»
     this._toast = null; // [текст, класс, до какого времени] — разовое сообщение в ленте предупреждений
   }
 
@@ -187,8 +188,12 @@ export class Hud {
     if (boat.aground) {
       this._agroundUntil = now + 3000;
       this._agroundMsg = boat.boardAground ? 'Шверт задевает дно — поднимите шверт' : 'Мель! Отойдите от берега';
+      this._agroundHull = !boat.boardAground;
     }
-    if (now < this._agroundUntil) w.push([this._agroundMsg, '']);
+    const agr = now < this._agroundUntil;
+    if (agr) w.push([this._agroundMsg, '']);
+    // только шверт — поднять его может и сам игрок
+    e.rescue.classList.toggle('hidden', !agr || !this._agroundHull || boat.capsized);
     if (this._toast && now < this._toast[2]) w.push(this._toast);
     if (boat.gybeFlash > 0) w.push(['Фордевинд! Гик перелетел', '']);
     if (!boat.capsized && Math.abs(heel) > 45) w.push(['Крен критический — травите шкот', '']);

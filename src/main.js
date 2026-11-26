@@ -216,6 +216,15 @@ let paused = false;
 const actions = {
   righten: () => { if (boat.capsized) boat.righten(wind.dir); },
   resetBoat: () => { placeBoat(); wake.reset(); bowWave.reset(); },
+  // снять с мели (кнопка рядом с сообщением о мели): на глубину рядом, кормой к берегу;
+  // шкот потравлен, у ассистента — «стоп»
+  rescue: () => {
+    if (boat.capsized) return;
+    if (!boat.rescue(shoreMap)) { hud.toast('Не нашли глубину рядом', ''); return; }
+    wake.reset(); bowWave.reset();
+    if (assistOn) { assist.reset(); assist.telegraph = 0; }
+    hud.toast('Лодку вывели на глубину');
+  },
 };
 optional('panel', 'панель настроек', () => createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave, particles, actions, start: START, resolution, perfOverlay }));
 input.bindKeyHints(document.getElementById('hud'));
@@ -252,6 +261,7 @@ input.on('help', () => (helpMin ? setPaused(true) : setPaused(!paused)));
 input.on('escape', () => setPaused(false));
 input.on('righten', actions.righten);
 document.getElementById('btn-righten').addEventListener('click', actions.righten);
+document.getElementById('btn-rescue').addEventListener('click', actions.rescue);
 document.getElementById('btn-pause').addEventListener('click', () => input.trigger('pause'));
 document.getElementById('btn-camera').addEventListener('click', () => input.trigger('camera'));
 document.getElementById('btn-resume').addEventListener('click', () => setPaused(false));
