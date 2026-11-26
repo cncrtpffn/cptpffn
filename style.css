@@ -85,6 +85,10 @@ kbd[data-key]:active { background: var(--bar); transform: translateY(1px); }
 .chips { display: flex; gap: 4px; }
 .chip { padding: 2px 7px; white-space: nowrap; border-radius: 999px; background: #eee6d5; color: var(--ink-soft); font-weight: 700; }
 .chip.on { background: var(--ink); color: #fff; }
+/* курс к ветру — над статусом паруса */
+.ctl.pos { display: flex; align-items: baseline; gap: 6px; margin-top: 10px; color: var(--ink-soft); font-weight: 700; }
+.ctl.pos b { margin-left: auto; color: var(--ink); font-weight: 800; font-variant-numeric: tabular-nums; }
+.ctl.pos + .ctl.status { margin-top: 4px; }
 .ctl.status { margin-top: 10px; font-weight: 800; font-size: 13px; padding: 6px 10px; border-radius: 10px; background: #eee6d5; text-align: center; }
 .ctl.status.ok { background: #d9f2e3; color: #1f6b43; }
 .ctl.status.luff { background: #fbe9c8; color: #8a5a00; }
@@ -171,7 +175,7 @@ kbd[data-key]:active { background: var(--bar); transform: translateY(1px); }
 #hud-main.collapsed .readouts .row:not(:nth-child(2)) { display: none; }
 #hud-main.collapsed .readouts .big { font-size: 26px; margin-bottom: 2px; }
 #hud-controls { padding-right: 38px; }
-#hud-controls.collapsed .ctl:not(.status):not(:has(#bar-sheet)):not(.telegraph) { display: none; }
+#hud-controls.collapsed .ctl:not(.status):not(:has(#bar-sheet)):not(.telegraph):not(.pos) { display: none; }
 #hud-controls.collapsed .ctl.status { margin-top: 6px; }
 
 .touch-only { display: none; }
@@ -229,10 +233,14 @@ body.touch #top-bar > #hud-main .rose-legend { padding: 6px 4px 0; }
 #hud-controls.merged { grid-column: 1 / -1; width: 0; min-width: 100%; box-sizing: border-box; padding: 2px 4px 0; border-top: 1px solid var(--card-border); font-size: 12px; }
 #hud-controls.merged .ctl { margin: 4px 0; }
 #hud-controls.merged .ctl.status { margin: 6px 0 0; padding: 4px 8px; }
-/* в свёрнутой от органов управления остаётся статус — справа от скорости и курса, на всю оставшуюся ширину */
-#hud-main.collapsed #hud-controls.merged { flex: 1 1 0; width: auto; min-width: 0; padding: 0; border: 0; }
-#hud-main.collapsed #hud-controls.merged .ctl:not(.status) { display: none; }
-#hud-main.collapsed #hud-controls.merged .ctl.status { margin: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* в свёрнутой от органов управления остаются курс к ветру и под ним статус — справа от скорости и курса,
+   на всю оставшуюся ширину; по высоте умещаются в мини-компас. Галс по ширине не помещается — скрыт */
+#hud-main.collapsed #hud-controls.merged { flex: 1 1 0; width: auto; min-width: 0; padding: 0; border: 0; display: flex; flex-direction: column; justify-content: center; }
+#hud-main.collapsed #hud-controls.merged .ctl:not(.status):not(.pos) { display: none; }
+#hud-main.collapsed #hud-controls.merged .ctl.pos { margin: 0 2px; font-size: 12px; white-space: nowrap; }
+#hud-main.collapsed #hud-controls.merged .ctl.pos > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#hud-main.collapsed #hud-controls.merged .ctl.status { margin: 3px 0 0; padding: 2px 8px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#hud-main.collapsed #hud-pos-tack { display: none; }
 body.touch #warnings, body.touch #paused-chip { top: calc(max(8px, env(safe-area-inset-top)) + 110px); }
 /* шверт, рифы и экипаж — один блок шириной с руль */
 .t-panel {

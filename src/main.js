@@ -208,6 +208,7 @@ const input = critical('input', 'управление', () => new Input());
 // без HUD — только справка по паузе
 const hud = optional('hud', 'приборы', () => new Hud(), () => ({
   update() {},
+  toast() {},
   showHelp(v, min = false) { document.getElementById('help').classList.toggle('hidden', !v || min); },
 }));
 register('hud', 'приборы');
@@ -232,7 +233,9 @@ const setAssist = (v, save = true) => {
   document.body.classList.toggle('assist', v);
   btnAssist.classList.toggle('on', v);
   btnAssist.setAttribute('aria-pressed', String(v));
-  if (save) try { localStorage.setItem(ASSIST_KEY, v ? '1' : '0'); } catch { /* хранилище недоступно */ }
+  if (!save) return; // начальное состояние — без тоста
+  try { localStorage.setItem(ASSIST_KEY, v ? '1' : '0'); } catch { /* хранилище недоступно */ }
+  hud.toast(v ? 'Авто-матрос включён — вам руль и ход' : 'Авто-матрос выключен — всё управление ваше');
 };
 setAssist(assistOn, false);
 input.on('assist', () => setAssist(!assistOn));

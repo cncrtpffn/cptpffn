@@ -44,6 +44,17 @@ const deg = (rad) => (Math.round(rad / DEG * 2) / 2).toFixed(1); // до 0.5°, 
 
 // статус паруса при ассистенте: полощет он нарочно — так сброшен ход
 const ASSIST_STATUS = [['Стоп: шкот потравлен', 'down'], ['Средний ход', 'ok']];
+// курс к истинному ветру: верхняя граница |twa|, ° и название, как на розе курсов в manual.html
+const POINTS = [[22, 'Мёртвый угол'], [75, 'Бейдевинд'], [100, 'Галфвинд'], [165, 'Бакштаг'], [181, 'Фордевинд']];
+const POINT_HYST = 3; // °: соседний курс принимается, только когда угол ушёл за границу дальше этого
+function pointOfSail(a, prev) {
+  let i = POINTS.findIndex(([max]) => a < max);
+  if (i < 0) i = POINTS.length - 1;
+  if (prev < 0) return i;
+  if (i === prev + 1 && a < POINTS[prev][0] + POINT_HYST) return prev;
+  if (i === prev - 1 && a > POINTS[i][0] - POINT_HYST) return prev;
+  return i;
+}
 const CAMERA_NAMES = { orbit: 'орбита', chase: 'за кормой', top: 'сверху', deck: 'с палубы' };
 
 export class Hud {
@@ -56,7 +67,7 @@ export class Hud {
       roseRudder: $('rose-rudder'), main: $('hud-main'), miniCard: $('rose-mini-card'), miniLetters: $('rose-mini-letters'), miniApp: $('rose-mini-app'),
       rudder: $('bar-rudder'), sheet: $('bar-sheet'), board: $('bar-board'), crew: $('crew-marker'),
       lblSheet: $('lbl-sheet'), lblBoard: $('lbl-board'), reefs: [$('reef-0'), $('reef-1'), $('reef-2'), $('reef-3')],
-      telegraph: [$('tg-0'), $('tg-1'), $('tg-2')],
+      telegraph: [$('tg-0'), $('tg-1'), $('tg-2')], pos: $('hud-pos'), posTack: $('hud-pos-tack'), posDeg: $('hud-pos-deg'),
       status: $('sail-status'), statusBox: $('sail-status').parentElement, warnings: $('warnings'),
       camera: $('hud-camera'), help: $('help'), pausedChip: $('paused-chip'), root: $('hud'), capsize: $('capsize'), capsizeText: $('capsize-text'),
     };
@@ -71,6 +82,12 @@ export class Hud {
     // короткие и частые, без задержки надпись мерцает
     this._agroundUntil = 0;
     this._agroundMsg = '';
+    this._toast = null; // [текст, класс, до какого времени] — разовое сообщение в ленте предупреждений
+  }
+
+  // короткое сообщение в ленте предупреждений на ms миллисекунд
+  toast(text, cls = 'info', ms = 2500) {
+    this._toast = [text, cls, performance.now() + ms];
   }
 
   // Роза в системе лодки (нос вверх, +x — правый борт). Углы округлены до 0.5°, координаты до 0.1 —
@@ -148,6 +165,12 @@ export class Hud {
     css(e.crew, 'left', `${50 + (boat.crewY / boat.cfg.crewMaxY) * 45}%`);
     const rl = sail.reefTarget;
     e.reefs.forEach((c, i) => c.classList.toggle('on', i === rl));
+    // курс к ветру: название, галс (кроме мёртвого угла) и угол
+    const twaDeg = Math.abs(aw.twa) / DEG;
+    this._pos = pointOfSail(twaDeg, this._pos ?? -1);
+    set(e.pos, 'textContent', POINTS[this._pos][1]);
+    set(e.posTack, 'textContent', this._pos ? (aw.twa > 0 ? ' · правый галс' : ' · левый галс') : '');
+    set(e.posDeg, 'textContent', Math.round(twaDeg) + '°');
     let st = STATUS[sail.status] || STATUS.ok;
     if (assist) {
       const tg = assist.telegraph;
@@ -166,6 +189,7 @@ export class Hud {
       this._agroundMsg = boat.boardAground ? 'Шверт задевает дно — поднимите шверт' : 'Мель! Отойдите от берега';
     }
     if (now < this._agroundUntil) w.push([this._agroundMsg, '']);
+    if (this._toast && now < this._toast[2]) w.push(this._toast);
     if (boat.gybeFlash > 0) w.push(['Фордевинд! Гик перелетел', '']);
     if (!boat.capsized && Math.abs(heel) > 45) w.push(['Крен критический — травите шкот', '']);
     else if (!boat.capsized && Math.abs(heel) > 32) w.push(['Сильный крен', 'soft']);
