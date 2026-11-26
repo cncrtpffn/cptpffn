@@ -18,6 +18,10 @@ export const GAME_PARAMS = [
   { name: 'reefs', kind: 'num', group: 'Ветер и лодка', values: '0..2', example: '1', desc: 'взять рифы' },
   { name: 'assist', kind: 'num', group: 'Ветер и лодка', values: '0 | 1', example: '1',
     desc: 'ассистент («авто-матрос»): ведёт всё, кроме руля; без параметра — как выбрал игрок (по умолчанию выкл.)' },
+  { name: 'quest', kind: 'str', group: 'Карта и старт', values: 'id урока или миссии', example: 'helm',
+    desc: 'сразу начать урок (перенос к его старту) или проложить курс к миссии; id — src/tutorial/quests.js' },
+  { name: 'quests', kind: 'str', group: 'Карта и старт', values: 'all', example: 'all',
+    desc: 'открыть все уроки курса (прогресс при этом не записывается)' },
   { name: 'board', kind: 'num', group: 'Ветер и лодка', values: '0..1', example: '0', desc: 'шверт: 0 — поднят, 1 — опущен' },
 
   { name: 'cam', kind: 'str', group: 'Камера', values: 'orbit | chase | top | deck', example: 'chase', desc: 'режим камеры' },

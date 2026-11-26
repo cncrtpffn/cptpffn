@@ -41,6 +41,7 @@
         <path d="M0,-55 L-3.5,-60 L3.5,-60 Z" class="lubber"/>
         <g id="rose-true" class="arrow-true"><line x1="0" y1="-52" x2="0" y2="46"/><path d="M0,53 L-4,44 L4,44 Z"/></g>
         <g id="rose-app" class="arrow-app"><line x1="0" y1="-52" x2="0" y2="42"/><path d="M0,53 L-6,40 L6,40 Z"/></g>
+        <g id="rose-target" class="rose-target" visibility="hidden"><path d="M0,-59 L-6,-46 L6,-46 Z"/></g>
         <path d="M0,-19.5 C6,-17 9,-8 9,2 C9,10 8,16 7.5,19.5 L-7.5,19.5 C-8,16 -9,10 -9,2 C-9,-8 -6,-17 0,-19.5 Z" class="rose-boat"/>
         <g id="rose-tend" class="rose-tend"><path d="M0,-29 A29,29 0 0,1 13.5,-25.7"/><path d="M17,-23.8 L12.1,-23 L14.9,-28.4 Z" class="head"/></g>
         <line id="rose-rudder" x1="0" y1="0" x2="0" y2="6.5" class="rose-rudder" transform="translate(0,19.5)"/>
@@ -58,12 +59,14 @@
         </g>
         <path d="M0,-50 L-8,-60 L8,-60 Z" class="lubber"/>
         <g id="rose-mini-app" class="arrow-app"><line x1="0" y1="-48" x2="0" y2="30"/><path d="M0,52 L-15,26 L15,26 Z"/></g>
+        <g id="rose-mini-target" class="rose-target" visibility="hidden"><path d="M0,-59 L-12,-38 L12,-38 Z"/></g>
         <path d="M0,-20 C6.4,-17.6 9.6,-8 9.6,2.4 C9.6,10.4 8.4,16.8 8,20 L-8,20 C-8.4,16.8 -9.6,10.4 -9.6,2.4 C-9.6,-8 -6.4,-17.6 0,-20 Z" class="rose-boat"/>
         <g id="rose-mini-letters"></g>
       </svg>
       <div class="readouts">
         <div class="big"><span id="hud-speed">0.0</span><small>уз</small></div>
         <div class="row"><span>Курс</span><b id="hud-heading">000°</b></div>
+        <div class="row hidden" id="hud-target-row"><span class="dot target"></span><span>Цель</span><b id="hud-target">—</b></div>
         <div class="row"><span class="dot true"></span><span>Истинный</span><b><span id="hud-tws">0</span> м/с<span class="kbd-only"> · <span id="hud-twa">0°</span></span></b></div>
         <div class="row"><span class="dot app"></span><span>Вымпельный</span><b><span id="hud-aws">0</span> м/с<span class="kbd-only"> · <span id="hud-awa">0°</span></span></b></div>
         <div class="row kbd-only"><span>Крен</span><b id="hud-heel">0°</b></div>
@@ -80,8 +83,8 @@
     </div>
 
     <div class="panel" id="hud-controls">
-      <div class="ctl kbd-only"><label>Руль <kbd data-key="ArrowLeft">←</kbd><kbd data-key="ArrowRight">→</kbd></label><div class="bar centered"><div class="fill" id="bar-rudder"></div><div class="mid"></div></div></div>
-      <div class="ctl telegraph"><label><i class="ico" data-icon="assist"></i>Ход <kbd data-key="ArrowUp">↑</kbd><kbd data-key="ArrowDown">↓</kbd></label><div class="chips"><span class="chip" id="tg-0">стоп</span><span class="chip" id="tg-1">средний</span><span class="chip" id="tg-2">полный</span></div></div>
+      <div class="ctl kbd-only" id="ctl-rudder"><label>Руль <kbd data-key="ArrowLeft">←</kbd><kbd data-key="ArrowRight">→</kbd></label><div class="bar centered"><div class="fill" id="bar-rudder"></div><div class="mid"></div></div></div>
+      <div class="ctl telegraph" id="ctl-telegraph"><label><i class="ico" data-icon="assist"></i>Ход <kbd data-key="ArrowUp">↑</kbd><kbd data-key="ArrowDown">↓</kbd></label><div class="chips"><span class="chip" id="tg-0">стоп</span><span class="chip" id="tg-1">средний</span><span class="chip" id="tg-2">полный</span></div></div>
       <div class="ctl manual" id="ctl-sheet"><label>Грота-шкот <kbd data-key="ArrowUp">↑</kbd><kbd data-key="ArrowDown">↓</kbd> <em id="lbl-sheet">выбран</em></label><div class="bar"><div class="fill" id="bar-sheet"></div><div class="opt" id="opt-sheet"></div></div></div>
       <div class="ctl manual" id="ctl-board"><label><i class="ico" data-icon="board"></i>Шверт <kbd data-key="KeyQ">Q</kbd><kbd data-key="KeyE">E</kbd> <em id="lbl-board"></em></label><div class="bar"><div class="fill" id="bar-board"></div><div class="opt" id="opt-board"></div></div></div>
       <div class="ctl manual" id="ctl-crew"><label><i class="ico" data-icon="crew"></i>Экипаж <kbd data-key="KeyZ">Z</kbd><kbd data-key="KeyX">X</kbd><kbd data-key="KeyC">C</kbd></label><div class="bar centered crew"><div class="opt" id="opt-crew"></div><div class="marker" id="crew-marker"></div><div class="mid"></div></div></div>
@@ -101,6 +104,17 @@
       <button id="btn-camera" class="ui-btn soft" title="Вид камеры (V)" aria-label="Вид камеры">🎥</button>
       <button id="btn-pause" class="ui-btn soft" title="Пауза и справка (Space)" aria-label="Пауза и справка">❚❚</button>
       <button id="btn-assist" class="ui-btn soft" data-icon="assist" title="Авто-матрос: всё, кроме руля (T)" aria-label="Авто-матрос" aria-pressed="false"></button>
+      <button id="btn-quests" class="ui-btn soft" data-icon="quests" title="Обучение: уроки и миссии (L)" aria-label="Обучение"></button>
+    </div>
+    <!-- карточка обучающего квеста (src/ui/quest-ui.js) -->
+    <div class="panel hidden" id="quest-card">
+      <div class="qc-head"><span class="qc-kind" id="qc-kind"></span><span class="qc-time" id="qc-time"></span></div>
+      <b class="qc-title" id="qc-title"></b>
+      <div class="qc-steps" id="qc-steps"></div>
+      <div class="qc-task" id="qc-task"></div>
+      <div class="qc-bar"><div class="qc-fill" id="qc-progress"></div></div>
+      <p class="qc-say" id="qc-say"></p>
+      <div class="qc-actions"><a id="qc-manual" href="manual.html" target="_blank" rel="noopener">Подробнее в учебнике</a><span class="qc-sp"></span><button id="qc-begin" class="hidden">Начать</button><button id="qc-exit" class="secondary">Выйти</button></div>
     </div>
   </div>
 
@@ -151,9 +165,35 @@
             <li>Кэтбот при крене сильно <b>приводится к ветру</b> — держите руль.</li>
           </ul>
           <p class="manual-link"><a href="manual.html" target="_blank" rel="noopener">Подробный учебник: термины, схемы, повороты →</a></p>
+          <p class="manual-link"><a href="#" id="help-quests">Обучение: уроки «Школы шкипера» и миссии<span class="kbd-only"> (L)</span> →</a></p>
         </div>
       </div>
       <div class="actions"><button id="btn-logs" class="secondary" title="Лог игры — пригодится, если что-то сломалось">Логи</button><button id="btn-resume">▶ Продолжить <kbd class="kbd-only">Space</kbd></button></div>
+    </div>
+  </div>
+
+  <!-- меню обучения: курс и миссии (src/ui/quest-ui.js) -->
+  <div id="quests" class="overlay hidden">
+    <div class="card quests-card">
+      <button class="close" id="btn-quests-close" aria-label="Закрыть">✕</button>
+      <span class="badge">Обучение</span>
+      <h2>Школа шкипера</h2>
+      <div class="q-tabs" role="tablist"><button role="tab" data-tab="course" class="on">Курс</button><button role="tab" data-tab="missions">Миссии</button></div>
+      <p class="q-hint" id="q-hint-course">Уроки по порядку: следующий откроется, когда пройдёте предыдущий. Перед уроком лодку перенесут к его старту.</p>
+      <p class="q-hint hidden" id="q-hint-missions">До места миссии плывите сами: стрелка на компасе покажет путь. Ветер — как в мире.</p>
+      <ol class="q-list" id="q-course"></ol>
+      <ul class="q-list hidden" id="q-missions"></ul>
+      <p class="muted">Прогресс хранится в этом браузере. <button class="link" id="btn-quests-reset">Сбросить прогресс</button></p>
+    </div>
+  </div>
+
+  <!-- итог квеста и срыв урока -->
+  <div id="quest-result" class="overlay hidden">
+    <div class="card small">
+      <span class="badge" id="qr-badge"></span>
+      <h2 id="qr-title"></h2>
+      <p id="qr-text"></p>
+      <div class="actions centered" id="qr-actions"></div>
     </div>
   </div>
 

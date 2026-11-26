@@ -6,10 +6,11 @@ import { mergeStatic } from './merge-static.js';
 const flat = (color) => new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.9 });
 
 // Буй: def.kind — навигационный знак (МАМС, регион A), без kind — регатный знак цвета def.color.
+//   race — жёлтый гоночный знак обучающих квестов, start — буй зоны старта миссии;
 //   lateral-red / lateral-green — левый (красный цилиндр) / правый (зелёный конус) край фарватера;
 //   cardinal-n|s|e|w — жёлто-чёрная веха с двумя конусами (с какой стороны от опасности проходить);
 //   isolated — отдельная опасность: чёрная веха с красным поясом и двумя чёрными шарами.
-const BLACK = 0x22262b, YELLOW = 0xf2c230, RED = 0xd23b2e, GREEN = 0x2f9e5b;
+const BLACK = 0x22262b, YELLOW = 0xf2c230, RED = 0xd23b2e, GREEN = 0x2f9e5b, ORANGE = 0xf07a2a;
 // пояса кардинальных вех снизу вверх и конусы топовой фигуры (+1 — вершиной вверх)
 const CARDINAL = {
   'cardinal-n': { bands: [YELLOW, BLACK], cones: [1, 1] },
@@ -39,6 +40,19 @@ function makeBuoy(def) {
     add(new THREE.CylinderGeometry(0.65, 0.75, 0.6, 10), bands[0], 0.1);
     bands.forEach((c, n) => add(new THREE.CylinderGeometry(0.3, 0.38, hb, 8), c, 0.4 + hb * (n + 0.5)));
     cones.forEach((d, n) => add(new THREE.ConeGeometry(0.28, 0.4, 8), BLACK, 2.95 + n * 0.5, d > 0 ? 0 : Math.PI));
+  } else if (k === 'race') {
+    // гоночный знак-«надувашка»: жёлтый цилиндр с белой полосой и конусом, виден издалека
+    add(new THREE.CylinderGeometry(0.85, 0.9, 1.4, 14), YELLOW, 0.5);
+    add(new THREE.CylinderGeometry(0.86, 0.86, 0.3, 14), 0xf4f1e8, 1.35);
+    add(new THREE.CylinderGeometry(0.85, 0.85, 0.5, 14), YELLOW, 1.75);
+    add(new THREE.ConeGeometry(0.85, 0.9, 14), YELLOW, 2.45);
+  } else if (k === 'start') {
+    // буй зоны старта миссии: оранжево-белая веха с флагом
+    add(new THREE.CylinderGeometry(0.5, 0.6, 0.6, 10), ORANGE, 0.15);
+    [ORANGE, 0xf4f1e8, ORANGE, 0xf4f1e8].forEach((c, n) => add(new THREE.CylinderGeometry(0.22, 0.26, 0.5, 8), c, 0.7 + n * 0.5));
+    add(new THREE.CylinderGeometry(0.04, 0.04, 1.2, 5), 0x6e4a2b, 2.9);
+    const flag = add(new THREE.BoxGeometry(0.02, 0.5, 0.8), ORANGE, 3.25);
+    flag.position.z = 0.4;
   } else if (k === 'isolated') {
     add(new THREE.CylinderGeometry(0.65, 0.75, 0.6, 10), BLACK, 0.1);
     add(new THREE.CylinderGeometry(0.3, 0.38, 0.8, 8), BLACK, 0.8);

@@ -54,13 +54,15 @@ export class Hud {
       aws: $('hud-aws'), awa: $('hud-awa'), heel: $('hud-heel'), leeway: $('hud-leeway'),
       beaufort: $('hud-beaufort'), roseCard: $('rose-card'), roseTrue: $('rose-true'), roseApp: $('rose-app'),
       roseBoom: $('rose-boom'), roseSheet: $('rose-sheet'), roseCe: $('rose-ce'), roseClr: $('rose-clr'), roseTend: $('rose-tend'),
-      roseRudder: $('rose-rudder'), main: $('hud-main'), miniCard: $('rose-mini-card'), miniLetters: $('rose-mini-letters'), miniApp: $('rose-mini-app'),
+      roseRudder: $('rose-rudder'), roseTarget: $('rose-target'), miniTarget: $('rose-mini-target'),
+      targetRow: $('hud-target-row'), target: $('hud-target'), main: $('hud-main'), miniCard: $('rose-mini-card'), miniLetters: $('rose-mini-letters'), miniApp: $('rose-mini-app'),
       rudder: $('bar-rudder'), sheet: $('bar-sheet'), board: $('bar-board'), crew: $('crew-marker'),
       lblSheet: $('lbl-sheet'), lblBoard: $('lbl-board'), reefs: [$('reef-0'), $('reef-1'), $('reef-2'), $('reef-3')],
       telegraph: [$('tg-0'), $('tg-1'), $('tg-2')], pos: $('hud-pos'), posTack: $('hud-pos-tack'), posDeg: $('hud-pos-deg'),
       status: $('sail-status'), statusBox: $('sail-status').parentElement, warnings: $('warn-list'), rescue: $('btn-rescue'),
       optSheet: $('opt-sheet'), optBoard: $('opt-board'), optCrew: $('opt-crew'),
       ctlSheet: $('ctl-sheet'), ctlCrew: $('ctl-crew'), ctlReef: $('ctl-reef'),
+      ctlRudder: $('ctl-rudder'), ctlBoard: $('ctl-board'), ctlTelegraph: $('ctl-telegraph'),
       camera: $('hud-camera'), help: $('help'), pausedChip: $('paused-chip'), root: $('hud'), capsize: $('capsize'), capsizeText: $('capsize-text'),
     };
     $('rose-ticks').innerHTML = roseTicks();
@@ -121,7 +123,8 @@ export class Hud {
 
   // отметки оптимума (зелёные риски) и подсказки «пора тронуть» (мигание ряда); подсказки — только для каналов
   // в руках игрока (assist — ассистент или null, его channels — что он ведёт)
-  _updateAdvice(boat, advice, assist) {
+  // hl — контрол, который подсвечивает шаг урока ('sheet' | 'crew' | 'reef' | …)
+  _updateAdvice(boat, advice, assist, hl) {
     const e = this.el, c = boat.cfg;
     // проценты до 0.5 и с отступом от краёв, чтобы риска не пряталась за скруглением полосы
     const pct = (f) => `${(Math.round(Math.max(0.02, Math.min(0.98, f)) * 200) / 2)}%`;
@@ -131,9 +134,9 @@ export class Hud {
     css(e.optCrew, 'left', pct(0.5 + (y / c.crewMaxY) * 0.45));
     e.reefs.forEach((chip, i) => chip.classList.toggle('opt', i === advice.reef));
     const n = advice.need, mine = (ch) => !assist?.channels[ch];
-    e.ctlSheet.classList.toggle('hint', mine('sheet') && n.sheet);
-    e.ctlCrew.classList.toggle('hint', mine('crew') && n.crew);
-    e.ctlReef.classList.toggle('hint', mine('reef') && n.reef);
+    e.ctlSheet.classList.toggle('hint', hl === 'sheet' || (mine('sheet') && n.sheet));
+    e.ctlCrew.classList.toggle('hint', hl === 'crew' || (mine('crew') && n.crew));
+    e.ctlReef.classList.toggle('hint', hl === 'reef' || (mine('reef') && n.reef));
   }
 
   // min — справка свёрнута в плашку, пауза остаётся
@@ -143,12 +146,28 @@ export class Hud {
     this.el.root.classList.toggle('paused-min', v && min);
   }
 
-  // assist — ассистент, когда включён (иначе null); advice — советчик src/physics/trim.js (отметки и подсказки)
-  update({ boat, wind, cameraMode, assist, advice }) {
+  // цель обучающего квеста на розе (жёлтый треугольник на краю картушки) и расстояние; target — runner.target или null
+  _updateTarget(boat, target) {
+    const e = this.el, vis = target ? 'visible' : 'hidden';
+    attr(e.roseTarget, 'visibility', vis);
+    attr(e.miniTarget, 'visibility', vis);
+    if (changed(e.targetRow, 'hidden', !target)) e.targetRow.classList.toggle('hidden', !target);
+    if (!target) return;
+    const rot = `rotate(${deg(target.bearing - boat.psi)})`;
+    attr(e.roseTarget, 'transform', rot);
+    attr(e.miniTarget, 'transform', rot);
+    const d = target.dist;
+    set(e.target, 'textContent', d < 1000 ? `${Math.round(d / 5) * 5} м` : `${(d / 1000).toFixed(1)} км`);
+  }
+
+  // assist — ассистент, когда включён (иначе null); advice — советчик src/physics/trim.js (отметки и подсказки);
+  // target — цель обучающего квеста (src/tutorial/runner.js) или null
+  update({ boat, wind, cameraMode, assist, advice, target = null, highlight = null }) {
     const e = this.el;
     const aw = boat.aw;
     const headingDeg = boat.psi / DEG;
     this._updateRose(boat);
+    this._updateTarget(boat, target);
 
     set(e.speed, 'textContent', (boat.u * 1.944).toFixed(1));
     set(e.heading, 'textContent', String(Math.round(headingDeg) % 360).padStart(3, '0') + '°');
@@ -175,7 +194,10 @@ export class Hud {
     css(e.crew, 'left', `${50 + (boat.crewY / boat.cfg.crewMaxY) * 45}%`);
     const rl = sail.reefTarget;
     e.reefs.forEach((c, i) => c.classList.toggle('on', i === rl));
-    if (advice) this._updateAdvice(boat, advice, assist);
+    if (advice) this._updateAdvice(boat, advice, assist, highlight);
+    for (const [ch, el] of [['rudder', e.ctlRudder], ['board', e.ctlBoard], ['telegraph', e.ctlTelegraph]]) {
+      if (changed(el, 'hl', highlight === ch)) el.classList.toggle('hint', highlight === ch);
+    }
     // курс к ветру: название, галс (кроме мёртвого угла) и угол
     const twaDeg = Math.abs(aw.twa) / DEG;
     this._pos = pointOfSail(twaDeg, this._pos ?? -1);

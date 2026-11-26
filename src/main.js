@@ -19,6 +19,11 @@ import { createCrestSpray } from './scene/crest-spray.js';
 import { createEnvironment } from './scene/environment.js';
 import { buildWorldAsync } from './scene/terrain/world.js';
 import { createObstacles } from './physics/obstacles.js';
+import { LESSONS, MISSIONS, QUESTS, COURSE } from './tutorial/quests.js';
+import { createQuestRunner } from './tutorial/runner.js';
+import { createProgress } from './tutorial/progress.js';
+import { createQuestUi } from './ui/quest-ui.js';
+import { createQuestMarker } from './scene/quest-marker.js';
 import { MAPS } from './maps/index.js';
 import { FollowCamera } from './scene/camera.js';
 import { Input } from './input.js';
@@ -114,11 +119,16 @@ loading.step('Небо и свет');
 await loading.frame();
 // препятствия на воде (src/physics/obstacles.js): регатные знаки лёгкие — лодка их отталкивает,
 // навигационные буи и мостки неподвижны. Буй в сцене следует за своим препятствием (d.obs)
+// Знаки квестов (world.marks): race — лёгкие, start — неподвижные, point — невидимые (без препятствия).
+// id: знаки квестов — свой, навигационные — «вид@название», регатные карты — buoy-N
 const obstacles = createObstacles();
-const BUOY_R = { 'lateral-red': 0.7, 'lateral-green': 0.7 };
-const buoyDefs = world.buoys.map((d, i) => ({ ...d, obs: obstacles.addCircle({
-  id: d.id ?? d.name ?? `buoy-${i}`, kind: d.kind ? 'buoy' : 'mark', x: d.x, z: d.z,
-  r: d.kind ? BUOY_R[d.kind] ?? 0.75 : 0.55, mass: d.kind ? Infinity : 40 }) }));
+const BUOY_R = { 'lateral-red': 0.7, 'lateral-green': 0.7, race: 0.9, start: 0.6 };
+const LIGHT = { undefined: 40, race: 40 }; // кг; остальные неподвижны
+const buoyDefs = [...world.buoys, ...world.marks.filter((m) => m.kind !== 'point')].map((d, i) => ({ ...d, obs: obstacles.addCircle({
+  id: d.id ?? (d.name ? `${d.kind}@${d.name}` : `buoy-${i}`), kind: !d.kind || d.kind === 'race' ? 'mark' : 'buoy', x: d.x, z: d.z,
+  r: d.kind ? BUOY_R[d.kind] ?? 0.75 : 0.55, mass: LIGHT[d.kind] ?? Infinity }) }));
+// знаки для квестов по id (якорная точка; лёгкий знак может отъехать на пару метров)
+const questMarks = new Map([...world.marks.map((m) => [m.id, m]), ...buoyDefs.map((d) => [d.obs.id, { x: d.x, z: d.z }])]);
 world.piers.forEach((p, i) => obstacles.addBox({ id: `pier-${i}`, ...p, kind: 'pier' }));
 const env = critical('env', 'окружение', () => createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 4096,
   buoys: buoyDefs, shadowRange: isTouchDevice() ? 70 : 120 }));
@@ -269,7 +279,11 @@ const setAssist = (v, save = true) => {
   hud.toast(v ? 'Авто-матрос включён — вам руль и ход' : 'Авто-матрос выключен — всё управление ваше');
 };
 setAssist(assistOn, false);
-input.on('assist', () => setAssist(!assistOn));
+input.on('assist', () => {
+  // в уроке помощь задаёт урок
+  if (quests?.lessonActive) { hud.toast('Помощь в уроке задаёт инструктор', 'soft'); return; }
+  setAssist(!assistOn);
+});
 btnAssist.addEventListener('click', () => input.trigger('assist'));
 // каналы на ассистенте — его, ручные команды не действуют
 input.on('reef', (d) => { if (!auto('reef')) boat.sail.reef(d); });
@@ -280,7 +294,7 @@ let helpMin = false;
 const setPaused = (v, min = false) => { paused = v; helpMin = v && min; hud.showHelp(paused, helpMin); };
 input.on('pause', () => setPaused(!paused));
 input.on('help', () => (helpMin ? setPaused(true) : setPaused(!paused)));
-input.on('escape', () => setPaused(false));
+input.on('escape', () => { if (quests?.ui.menuOpen) quests.ui.closeMenu(); else setPaused(false); });
 input.on('righten', actions.righten);
 document.getElementById('btn-righten').addEventListener('click', actions.righten);
 document.getElementById('btn-rescue').addEventListener('click', actions.rescue);
@@ -318,6 +332,120 @@ optional('collapse', 'сворачивание панелей', () => {
   }
   makeCollapsible(hudMain, { key: 'main', title: 'Приборы' });
 });
+
+// --- обучающие квесты: курс «Школа шкипера» и миссии (src/tutorial/*, карточка и меню — src/ui/quest-ui.js) ---
+// Урок переносит лодку к своему старту, ставит свой ветер и маску ассистента; после урока всё возвращается.
+// Миссия: плыть к зоне старта (стрелка на компасе), там «Начать»; ветер и помощь — как у игрока
+const obsById = new Map(buoyDefs.map((d) => [d.obs.id, d.obs]));
+const questMark = (id) => questMarks.get(id);
+const questMarkNow = (id) => obsById.get(id) ?? questMarks.get(id); // лёгкий знак мог отъехать
+const quests = optional('quests', 'обучение', () => {
+  const runner = createQuestRunner(QUESTS);
+  const progress = createProgress({ knownIds: QUESTS.map((q) => q.id), unlockAll: P.quests === 'all' });
+  const marker = createQuestMarker(scene);
+  let saved = null;      // мир до урока: ветер и ассистент
+  let menuPause = false;
+  const lesson = () => runner.quest?.kind === 'lesson' && runner.state !== 'idle';
+  // ассистент по маске урока: всё false — выключен
+  const applyMask = (mask) => {
+    const on = !!mask && Object.values(mask).some(Boolean);
+    assist.setChannels(mask || {});
+    setAssist(on, false);
+    if (on) assist.telegraph = 2;
+  };
+  const restore = () => {
+    if (!saved) return;
+    Object.assign(wind, saved.wind);
+    assist.setChannels(saved.mask);
+    setAssist(saved.assistOn, false);
+    saved = null;
+  };
+  // перенос лодки: позиция и курс, рифы и шверт; сброс следов и камера сразу к лодке
+  const teleport = (x, z, psi, reefs, board) => {
+    boat.reset(x, z, psi);
+    boat.sail.setReef(reefs);
+    boat.board = board;
+    wake.reset(); bowWave.reset(); advisor.reset(); assist.reset();
+    followCam.update(100, boat, boatMesh);
+  };
+  const ui = createQuestUi({
+    lessons: LESSONS, missions: MISSIONS, progress,
+    h: {
+      start: (id) => q.start(id),
+      route: (id) => { q.abort(); runner.select(id); hud.toast(`Курс проложен: ${runner.quest.ru.title}`); },
+      begin: () => { runner.start(runner.quest.id, boat); progress.started(runner.quest.id); },
+      abort: () => q.abort(),
+      retry: () => q.retry(),
+      menu: () => { q.abort(); q.openMenu(); },
+      closed: () => { menuPause = false; },
+    },
+  });
+  const q = {
+    runner, progress, ui, marker,
+    get halted() { return menuPause || ui.dialogOpen; },
+    get lessonActive() { return lesson(); },
+    start(id) {
+      const quest = runner.get(id);
+      if (!quest) return;
+      ui.hideDialog();
+      document.body.classList.remove('quest-failed');
+      if (quest.kind === 'mission') { q.abort(); runner.select(id); return; }
+      if (!saved) saved = { wind: { baseSpeed: wind.baseSpeed, baseDirDeg: wind.baseDirDeg, gusts: wind.gusts, gustStrength: wind.gustStrength }, assistOn, mask: { ...assist.channels } };
+      const s = quest.setup;
+      Object.assign(wind, { baseSpeed: s.wind.speed, baseDirDeg: s.wind.dirDeg, gusts: !!s.wind.gusts, gustStrength: s.wind.gustStrength ?? 0.3 });
+      teleport(s.x, s.z, s.hdg * DEG, s.reefs ?? 0, s.board ?? 1);
+      applyMask(s.assist);
+      runner.start(id, boat);
+      progress.started(id);
+      hud.toast(quest.ru.intro, 'info', 6000);
+    },
+    abort() {
+      ui.hideDialog();
+      document.body.classList.remove('quest-failed');
+      runner.abort();
+      restore();
+    },
+    // повтор шага после переворота: на старт шага с теми же рифами и швертом
+    retry() {
+      document.body.classList.remove('quest-failed');
+      if (boat.capsized) boat.righten(wind.dir);
+      const cp = runner.checkpoint;
+      if (cp) teleport(cp.x, cp.z, cp.psi, boat.sail.reefTarget, boat.board);
+      runner.retry(boat);
+    },
+    openMenu() { menuPause = true; ui.openMenu(boat, questMark); },
+    toggleMenu() { if (ui.menuOpen) ui.closeMenu(); else q.openMenu(); },
+    // события кадра
+    update(dt) {
+      for (const e of runner.update(dt, { boat, wind, mark: questMark, advice, assist: assistOn ? assist : null })) {
+        const quest = runner.quest;
+        if (e.type === 'step' && quest.kind === 'lesson') {
+          const st = quest.steps[e.step];
+          if (st.assist) applyMask({ ...quest.setup.assist, ...st.assist });
+          if (e.step > 0) hud.toast('Готово! ' + st.ru.task, 'info', 3000);
+        } else if (e.type === 'ready') hud.toast('Вы в зоне старта — нажмите «Начать»', 'info', 3500);
+        else if (e.type === 'penalty') hud.toast(`Задели знак: штраф ${10} с`, 'soft');
+        else if (e.type === 'fail') { document.body.classList.add('quest-failed'); ui.showFail(quest); }
+        else if (e.type === 'done') {
+          const record = progress.record(quest.id, e.total);
+          const i = COURSE.indexOf(quest.id);
+          ui.showResult(quest, runner.result, record, quest.kind === 'lesson' && i >= 0 && i < COURSE.length - 1 ? COURSE[i + 1] : null);
+        }
+      }
+    },
+    target() { return runner.state === 'idle' || runner.state === 'done' ? null : runner.target(boat, questMark); },
+    highlight() { return runner.state === 'active' ? runner.step?.highlight ?? null : null; },
+  };
+  document.getElementById('btn-quests').addEventListener('click', () => input.trigger('quests'));
+  document.getElementById('help-quests').addEventListener('click', (e) => { e.preventDefault(); setPaused(false); q.openMenu(); });
+  input.on('quests', () => q.toggleMenu());
+  return q;
+}, () => null);
+register('quests', 'обучение', quests ? [quests.marker.group] : []);
+if (quests && P.quest) {
+  const qq = quests.runner.get(P.quest);
+  if (qq) quests.start(P.quest);
+}
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -384,7 +512,7 @@ function step(now) {
   // метка rAF бывает раньше last (долгая загрузка, компиляция шейдеров) — отрицательный dt разгоняет сглаживание камеры
   let dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
   last = now;
-  const halted = paused || (touch && phoneLandscape.matches);
+  const halted = paused || (touch && phoneLandscape.matches) || !!quests?.halted;
   if (!halted) {
     acc += dt;
     const seaState = sea.auto ? Math.min(1, 0.006 * wind.baseSpeed * wind.baseSpeed) : sea.state;
@@ -430,8 +558,15 @@ function step(now) {
   world.update(camera.position);
   if (camPitch) camera.rotateX(camPitch);
   if (!halted) tick('advice', () => { advice = advisor.update(dt, boat, wind); });
-  tick('hud', () => hud.update({ boat, wind, cameraMode: followCam.mode, assist: assistOn ? assist : null, advice }));
-  if (touchUi) tick('touchind', () => touchUi.update(boat, assistOn ? assist : null, advice));
+  let qTarget = null, qHighlight = null;
+  if (quests) tick('quests', () => {
+    if (!halted) quests.update(dt);
+    qTarget = quests.target(); qHighlight = quests.highlight();
+    quests.marker.update(halted ? 0 : dt, qTarget, questMarkNow, waves);
+    quests.ui.update(quests.runner, qTarget);
+  });
+  tick('hud', () => hud.update({ boat, wind, cameraMode: followCam.mode, assist: assistOn ? assist : null, advice, target: qTarget, highlight: qHighlight }));
+  if (touchUi) tick('touchind', () => touchUi.update(boat, assistOn ? assist : null, advice, qHighlight));
   const R = water.reflection;
   if (R.objects) tick('planar', () => {
     planar.state.scale = R.resolution;
@@ -461,4 +596,4 @@ diag.started();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { world, planar, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, bowWave, bowl, particles, assist, setAssistChannels, obstacles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
+window.__sim = { world, planar, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, bowWave, bowl, particles, assist, setAssistChannels, obstacles, quests, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };

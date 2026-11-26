@@ -436,3 +436,64 @@ body.touch .lil-gui.root:not(.closed) > .title { height: 40px; padding: 0 12px; 
   .diag-card { padding: 18px 16px; }
   .diag-card .diag-actions button { font-size: 14px; padding: 9px 12px; }
 }
+
+/* --- обучающие квесты (src/ui/quest-ui.js) --- */
+#btn-quests { display: flex; align-items: center; justify-content: center; }
+.dot.target { background: #e0a400; }
+#hud-target-row.hidden { display: none; }
+#hud-main.collapsed .readouts #hud-target-row:not(.hidden) { display: flex; }
+.rose-target path { fill: #ffc93c; stroke: #7a5a00; stroke-width: 1.2; stroke-linejoin: round; }
+/* карточка: справа сверху, левее колонки кнопок */
+#quest-card {
+  right: calc(max(var(--edge), env(safe-area-inset-right)) + 60px); top: 16px; width: 310px; padding: 10px 38px 12px 14px;
+  pointer-events: auto; font-size: 13px;
+}
+#quest-card.hidden { display: none; }
+#quest-card .hidden { display: none; }
+.qc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.qc-kind { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #a07400; }
+.qc-time { font-variant-numeric: tabular-nums; font-weight: 800; color: var(--ink-soft); }
+.qc-title { display: block; font-size: 16px; margin: 2px 0 6px; }
+.qc-steps { display: flex; gap: 4px; margin-bottom: 6px; }
+.qc-steps:empty { display: none; }
+.qc-steps i { flex: 1; height: 5px; border-radius: 3px; background: var(--bar); }
+.qc-steps i.ok { background: var(--ok); }
+.qc-steps i.now { background: #ffc93c; }
+.qc-task { font-weight: 800; font-size: 14px; }
+.qc-bar { height: 4px; border-radius: 2px; background: var(--bar); margin: 6px 0 2px; overflow: hidden; }
+.qc-fill { height: 100%; width: 0; background: var(--ok); transition: width 0.2s linear; }
+.qc-say { margin: 6px 0 0; color: var(--ink-soft); line-height: 1.4; }
+.qc-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.qc-sp { flex: 1; }
+.qc-actions a { color: var(--true); font-weight: 800; font-size: 12px; }
+.qc-actions button { font: 800 13px 'Nunito', system-ui, sans-serif; border: 0; border-radius: 10px; padding: 6px 12px; cursor: pointer; background: var(--accent); color: #fff; touch-action: manipulation; }
+.qc-actions button.secondary { background: #eee6d5; color: var(--ink); }
+/* свёрнутая карточка — только заголовок и задание */
+#quest-card.collapsed .qc-steps, #quest-card.collapsed .qc-bar, #quest-card.collapsed .qc-say, #quest-card.collapsed .qc-actions a,
+#quest-card.collapsed .qc-title { display: none; }
+#quest-card.collapsed .qc-actions { margin-top: 4px; }
+/* на таче — под верхней плашкой, во всю ширину до колонки кнопок */
+body.touch #quest-card { top: auto; bottom: calc(env(safe-area-inset-bottom) + 168px); left: 8px; right: 72px; width: auto; max-width: 420px; padding: 8px 34px 8px 10px; }
+body.touch #quest-card .collapse-btn { top: 6px; right: 6px; width: 24px; height: 24px; line-height: 24px; font-size: 12px; }
+@media (max-width: 1100px) { body:not(.touch) #quest-card { top: auto; bottom: 16px; right: calc(max(var(--edge), env(safe-area-inset-right)) + 60px); } }
+/* меню обучения */
+.quests-card { max-width: 640px; }
+.q-tabs { display: flex; gap: 6px; margin: 8px 0 6px; }
+.card .q-tabs button { background: #eee6d5; color: var(--ink); padding: 6px 16px; font-size: 14px; }
+.card .q-tabs button.on { background: var(--ink); color: #fff; }
+.q-hint { margin: 4px 0 8px; color: var(--ink-soft); font-size: 13px; }
+.q-hint.hidden, .q-list.hidden { display: none; }
+.q-list { list-style: none; padding: 0; margin: 0; }
+.card .q-list li { margin: 0; }
+.q-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--card-border); }
+.q-num { flex: none; width: 30px; height: 30px; border-radius: 50%; background: #eee6d5; display: flex; align-items: center; justify-content: center; font-weight: 800; }
+.q-item.done .q-num { background: var(--ok); color: #fff; }
+.q-item.locked { opacity: 0.55; }
+.q-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.q-text small { color: var(--ink-soft); font-size: 12px; line-height: 1.35; }
+.q-text small.q-best, .q-text small.q-where { color: #8a6400; font-weight: 700; }
+.card .q-item button { flex: none; font-size: 13px; padding: 8px 12px; }
+.card .q-item button:disabled { background: #d9d0bf; cursor: default; }
+.card button.link { background: none; color: var(--true); padding: 0; font-size: 12px; text-decoration: underline; }
+.card .actions.centered { justify-content: center; flex-wrap: wrap; }
+body.quest-failed #capsize { display: none; }

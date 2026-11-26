@@ -30,6 +30,7 @@ export class Input {
         case 'KeyC': this._emit('crew', 'right'); break;
         case 'KeyV': this._emit('camera'); break;
         case 'KeyT': this._emit('assist'); break;
+        case 'KeyL': this._emit('quests'); break;
         case 'KeyH': this._emit('help'); break;
         case 'Escape': this._emit('escape'); break;
         case 'Enter': this._emit('righten'); break;

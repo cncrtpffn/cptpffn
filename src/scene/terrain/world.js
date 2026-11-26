@@ -69,5 +69,7 @@ function* worldSteps(map, { regions, tstep, density = 1 } = {}) {
   const buoys = [...(map.buoys ?? []), ...plan.marks];
   // мостки и причалы для столкновений — только у планировщика v2
   const piers = settle.piers ?? [];
-  return { map, hf, bio, plan, buoys, piers, terrain, settle, veg, group, shore, ms, summary, update: (cam, lod = true) => veg.update(cam, lod) };
+  // знаки обучающих квестов (видимые race/start и невидимые point)
+  const marks = map.marks ?? [];
+  return { map, hf, bio, plan, buoys, piers, marks, terrain, settle, veg, group, shore, ms, summary, update: (cam, lod = true) => veg.update(cam, lod) };
 }
