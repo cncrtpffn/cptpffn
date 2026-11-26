@@ -18,6 +18,7 @@ import { createShoreSpray } from './scene/shore-spray.js';
 import { createCrestSpray } from './scene/crest-spray.js';
 import { createEnvironment } from './scene/environment.js';
 import { buildWorldAsync } from './scene/terrain/world.js';
+import { createObstacles } from './physics/obstacles.js';
 import { MAPS } from './maps/index.js';
 import { FollowCamera } from './scene/camera.js';
 import { Input } from './input.js';
@@ -111,8 +112,16 @@ const world = await criticalAsync('world', 'мир', () => buildWorldAsync(MAP, 
 }));
 loading.step('Небо и свет');
 await loading.frame();
+// препятствия на воде (src/physics/obstacles.js): регатные знаки лёгкие — лодка их отталкивает,
+// навигационные буи и мостки неподвижны. Буй в сцене следует за своим препятствием (d.obs)
+const obstacles = createObstacles();
+const BUOY_R = { 'lateral-red': 0.7, 'lateral-green': 0.7 };
+const buoyDefs = world.buoys.map((d, i) => ({ ...d, obs: obstacles.addCircle({
+  id: d.id ?? d.name ?? `buoy-${i}`, kind: d.kind ? 'buoy' : 'mark', x: d.x, z: d.z,
+  r: d.kind ? BUOY_R[d.kind] ?? 0.75 : 0.55, mass: d.kind ? Infinity : 40 }) }));
+world.piers.forEach((p, i) => obstacles.addBox({ id: `pier-${i}`, ...p, kind: 'pier' }));
 const env = critical('env', 'окружение', () => createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 4096,
-  buoys: world.buoys, shadowRange: isTouchDevice() ? 70 : 120 }));
+  buoys: buoyDefs, shadowRange: isTouchDevice() ? 70 : 120 }));
 scene.add(world.group);
 console.log(world.summary());
 loading.step('Карта берега');
@@ -221,7 +230,7 @@ const actions = {
   // шкот потравлен, у ассистента — «стоп»
   rescue: () => {
     if (boat.capsized) return;
-    if (!boat.rescue(shoreMap)) { hud.toast('Не нашли глубину рядом', ''); return; }
+    if (!boat.rescue(shoreMap, obstacles)) { hud.toast('Не нашли глубину рядом', ''); return; }
     wake.reset(); bowWave.reset(); advisor.reset();
     if (assistOn) { assist.reset(); assist.telegraph = 0; }
     hud.toast('Лодку вывели на глубину');
@@ -349,7 +358,7 @@ if ('t' in P) {
     wind.update(STEP);
     waves.configure(Math.min(1, 0.006 * wind.baseSpeed * wind.baseSpeed) * SEA.maxHeight, wind.baseDirDeg * DEG, wind.baseSpeed);
     waves.update(STEP);
-    boat.step(STEP, assist.controls(STEP, boat, wind, autopilotControls()), wind, waves, shoreMap);
+    boat.step(STEP, assist.controls(STEP, boat, wind, autopilotControls()), wind, waves, shoreMap, obstacles);
     simTime += STEP;
   }
   waves.settle();
@@ -362,6 +371,7 @@ if (debugLog) console.log(`[shore] ${shoreMap.width}×${shoreMap.height}, точ
 // --- цикл ---
 let last = performance.now();
 let acc = 0;
+let contactSeen = 0;
 let telegraphAxis = 0; // телеграф переключается по фронту: удержание ↑ — один шаг
 function frame(now) {
   requestAnimationFrame(frame);
@@ -391,11 +401,17 @@ function step(now) {
     while (acc >= STEP && n < 12) {
       wind.update(STEP);
       waves.update(STEP);
-      boat.step(STEP, assisted ? assist.controls(STEP, boat, wind, controls) : controls, wind, waves, shoreMap);
+      boat.step(STEP, assisted ? assist.controls(STEP, boat, wind, controls) : controls, wind, waves, shoreMap, obstacles);
       acc -= STEP; n++;
       simTime += STEP;
     }
     if (n === 12) acc = 0;
+    // касание буя или мостка — тост (слабые касания на малом ходу — без него)
+    const k = boat.contact;
+    if (k.count !== contactSeen) {
+      contactSeen = k.count;
+      if (k.speed > 0.3) hud.toast(k.kind === 'pier' ? 'Удар о причал' : k.kind === 'mark' ? 'Задели знак' : 'Удар о буй', k.kind === 'mark' ? 'soft' : '');
+    }
   }
   boatMesh.update(boat, simTime);
   if (!halted) {
@@ -445,4 +461,4 @@ diag.started();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { world, planar, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, bowWave, bowl, particles, assist, setAssistChannels, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
+window.__sim = { world, planar, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, bowWave, bowl, particles, assist, setAssistChannels, obstacles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };

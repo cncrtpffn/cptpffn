@@ -67,6 +67,20 @@ export function buildSettlements(hf, bio, map, plan, opts = {}) {
   const group = new THREE.Group();
   const material = propMaterial();
   const counts = {};
+  // причалы для столкновений (src/physics/obstacles.js): прямоугольники { kind, x, z, rot, len, w }, центр и поворот как у построек
+  const piers = [];
+  // габариты причалов как в src/scene/structures/harbor.js: начало на кромке, тело уходит в +Z объекта
+  function pierBoxes(id, x, z, rot, p) {
+    const ax = Math.sin(rot), az = Math.cos(rot);
+    const box = (z0, z1, w) => piers.push({ kind: id, x: x + ax * (z0 + z1) / 2, z: z + az * (z0 + z1) / 2, rot, len: z1 - z0, w });
+    if (id === 'jetty-small') box(-0.5, p.length, 1.6);
+    else if (id === 'pier-wood') {
+      const tee = p.tee > 0, zMain = tee ? p.length - 4 : p.length;
+      box(-0.5, zMain, p.width);
+      if (tee) box(zMain, p.length, Math.max(10, p.width * 2.5));
+    } else if (id === 'pier-stone') { box(-1, p.length, 6.2); box(p.length - 3.8, p.length + 3.8, 7.6); } // тело и круглая голова
+    // набережная стенка стоит на берегу (−Z), лодку к ней не пустит мель
+  }
   let tris = 0;
   // высота земли — по самому мешу рельефа (opts.ground), если он дан: ленты и постройки стоят на том, что видно
   const ground = opts.ground ?? null;
@@ -118,6 +132,7 @@ export function buildSettlements(hf, bio, map, plan, opts = {}) {
       extras.push(...addStructure(batch, id, mat(x, y, z, 1, 1, 1, 0, rot, 0), { style, variant: o.variant ?? Math.floor(rng() * (def.variants ?? 1)), ...o.params }, rng));
       occ.mark(fx, fz, w, d, rot, o.mark ?? 0.4, 2);
       counts[id] = (counts[id] ?? 0) + 1;
+      if (def.category === 'piers') pierBoxes(id, x, z, rot, { ...Object.fromEntries(Object.entries(def.params ?? {}).map(([k, v]) => [k, v.value])), ...o.params });
       return true;
     };
     const ribbon = (id, pts3, o = {}) => {
@@ -523,5 +538,5 @@ export function buildSettlements(hf, bio, map, plan, opts = {}) {
   }
 
   const buildings = Object.entries(counts).reduce((a, [id, n]) => a + (STRUCTURES[id].road ? 0 : n), 0);
-  return { group, occ, counts, sites: plan.sites, stats: { buildings, tris, roadKm, ms: performance.now() - t0 } };
+  return { group, occ, counts, piers, sites: plan.sites, stats: { buildings, tris, roadKm, ms: performance.now() - t0 } };
 }

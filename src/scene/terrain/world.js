@@ -67,5 +67,7 @@ function* worldSteps(map, { regions, tstep, density = 1 } = {}) {
   };
   // буи: ручные из описания карты и навигационные знаки плана
   const buoys = [...(map.buoys ?? []), ...plan.marks];
-  return { map, hf, bio, plan, buoys, terrain, settle, veg, group, shore, ms, summary, update: (cam, lod = true) => veg.update(cam, lod) };
+  // мостки и причалы для столкновений — только у планировщика v2
+  const piers = settle.piers ?? [];
+  return { map, hf, bio, plan, buoys, piers, terrain, settle, veg, group, shore, ms, summary, update: (cam, lod = true) => veg.update(cam, lod) };
 }

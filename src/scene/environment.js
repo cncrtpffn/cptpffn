@@ -137,10 +137,12 @@ export function createEnvironment(scene, cfg) {
     sun.shadow.normalBias = fitShadow(sun, sunDir, cx, cz, shadowRange);
     sky.update(boat.x, boat.z, waves.time);
     for (const { g, d } of buoys) {
-      const s = waves.sample(d.x, d.z);
-      g.position.y = s.h - 0.1;
-      g.rotation.z = -s.sx * 0.8;
-      g.rotation.x = s.sz * 0.8;
+      // d.obs — препятствие (src/physics/obstacles.js): знак, сдвинутый лодкой, и крен от его скорости
+      const o = d.obs, x = o ? o.x : d.x, z = o ? o.z : d.z;
+      const s = waves.sample(x, z);
+      g.position.set(x, s.h - 0.1, z);
+      g.rotation.z = -s.sx * 0.8 - (o ? o.vx * 0.25 : 0);
+      g.rotation.x = s.sz * 0.8 + (o ? o.vz * 0.25 : 0);
     }
     if (clouds.update(dt, wind, boat.x, boat.z)) applyLighting();
   }

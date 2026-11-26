@@ -46,6 +46,14 @@ export function crewMove(pos, action) {
   return CREW_POSITIONS[Math.max(0, Math.min(CREW_POSITIONS.length - 1, i))];
 }
 
+// расстояние от точки до края препятствия (src/physics/obstacles.js), м
+function obstacleGap(o, x, z) {
+  if (o.type === 'circle') return Math.hypot(x - o.x, z - o.z) - o.r;
+  const dx = x - o.x, dz = z - o.z;
+  const la = Math.abs(dx * o.ax + dz * o.az) - o.hl, lb = Math.abs(dx * o.az - dz * o.ax) - o.hw;
+  return Math.hypot(Math.max(0, la), Math.max(0, lb)) + Math.min(0, Math.max(la, lb));
+}
+
 export class Boat {
   constructor(cfg = BOAT) {
     this.cfg = cfg;
@@ -67,6 +75,7 @@ export class Boat {
     this.crewPos = 0; // 0 — выберется наветренная банка на первом шаге
     this.crewSeat = { side: 1, hike: false }; // для модели: борт и откренка
     this.maneuver = { count: 0, type: null }; this.awaSide = 0;
+    this.contact = { count: 0, id: null, kind: null, speed: 0 }; this._time = 0; // касания буёв и мостков: count растёт на каждом
     this.water = 0;
     this.capsized = false;
     this.aground = false;
@@ -86,10 +95,12 @@ export class Boat {
 
   // Снять с мели: перенести на ближайшую глубину рядом (кольца до 80 м), кормой к берегу, шкот потравлен.
   // Точка годится, если середина, нос и корма далеко от кромки и глубже опущенного шверта.
-  // Рифы, шверт, вода и экипаж остаются. false — подходящей точки нет
-  rescue(shore) {
+  // Рифы, шверт, вода и экипаж остаются. obstacles — буи и мостки: не ближе 3 м к ним. false — подходящей точки нет
+  rescue(shore, obstacles) {
     const c = this.cfg, half = c.length / 2 - 0.3;
     const ok = (s) => s.dist >= c.shoreClearance + 3 && s.depth >= c.boardDraft + 0.4;
+    const near = [];
+    const clear = (x, z) => !obstacles || obstacles.near(x, z, half + 8, near).every((o) => obstacleGap(o, x, z) > half + 3);
     for (let r = 4; r <= 80; r += 2) {
       for (let i = 0; i < 24; i++) {
         const a = (i / 24) * 2 * Math.PI;
@@ -99,7 +110,7 @@ export class Boat {
         // нос по нормали от берега; вдали от берега нормали нет — курс прежний
         const psi = s.nx || s.nz ? Math.atan2(s.nx, -s.nz) : this.psi;
         const fx = Math.sin(psi) * half, fz = -Math.cos(psi) * half;
-        if (!ok(shore.info(x + fx, z + fz)) || !ok(shore.info(x - fx, z - fz))) continue;
+        if (!ok(shore.info(x + fx, z + fz)) || !ok(shore.info(x - fx, z - fz)) || !clear(x, z)) continue;
         this.x = x; this.z = z; this.psi = psi;
         this.u = 0; this.v = 0; this.r = 0;
         this.phi = 0; this.phiDot = 0;
@@ -144,7 +155,8 @@ export class Boat {
   // controls: { rudder: -1..1, sheet: -1..1 (+1 выбрать), board: -1..1 (+1 опустить),
   //             crewPos: −2|−1|1|2 — необязательно, задать положение рулевого (иначе остаётся this.crewPos) }
   // shore — карта берега с info(x, z) → { dist, depth, nx, nz } (shore-map.js); null — без мели
-  step(dt, controls, wind, waves, shore) {
+  // obstacles — буи и мостки (src/physics/obstacles.js), необязательно
+  step(dt, controls, wind, waves, shore, obstacles) {
     const c = this.cfg;
     const cap = this.capsized;
 
@@ -347,6 +359,13 @@ export class Boat {
         // задевает только шверт — с поднятым прошли бы
         this.boardAground = !hullHit;
       }
+    }
+
+    // буи и мостки: импульс в точке контакта и выталкивание
+    this._time += dt;
+    if (obstacles) {
+      const e = obstacles.collide(this, dt, this._time);
+      if (e) { const k = this.contact; k.count++; k.id = e.id; k.kind = e.kind; k.speed = e.speed; }
     }
 
     this.forces = { sail: sf, bFx, bFy, hFy, rFy, rFx, R, surfFx, Fx, du, mSail, mRight, mCrew, mHydro };
