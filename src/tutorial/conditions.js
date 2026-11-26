@@ -42,13 +42,14 @@ export function gate(a, b) {
 // обогнуть знак: side 'port' — знак слева (обход против часовой стрелки на карте), 'starboard' — справа.
 // Пока лодка ближе r, копятся угол вокруг знака (нужно deg, по умолчанию 160°) и поворот лодки в ту же
 // сторону (нужно turn, 60°): прямой проход мимо знака заметает до ~170°, но курс не меняет
-export function round(id, side = 'port', { r = 40, deg = 160, turn = 60 } = {}) {
+// clear — с какого расстояния обходить (подсказка боту прогона, для острова больше знака)
+export function round(id, side = 'port', { r = 40, deg = 160, turn = 60, clear } = {}) {
   let prevA = null, prevPsi = 0, acc = 0, yaw = 0;
   const sgn = side === 'port' ? -1 : 1; // x — восток, z — юг: atan2(dz, dx) и курс растут по часовой на карте
   const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   const fn = (dt, ctx) => {
     const m = ctx.mark(id), b = ctx.boat;
-    const target = { marks: [id], x: m.x, z: m.z, round: side };
+    const target = { marks: [id], x: m.x, z: m.z, round: side, clear };
     const progress = () => Math.max(0, Math.min(1, Math.min(acc / (deg * DEG), yaw / (turn * DEG))));
     if (dist(b, m) > r) { prevA = null; acc = 0; yaw = 0; return res(false, 0, target); }
     const a = Math.atan2(b.z - m.z, b.x - m.x);
@@ -103,8 +104,8 @@ export const gybes = (n = 1) => maneuvers('gybe', n);
 
 // рифы взяты: цель и само положение паруса не меньше n
 export const reefed = (n = 1) => instant(({ boat }) => Math.min(2, boat.sail.reefTarget) >= n && boat.sail.reefLevel >= n - 0.01);
-// остановиться у знака: ближе r и медленнее v, м/с
-export function stopNear(id, r = 12, v = 0.3) {
+// остановиться у знака: ближе r и медленнее v, м/с (0.5 м/с ≈ 1 уз: носом к ветру лодка гасит ход ~30 с)
+export function stopNear(id, r = 25, v = 0.5) {
   return latch((dt, ctx) => {
     const m = ctx.mark(id), b = ctx.boat;
     return res(dist(b, m) < r && b.speed < v, 0, { marks: [id], x: m.x, z: m.z });

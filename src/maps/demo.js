@@ -118,9 +118,13 @@ export const DEMO = {
     { id: 'ms-sir-zone', kind: 'start', x: -60, z: -255 },   // «Фарватер Порто-Сирены»
     { id: 'ms-sir-berth', kind: 'point', x: -274, z: -362 }, // у деревянного пирса порта
     { id: 'ms-isl-zone', kind: 'start', x: 255, z: -35 },    // «Вокруг Маячного»: южнее острова
-    { id: 'ms-isl-e', kind: 'point', x: 380, z: -150 },
+    { id: 'ms-isl-se', kind: 'point', x: 375, z: -45 },   // обход юго-восточного мыса
+    { id: 'ms-isl-e', kind: 'point', x: 420, z: -150 },
+    { id: 'ms-isl-ne', kind: 'point', x: 430, z: -270 },  // мористее мыса с маяком
     { id: 'ms-isl-n', kind: 'point', x: 250, z: -280 },
+    { id: 'ms-isl-nw', kind: 'point', x: 125, z: -262 },  // мористее северо-западного мыса
     { id: 'ms-isl-w', kind: 'point', x: 100, z: -185 },
+    { id: 'ms-isl-sw', kind: 'point', x: 150, z: -60 },   // обратно мимо входа в бухточку
     { id: 'ms-tear-zone', kind: 'start', x: 420, z: -300 },  // «Слеза»: гонка вокруг маяка
     { id: 'ms-tear', kind: 'point', x: 660, z: -660 },
   ],
