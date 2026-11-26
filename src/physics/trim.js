@@ -19,6 +19,20 @@ const WIND_TAU = 8;          // с, сглаживание ветра для р�
 const REEF_HYST = 1;         // м/с: риф отдавать, когда ветер ниже порога на столько
 const HOLD = 2;              // с: подсказка держится после того, как условие ушло (не мигать на волне)
 
+// курс к истинному ветру: верхняя граница |twa|, ° и название, как на розе курсов в manual.html.
+// Индексы: 0 мёртвый угол, 1 бейдевинд, 2 галфвинд, 3 бакштаг, 4 фордевинд (HUD и условия уроков)
+export const POINTS = [[22, 'Мёртвый угол'], [75, 'Бейдевинд'], [100, 'Галфвинд'], [165, 'Бакштаг'], [181, 'Фордевинд']];
+const POINT_HYST = 3; // °: соседний курс принимается, только когда угол ушёл за границу дальше этого
+// a — |twa|, °; prev — прошлый индекс (−1 — нет)
+export function pointOfSail(a, prev) {
+  let i = POINTS.findIndex(([max]) => a < max);
+  if (i < 0) i = POINTS.length - 1;
+  if (prev < 0) return i;
+  if (i === prev + 1 && a < POINTS[prev][0] + POINT_HYST) return prev;
+  if (i === prev - 1 && a > POINTS[i][0] - POINT_HYST) return prev;
+  return i;
+}
+
 // крен с упреждением: в порыв реагируем раньше, чем лодка ляжет
 export const heelLead = (boat) => Math.abs(boat.phi + HEEL_LEAD * boat.phiDot);
 

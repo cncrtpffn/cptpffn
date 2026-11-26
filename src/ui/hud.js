@@ -1,4 +1,5 @@
 import { DEG, beaufort, BEAUFORT_NAMES } from '../config.js';
+import { POINTS, pointOfSail } from '../physics/trim.js';
 
 const $ = (id) => document.getElementById(id);
 const STATUS = {
@@ -44,17 +45,6 @@ const deg = (rad) => (Math.round(rad / DEG * 2) / 2).toFixed(1); // до 0.5°, 
 
 // статус паруса при ассистенте: полощет он нарочно — так сброшен ход
 const ASSIST_STATUS = [['Стоп: шкот потравлен', 'down'], ['Средний ход', 'ok']];
-// курс к истинному ветру: верхняя граница |twa|, ° и название, как на розе курсов в manual.html
-const POINTS = [[22, 'Мёртвый угол'], [75, 'Бейдевинд'], [100, 'Галфвинд'], [165, 'Бакштаг'], [181, 'Фордевинд']];
-const POINT_HYST = 3; // °: соседний курс принимается, только когда угол ушёл за границу дальше этого
-function pointOfSail(a, prev) {
-  let i = POINTS.findIndex(([max]) => a < max);
-  if (i < 0) i = POINTS.length - 1;
-  if (prev < 0) return i;
-  if (i === prev + 1 && a < POINTS[prev][0] + POINT_HYST) return prev;
-  if (i === prev - 1 && a > POINTS[i][0] - POINT_HYST) return prev;
-  return i;
-}
 const CAMERA_NAMES = { orbit: 'орбита', chase: 'за кормой', top: 'сверху', deck: 'с палубы' };
 
 export class Hud {
