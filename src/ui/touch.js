@@ -21,6 +21,7 @@ const shape = (v) => {
   return Math.sign(v) * Math.pow((Math.min(a, 1) - DEADZONE) / (1 - DEADZONE), 1.5);
 };
 
+// слайдер с классом locked не реагирует на касания; lock() отпускает ручку, если её держат
 function slider(root, vertical, onAxis) {
   const track = root.querySelector('.t-track');
   const knob = root.querySelector('.t-knob');
@@ -33,7 +34,7 @@ function slider(root, vertical, onAxis) {
     onAxis(0);
   };
   track.addEventListener('pointerdown', (e) => {
-    if (id !== null) return;
+    if (id !== null || root.classList.contains('locked')) return;
     id = e.pointerId; x0 = e.clientX; y0 = e.clientY;
     capture(track, id);
     root.classList.add('active');
@@ -49,6 +50,13 @@ function slider(root, vertical, onAxis) {
   });
   track.addEventListener('pointerup', (e) => { if (e.pointerId === id) release(); });
   track.addEventListener('pointercancel', (e) => { if (e.pointerId === id) release(); });
+  return {
+    lock(v) {
+      if (root.classList.contains('locked') === v) return;
+      root.classList.toggle('locked', v);
+      if (v && id !== null) release();
+    },
+  };
 }
 
 // кнопка, действующая пока её держат
@@ -81,7 +89,7 @@ export function createTouchControls(input) {
   ui.querySelectorAll('.t-btns button').forEach((b) => b.classList.add('ui-btn'));
 
   slider(ui.querySelector('#t-rudder'), false, (v) => { input.touch.rudder = v; });
-  slider(ui.querySelector('#t-sheet'), true, (v) => { input.touch.sheet = v; });
+  const sheetSlider = slider(ui.querySelector('#t-sheet'), true, (v) => { input.touch.sheet = v; });
 
   ui.querySelectorAll('[data-board]').forEach((b) => hold(b, () => { input.touch.board = +b.dataset.board; }, () => { input.touch.board = 0; }));
   ui.querySelectorAll('[data-reef]').forEach((b) => b.addEventListener('click', () => input.trigger('reef', +b.dataset.reef)));
@@ -91,9 +99,11 @@ export function createTouchControls(input) {
   const rudFill = ui.querySelector('#t-rudder .t-fill').style, sheetFill = ui.querySelector('#t-sheet .t-fill').style;
   const sheetLabel = ui.querySelector('#t-sheet .t-label');
   let lastRud = NaN, lastSheet = NaN, lastAssist = false;
-  // assist — ассистент, когда включён: слайдер шкота задаёт ход (телеграф), индикатор — его ступень
+  // assist — ассистент, когда включён: слайдер шкота задаёт ход (телеграф), индикатор — его ступень.
+  // На полном курсе ход не сбавить — слайдер заблокирован, индикатор красный
   const update = (boat, assist) => {
     if (!!assist !== lastAssist) { lastAssist = !!assist; sheetLabel.textContent = assist ? 'ход' : 'шкот'; }
+    sheetSlider.lock(!!assist && assist.locked);
     const rud = Math.round(boat.rudder / boat.cfg.rudderMax * 200) / 2;
     if (rud !== lastRud) {
       lastRud = rud;

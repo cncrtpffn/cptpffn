@@ -257,8 +257,12 @@ body.touch #warnings, body.touch #paused-chip { top: calc(max(8px, env(safe-area
 .ui-btn.soft { background: var(--card); backdrop-filter: blur(6px); }
 /* авто-матрос: включённый переключатель; при нём ручные шкот, шверт, экипаж и рифы скрыты, шкот заменяет телеграф */
 #btn-assist { display: flex; align-items: center; justify-content: center; }
-#btn-assist.on { background: var(--ink); color: #fff; }
-body:not(.assist) .ctl.telegraph, body.assist #hud-controls .ctl.manual, body.assist #touch-ui .t-btns { display: none; }
+#btn-assist.on { animation: assist-pulse 2.4s ease-in-out infinite; }
+@keyframes assist-pulse { 0%, 100% { background: #fffaf0; color: var(--ink); } 50% { background: var(--true); color: #fff; } }
+@media (prefers-reduced-motion: reduce) { #btn-assist.on { animation: none; background: var(--true); color: #fff; } }
+/* при авто-матросе ряды шкота, шверта, экипажа и рифов только показывают состояние: без клавиш и кликов */
+body:not(.assist) .ctl.telegraph, body.assist #touch-ui .t-btns, body.assist .ctl.manual kbd { display: none; }
+body.assist #hud-controls.collapsed .ctl.manual { display: none; }
 #touch-ui .ui-btn.down, .ui-btn:active { background: var(--bar-fill); color: #fff; }
 #touch-ui .ui-btn.on { background: var(--ink); color: #fff; }
 .t-slider { position: relative; }
@@ -280,6 +284,8 @@ body:not(.assist) .ctl.telegraph, body.assist #hud-controls .ctl.manual, body.as
 .t-fill { position: absolute; background: var(--bar-fill); border-radius: 5px; }
 .t-slider.h .t-fill { top: 0; bottom: 0; left: 50%; width: 0; }
 .t-slider.v .t-fill { left: 0; right: 0; bottom: 0; height: 0; }
+.t-slider.locked .t-fill { background: var(--warn); }
+.t-slider.locked .t-knob { opacity: 0.5; }
 .t-mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink-soft); opacity: 0.5; }
 .t-knob { position: relative; width: 46px; height: 46px; border-radius: 50%; background: #fff; border: 2px solid var(--bar-fill); box-shadow: 0 3px 10px rgba(40, 30, 10, 0.18); }
 .t-slider.active .t-knob { background: var(--bar-fill); }

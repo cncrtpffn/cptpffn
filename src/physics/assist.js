@@ -26,7 +26,8 @@ export function createAssist(cfg = BOAT) {
     telegraph: 2,
     hint: '',      // подсказка вместо статуса паруса; '' — нет
     limited: false, // ход не сбросить: курс слишком полный для выбранного телеграфа
-    reset() { tws = -1; reefTimer = 0; groundTimer = 0; hintTimer = 0; a.hint = ''; a.limited = false; },
+    locked: false,  // полный курс: выбранный ход не держится или ниже не сбавить — телеграф не действует
+    reset() { tws = -1; reefTimer = 0; groundTimer = 0; hintTimer = 0; a.hint = ''; a.limited = false; a.locked = false; },
 
     // ±1 — ход больше / меньше. Сбавить на полном курсе нельзя — подсказка
     request(d, boat) {
@@ -53,6 +54,7 @@ export function createAssist(cfg = BOAT) {
       target = Math.max(cfg.sheetMin, Math.min(cfg.sheetMax, target));
       out.sheet = Math.max(-1, Math.min(1, (sail.sheet - target) / (2 * DEG)));
       a.limited = a.telegraph < 2 && !reachable(a.telegraph, absAwa);
+      a.locked = a.limited || (a.telegraph > 0 && !reachable(a.telegraph - 1, absAwa));
 
       // рулевой: наветренная банка; у фордевинда — против гика
       const side = absTwa < CREW_BOOM_TWA || !sail.boom ? Math.sign(aw.twa || 1) : -Math.sign(sail.boom);
@@ -74,7 +76,8 @@ export function createAssist(cfg = BOAT) {
       if (reefTimer > (sail.reefTarget > 2 ? 0 : REEF_DELAY)) { sail.reef(want - sail.reefTarget); reefTimer = 0; }
 
       hintTimer = Math.max(0, hintTimer - dt);
-      a.hint = hintTimer > 0 || a.limited ? HINT_TURN : '';
+      // на полном курсе подсказка висит всё время, пока ход не сбавить
+      a.hint = hintTimer > 0 || a.locked ? HINT_TURN : '';
       return out;
     },
   };
