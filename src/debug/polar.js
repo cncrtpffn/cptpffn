@@ -12,11 +12,11 @@ import { wrapPi } from '../physics/wind.js';
 export function runCase(opts) {
   const {
     tws = 7, twa = 45, duration = 90, dt = 1 / 120, reefs = 0, board = 1,
-    hike = true, alpha = 24, sea = 0, gusts = false, sheet, assist = false, telegraph = 2, gustStrength = 0.3, ease = false,
+    hike = true, alpha = 24, sea = 0, gusts = false, sheet, assist = false, telegraph = 2, gustStrength = 0.3, ease = false, channels,
   } = opts;
   const wind = new Wind({ speed: tws, dirDeg: 0, gusts, gustStrength, shiftDeg: 12 });
   const ast = assist ? createAssist() : null;
-  if (ast) ast.telegraph = telegraph;
+  if (ast) { ast.telegraph = telegraph; if (channels) ast.setChannels(channels); }
   const waves = new Waves();
   waves.configure(sea, 0, tws);
   const boat = new Boat();
@@ -33,7 +33,11 @@ export function runCase(opts) {
     const err = wrapPi(psi0 - boat.psi);
     const rudderAngle = Math.max(-35 * DEG, Math.min(35 * DEG, 1.2 * err - 1.6 * boat.r));
     if (ast) {
-      boat.step(dt, ast.controls(dt, boat, wind, { rudderAngle }), wind, waves, null);
+      // каналы, отданные «игроку»: шкот по формуле trim.js, рулевой на наветренной банке, шверт опущен
+      const base = { rudderAngle };
+      if (channels?.sheet === false) base.sheetAngle = sheetTarget(Math.abs(boat.aw.awa), heelLead(boat), alpha * DEG);
+      if (channels?.crew === false) base.crewPos = Math.sign(boat.aw.twa || 1);
+      boat.step(dt, ast.controls(dt, boat, wind, base), wind, waves, null);
     } else {
       const absAwa = Math.abs(boat.aw.awa);
       // ease — травить шкот при крене, как ассистент (src/physics/trim.js)

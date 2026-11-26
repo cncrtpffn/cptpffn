@@ -241,10 +241,18 @@ let assistOn = false;
 try { assistOn = localStorage.getItem(ASSIST_KEY) === '1'; } catch { /* хранилище недоступно */ }
 if ('assist' in P) assistOn = !!P.assist;
 const btnAssist = document.getElementById('btn-assist');
+// канал ведёт ассистент: включён и канал не отдан игроку (маска assist.channels — уроки обучения)
+const auto = (ch) => assistOn && assist.channels[ch];
+// body.assist — ассистент включён; body.auto-<канал> — канал на ассистенте (CSS прячет клавиши и тач-кнопки)
+const syncAssistUi = () => {
+  document.body.classList.toggle('assist', assistOn);
+  for (const ch of Object.keys(assist.channels)) document.body.classList.toggle(`auto-${ch}`, auto(ch));
+};
+const setAssistChannels = (mask) => { assist.setChannels(mask); syncAssistUi(); };
 const setAssist = (v, save = true) => {
   assistOn = v;
   if (v) assist.reset();
-  document.body.classList.toggle('assist', v);
+  syncAssistUi();
   btnAssist.classList.toggle('on', v);
   btnAssist.setAttribute('aria-pressed', String(v));
   if (!save) return; // начальное состояние — без тоста
@@ -254,9 +262,9 @@ const setAssist = (v, save = true) => {
 setAssist(assistOn, false);
 input.on('assist', () => setAssist(!assistOn));
 btnAssist.addEventListener('click', () => input.trigger('assist'));
-// при ассистенте рифы и рулевой — его, ручные команды не действуют
-input.on('reef', (d) => { if (!assistOn) boat.sail.reef(d); });
-input.on('crew', (a) => { if (!assistOn && boat.crewPos) boat.crewPos = crewMove(boat.crewPos, a); });
+// каналы на ассистенте — его, ручные команды не действуют
+input.on('reef', (d) => { if (!auto('reef')) boat.sail.reef(d); });
+input.on('crew', (a) => { if (!auto('crew') && boat.crewPos) boat.crewPos = crewMove(boat.crewPos, a); });
 input.on('camera', () => followCam.nextMode());
 // пауза показывает справку; закрыть справку — продолжить, свернуть — остаться на паузе
 let helpMin = false;
@@ -374,7 +382,7 @@ function step(now) {
     waves.configure(seaState * SEA.maxHeight, wind.baseDirDeg * DEG, wind.baseSpeed);
     const controls = debugAuto ? autopilotControls() : input.controls;
     const assisted = assistOn || debugAuto;
-    if (assistOn) {
+    if (auto('sheet')) {
       const t = Math.abs(controls.sheet) > 0.3 ? Math.sign(controls.sheet) : 0;
       if (t && t !== telegraphAxis) assist.request(t, boat);
       telegraphAxis = t;
@@ -437,4 +445,4 @@ diag.started();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { world, planar, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, bowWave, bowl, particles, assist, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
+window.__sim = { world, planar, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, bowWave, bowl, particles, assist, setAssistChannels, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };

@@ -76,7 +76,7 @@ export function createTouchControls(input) {
   ui.innerHTML = `
     <div class="t-left">
       <div class="t-panel t-btns">
-        <div class="t-sec" style="--n:2"><span class="t-ico" role="img" aria-label="Шверт" title="Шверт">${ICONS.board}</span><div class="t-row"><button data-board="-1">▲</button><button data-board="1">▼</button></div></div>
+        <div class="t-sec" id="t-sec-board" style="--n:2"><span class="t-ico" role="img" aria-label="Шверт" title="Шверт">${ICONS.board}</span><div class="t-row"><button data-board="-1">▲</button><button data-board="1">▼</button></div></div>
         <div class="t-sec" id="t-sec-reef" style="--n:2"><span class="t-ico" role="img" aria-label="Рифы" title="Рифы">${ICONS.reef}</span><div class="t-row"><button data-reef="1">+</button><button data-reef="-1">−</button></div></div>
         <div class="t-sec" id="t-sec-crew" style="--n:3"><span class="t-ico" role="img" aria-label="Экипаж" title="Экипаж">${ICONS.crew}</span><div class="t-row"><button data-crew="left" aria-label="на шаг к левому борту">◀</button><button data-crew="swap" aria-label="на другой борт">⇄</button><button data-crew="right" aria-label="на шаг к правому борту">▶</button></div></div>
       </div>
@@ -102,34 +102,35 @@ export function createTouchControls(input) {
   const sheetEl = ui.querySelector('#t-sheet'), reefSec = ui.querySelector('#t-sec-reef'), crewSec = ui.querySelector('#t-sec-crew');
   const optStyle = ui.querySelector('#t-sheet .t-opt').style;
   let lastRud = NaN, lastSheet = NaN, lastAssist = false, lastOpt = NaN;
-  // assist — ассистент, когда включён: слайдер шкота задаёт ход (телеграф), индикатор — его ступень.
+  // assist — ассистент, когда включён: если шкот на нём, слайдер шкота задаёт ход (телеграф), индикатор — его ступень.
   // На полном курсе ход не сбавить — слайдер заблокирован, индикатор красный
-  // advice — советчик src/physics/trim.js: риска оптимума шкота и мигание того, что пора тронуть (без ассистента)
+  // advice — советчик src/physics/trim.js: риска оптимума шкота и мигание того, что пора тронуть (каналы игрока)
   const update = (boat, assist, advice) => {
-    if (!!assist !== lastAssist) {
-      lastAssist = !!assist;
-      sheetLabel.textContent = assist ? 'ход' : 'шкот';
-      sheetUp.textContent = assist ? 'быстрее' : 'выбрать';
-      sheetDown.textContent = assist ? 'тише' : 'травить';
+    const tg = !!assist?.channels.sheet;
+    if (tg !== lastAssist) {
+      lastAssist = tg;
+      sheetLabel.textContent = tg ? 'ход' : 'шкот';
+      sheetUp.textContent = tg ? 'быстрее' : 'выбрать';
+      sheetDown.textContent = tg ? 'тише' : 'травить';
     }
-    sheetSlider.lock(!!assist && assist.locked);
+    sheetSlider.lock(tg && assist.locked);
     const rud = Math.round(boat.rudder / boat.cfg.rudderMax * 200) / 2;
     if (rud !== lastRud) {
       lastRud = rud;
       rudFill.left = `${50 + Math.min(rud, 0)}%`;
       rudFill.width = `${Math.abs(rud)}%`;
     }
-    const sheet = assist ? assist.telegraph * 50
+    const sheet = tg ? assist.telegraph * 50
       : Math.round((boat.cfg.sheetMax - boat.sail.sheet) / (boat.cfg.sheetMax - boat.cfg.sheetMin) * 200) / 2;
     if (sheet !== lastSheet) { lastSheet = sheet; sheetFill.height = `${sheet}%`; }
     if (advice) {
       const c = boat.cfg;
       const opt = Math.round((c.sheetMax - advice.sheet) / (c.sheetMax - c.sheetMin) * 200) / 2;
       if (opt !== lastOpt) { lastOpt = opt; optStyle.bottom = `${opt}%`; }
-      const n = advice.need, hints = !assist;
-      sheetEl.classList.toggle('hint', hints && n.sheet);
-      crewSec.classList.toggle('hint', hints && n.crew);
-      reefSec.classList.toggle('hint', hints && n.reef);
+      const n = advice.need, mine = (ch) => !assist?.channels[ch];
+      sheetEl.classList.toggle('hint', mine('sheet') && n.sheet);
+      crewSec.classList.toggle('hint', mine('crew') && n.crew);
+      reefSec.classList.toggle('hint', mine('reef') && n.reef);
     }
   };
   return { el: ui, update };

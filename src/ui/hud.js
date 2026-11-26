@@ -129,8 +129,9 @@ export class Hud {
     }
   }
 
-  // отметки оптимума (зелёные риски) и подсказки «пора тронуть» (мигание ряда); hints — только без ассистента
-  _updateAdvice(boat, advice, hints) {
+  // отметки оптимума (зелёные риски) и подсказки «пора тронуть» (мигание ряда); подсказки — только для каналов
+  // в руках игрока (assist — ассистент или null, его channels — что он ведёт)
+  _updateAdvice(boat, advice, assist) {
     const e = this.el, c = boat.cfg;
     // проценты до 0.5 и с отступом от краёв, чтобы риска не пряталась за скруглением полосы
     const pct = (f) => `${(Math.round(Math.max(0.02, Math.min(0.98, f)) * 200) / 2)}%`;
@@ -139,10 +140,10 @@ export class Hud {
     const y = Math.sign(advice.crewPos) * (Math.abs(advice.crewPos) === 2 ? c.crewMaxY : c.crewBenchY);
     css(e.optCrew, 'left', pct(0.5 + (y / c.crewMaxY) * 0.45));
     e.reefs.forEach((chip, i) => chip.classList.toggle('opt', i === advice.reef));
-    const n = advice.need;
-    e.ctlSheet.classList.toggle('hint', hints && n.sheet);
-    e.ctlCrew.classList.toggle('hint', hints && n.crew);
-    e.ctlReef.classList.toggle('hint', hints && n.reef);
+    const n = advice.need, mine = (ch) => !assist?.channels[ch];
+    e.ctlSheet.classList.toggle('hint', mine('sheet') && n.sheet);
+    e.ctlCrew.classList.toggle('hint', mine('crew') && n.crew);
+    e.ctlReef.classList.toggle('hint', mine('reef') && n.reef);
   }
 
   // min — справка свёрнута в плашку, пауза остаётся
@@ -184,7 +185,7 @@ export class Hud {
     css(e.crew, 'left', `${50 + (boat.crewY / boat.cfg.crewMaxY) * 45}%`);
     const rl = sail.reefTarget;
     e.reefs.forEach((c, i) => c.classList.toggle('on', i === rl));
-    if (advice) this._updateAdvice(boat, advice, !assist);
+    if (advice) this._updateAdvice(boat, advice, assist);
     // курс к ветру: название, галс (кроме мёртвого угла) и угол
     const twaDeg = Math.abs(aw.twa) / DEG;
     this._pos = pointOfSail(twaDeg, this._pos ?? -1);
@@ -192,7 +193,7 @@ export class Hud {
     set(e.posTack, 'textContent', this._pos ? (aw.twa > 0 ? ' · правый галс' : ' · левый галс') : '');
     set(e.posDeg, 'textContent', Math.round(twaDeg) + '°');
     let st = STATUS[sail.status] || STATUS.ok;
-    if (assist) {
+    if (assist?.channels.sheet) {
       const tg = assist.telegraph;
       e.telegraph.forEach((c, i) => c.classList.toggle('on', i === tg));
       if (assist.hint) st = [assist.hint, 'luff'];

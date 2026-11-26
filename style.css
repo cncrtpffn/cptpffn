@@ -293,9 +293,15 @@ body.touch #warnings, body.touch #paused-chip { top: calc(max(8px, env(safe-area
   .ctl.hint, .t-slider.hint .t-track { animation: none; box-shadow: 0 0 0 3px rgba(47, 127, 209, 0.7); }
   .t-sec.hint .ui-btn { animation: none; background: var(--true); color: #fff; }
 }
-/* при авто-матросе ряды шкота, шверта, экипажа и рифов только показывают состояние: без клавиш и кликов */
-body:not(.assist) .ctl.telegraph, body.assist #touch-ui .t-btns, body.assist .ctl.manual kbd { display: none; }
-body.assist #hud-controls.collapsed .ctl.manual { display: none; }
+/* каналы на авто-матросе (body.auto-<канал>): ряды только показывают состояние — без клавиш и тач-кнопок.
+   Шкот на авто-матросе — вместо него телеграф */
+body:not(.auto-sheet) .ctl.telegraph { display: none; }
+body.auto-sheet #ctl-sheet kbd, body.auto-board #ctl-board kbd, body.auto-crew #ctl-crew kbd, body.auto-reef #ctl-reef kbd { display: none; }
+body.auto-board #t-sec-board, body.auto-crew #t-sec-crew, body.auto-reef #t-sec-reef { display: none; }
+body.auto-board.auto-crew.auto-reef #touch-ui .t-btns { display: none; }
+/* первая видимая секция — без разделителя слева */
+body.auto-board #t-sec-reef, body.auto-board.auto-reef #t-sec-crew { border-left: 0; padding-left: 0; }
+body.auto-sheet #hud-controls.collapsed #ctl-sheet { display: none; }
 #touch-ui .ui-btn.down, .ui-btn:active { background: var(--bar-fill); color: #fff; }
 #touch-ui .ui-btn.on { background: var(--ink); color: #fff; }
 .t-slider { position: relative; }
@@ -322,7 +328,7 @@ body.assist #hud-controls.collapsed .ctl.manual { display: none; }
 /* отметка оптимума шкота на тач-слайдере: рейка с теми же отступами, что индикатор, риска шире его */
 .t-optrail { position: absolute; top: 22px; bottom: 22px; left: 50%; width: 0; pointer-events: none; }
 .t-opt { position: absolute; left: -11px; width: 22px; height: 3px; margin-bottom: -1.5px; border-radius: 2px; background: var(--opt); bottom: -10px; transition: bottom 0.15s linear; }
-body.assist .t-optrail { display: none; }
+body.auto-sheet .t-optrail { display: none; }
 .t-mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink-soft); opacity: 0.5; }
 /* ручка 35 px (было 46): касания ловит весь трек, поэтому область нажатия прежняя */
 .t-knob { position: relative; width: 35px; height: 35px; border-radius: 50%; background: #fff; border: 2px solid var(--bar-fill); box-shadow: 0 3px 10px rgba(40, 30, 10, 0.18); }

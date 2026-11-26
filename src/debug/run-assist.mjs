@@ -25,3 +25,10 @@ for (const twa of [35, 50, 75, 90, 120, 160]) {
   const r = runCase({ tws: 9, twa, assist: true, gusts: true, gustStrength: 0.6, duration: 180 });
   out(`${f(twa, 0)}${f(r.speedKn)}${f(r.maxHeelDeg)}${r.capsizedAt >= 0 ? f(r.capsizedAt) : '     -'}${f(r.reefs, 0)}`);
 }
+out('\n=== Каналы: шкот у игрока (|awa|−24° с травлением), остальное — ассистент, TWS 7 / 11 ===');
+out('   twa  полн.асс  шкот-игр  разн%');
+for (const tws of [7, 11]) for (const twa of [45, 90, 135]) {
+  const a = runCase({ tws, twa, assist: true }).speedKn;
+  const m = runCase({ tws, twa, assist: true, channels: { sheet: false } }).speedKn;
+  out(`${f(twa, 0)}${f(a)}${f(m)}${f((m / a - 1) * 100)}   (${tws} м/с)`);
+}
