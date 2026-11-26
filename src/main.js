@@ -3,6 +3,7 @@ import { BOAT, SEA, SCENE, DEG } from './config.js';
 import { Wind } from './physics/wind.js';
 import { Waves } from './physics/waves.js';
 import { Boat, crewMove } from './physics/boat.js';
+import { createAssist } from './physics/assist.js';
 import { createWater } from './scene/water.js';
 import { createPlanarReflection, markReflected } from './scene/planar-reflection.js';
 import { createWake } from './scene/wake.js';
@@ -217,8 +218,28 @@ const actions = {
 };
 optional('panel', 'панель настроек', () => createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave, particles, actions, start: START, resolution, perfOverlay }));
 input.bindKeyHints(document.getElementById('hud'));
-input.on('reef', (d) => boat.sail.reef(d));
-input.on('crew', (a) => { if (boat.crewPos) boat.crewPos = crewMove(boat.crewPos, a); });
+// ассистент («авто-матрос», src/physics/assist.js): ведёт всё, кроме руля; шкот заменяет телеграф.
+// По умолчанию выключен, выбор помнится; ?assist=0|1 — задать на этот запуск
+const assist = createAssist();
+const ASSIST_KEY = 'catboat.assist';
+let assistOn = false;
+try { assistOn = localStorage.getItem(ASSIST_KEY) === '1'; } catch { /* хранилище недоступно */ }
+if ('assist' in P) assistOn = !!P.assist;
+const btnAssist = document.getElementById('btn-assist');
+const setAssist = (v, save = true) => {
+  assistOn = v;
+  if (v) assist.reset();
+  document.body.classList.toggle('assist', v);
+  btnAssist.classList.toggle('on', v);
+  btnAssist.setAttribute('aria-pressed', String(v));
+  if (save) try { localStorage.setItem(ASSIST_KEY, v ? '1' : '0'); } catch { /* хранилище недоступно */ }
+};
+setAssist(assistOn, false);
+input.on('assist', () => setAssist(!assistOn));
+btnAssist.addEventListener('click', () => input.trigger('assist'));
+// при ассистенте рифы и рулевой — его, ручные команды не действуют
+input.on('reef', (d) => { if (!assistOn) boat.sail.reef(d); });
+input.on('crew', (a) => { if (!assistOn && boat.crewPos) boat.crewPos = crewMove(boat.crewPos, a); });
 input.on('camera', () => followCam.nextMode());
 // пауза показывает справку; закрыть справку — продолжить, свернуть — остаться на паузе
 let helpMin = false;
@@ -284,14 +305,15 @@ if ('reefs' in P) boat.sail.setReef(Math.trunc(P.reefs));
 if ('board' in P) boat.board = P.board;
 if ('tod' in P) env.setTimeOfDay(P.tod);
 if ('clouds' in P) env.setCloudType(P.clouds, true);
+// автопилот отладки: руль держит угол к ветру, остальное — ассистент
 const autoTwa = (P.twa || 60) * DEG;
+const autoRudder = { rudder: 0, rudderAngle: 0 };
 function autopilotControls() {
   const targetPsi = wind.dir - autoTwa;
   let err = targetPsi - boat.psi;
   err = Math.atan2(Math.sin(err), Math.cos(err));
-  const rudderAngle = Math.max(-35 * DEG, Math.min(35 * DEG, 1.2 * err - 1.6 * boat.r));
-  const sheetAngle = Math.abs(boat.aw.awa) - 24 * DEG;
-  return { rudderAngle, sheetAngle, crewPos: 2 * Math.sign(boat.aw.twa || 1), board: 0, rudder: 0, sheet: 0 };
+  autoRudder.rudderAngle = Math.max(-35 * DEG, Math.min(35 * DEG, 1.2 * err - 1.6 * boat.r));
+  return autoRudder;
 }
 if ('t' in P) {
   loading.step('Промотка');
@@ -301,7 +323,7 @@ if ('t' in P) {
     wind.update(STEP);
     waves.configure(Math.min(1, 0.006 * wind.baseSpeed * wind.baseSpeed) * SEA.maxHeight, wind.baseDirDeg * DEG, wind.baseSpeed);
     waves.update(STEP);
-    boat.step(STEP, autopilotControls(), wind, waves, shoreMap);
+    boat.step(STEP, assist.controls(STEP, boat, wind, autopilotControls()), wind, waves, shoreMap);
     simTime += STEP;
   }
   waves.settle();
@@ -314,6 +336,7 @@ if (debugLog) console.log(`[shore] ${shoreMap.width}×${shoreMap.height}, точ
 // --- цикл ---
 let last = performance.now();
 let acc = 0;
+let telegraphAxis = 0; // телеграф переключается по фронту: удержание ↑ — один шаг
 function frame(now) {
   requestAnimationFrame(frame);
   // ошибка в кадре не останавливает цикл: необязательные фичи выключаются в tick, остальное — в лог (guardFrame)
@@ -332,11 +355,17 @@ function step(now) {
     if (sea.auto) sea.state = seaState;
     waves.configure(seaState * SEA.maxHeight, wind.baseDirDeg * DEG, wind.baseSpeed);
     const controls = debugAuto ? autopilotControls() : input.controls;
+    const assisted = assistOn || debugAuto;
+    if (assistOn) {
+      const t = Math.abs(controls.sheet) > 0.3 ? Math.sign(controls.sheet) : 0;
+      if (t && t !== telegraphAxis) assist.request(t, boat);
+      telegraphAxis = t;
+    }
     let n = 0;
     while (acc >= STEP && n < 12) {
       wind.update(STEP);
       waves.update(STEP);
-      boat.step(STEP, controls, wind, waves, shoreMap);
+      boat.step(STEP, assisted ? assist.controls(STEP, boat, wind, controls) : controls, wind, waves, shoreMap);
       acc -= STEP; n++;
       simTime += STEP;
     }
@@ -358,8 +387,8 @@ function step(now) {
   followCam.update(dt || 0.016, boat, boatMesh);
   world.update(camera.position);
   if (camPitch) camera.rotateX(camPitch);
-  tick('hud', () => hud.update({ boat, wind, cameraMode: followCam.mode }));
-  if (touchUi) tick('touchind', () => touchUi.update(boat));
+  tick('hud', () => hud.update({ boat, wind, cameraMode: followCam.mode, assist: assistOn ? assist : null }));
+  if (touchUi) tick('touchind', () => touchUi.update(boat, assistOn ? assist : null));
   const R = water.reflection;
   if (R.objects) tick('planar', () => {
     planar.state.scale = R.resolution;
@@ -389,4 +418,4 @@ diag.started();
 requestAnimationFrame(frame);
 
 // отладка из консоли
-window.__sim = { world, planar, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, bowWave, bowl, particles, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };
+window.__sim = { world, planar, perf, resolution, renderer, boatMesh, boat, wind, waves, sea, env, followCam, scene, wake, bowWave, bowl, particles, assist, bowSpray, shoreSpray, crestSpray, input, water, shoreMap };

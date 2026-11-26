@@ -16,6 +16,8 @@ export const GAME_PARAMS = [
   { name: 'wind', kind: 'num', group: 'Ветер и лодка', values: 'м/с', example: '9', desc: 'сила ветра' },
   { name: 'winddir', kind: 'num', group: 'Ветер и лодка', values: '°', example: '90', desc: 'откуда дует ветер' },
   { name: 'reefs', kind: 'num', group: 'Ветер и лодка', values: '0..2', example: '1', desc: 'взять рифы' },
+  { name: 'assist', kind: 'num', group: 'Ветер и лодка', values: '0 | 1', example: '1',
+    desc: 'ассистент («авто-матрос»): ведёт всё, кроме руля; без параметра — как выбрал игрок (по умолчанию выкл.)' },
   { name: 'board', kind: 'num', group: 'Ветер и лодка', values: '0..1', example: '0', desc: 'шверт: 0 — поднят, 1 — опущен' },
 
   { name: 'cam', kind: 'str', group: 'Камера', values: 'orbit | chase | top | deck', example: 'chase', desc: 'режим камеры' },

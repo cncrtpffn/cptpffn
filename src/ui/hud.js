@@ -42,6 +42,8 @@ export function roseTicks() {
 const ROSE_K = 6.5;
 const deg = (rad) => (Math.round(rad / DEG * 2) / 2).toFixed(1); // до 0.5°, чтобы атрибут не менялся каждый кадр // ед. viewBox розы на метр, как в разметке #rose
 
+// статус паруса при ассистенте: полощет он нарочно — так сброшен ход
+const ASSIST_STATUS = [['Стоп: шкот потравлен', 'down'], ['Средний ход', 'ok']];
 const CAMERA_NAMES = { orbit: 'орбита', chase: 'за кормой', top: 'сверху', deck: 'с палубы' };
 
 export class Hud {
@@ -54,6 +56,7 @@ export class Hud {
       roseRudder: $('rose-rudder'), main: $('hud-main'), miniCard: $('rose-mini-card'), miniLetters: $('rose-mini-letters'), miniApp: $('rose-mini-app'),
       rudder: $('bar-rudder'), sheet: $('bar-sheet'), board: $('bar-board'), crew: $('crew-marker'),
       lblSheet: $('lbl-sheet'), lblBoard: $('lbl-board'), reefs: [$('reef-0'), $('reef-1'), $('reef-2'), $('reef-3')],
+      telegraph: [$('tg-0'), $('tg-1'), $('tg-2')],
       status: $('sail-status'), statusBox: $('sail-status').parentElement, warnings: $('warnings'),
       camera: $('hud-camera'), help: $('help'), pausedChip: $('paused-chip'), root: $('hud'), capsize: $('capsize'), capsizeText: $('capsize-text'),
     };
@@ -113,7 +116,8 @@ export class Hud {
     this.el.root.classList.toggle('paused-min', v && min);
   }
 
-  update({ boat, wind, cameraMode }) {
+  // assist — ассистент, когда включён (иначе null)
+  update({ boat, wind, cameraMode, assist }) {
     const e = this.el;
     const aw = boat.aw;
     const headingDeg = boat.psi / DEG;
@@ -144,7 +148,13 @@ export class Hud {
     css(e.crew, 'left', `${50 + (boat.crewY / boat.cfg.crewMaxY) * 45}%`);
     const rl = sail.reefTarget;
     e.reefs.forEach((c, i) => c.classList.toggle('on', i === rl));
-    const st = STATUS[sail.status] || STATUS.ok;
+    let st = STATUS[sail.status] || STATUS.ok;
+    if (assist) {
+      const tg = assist.telegraph;
+      e.telegraph.forEach((c, i) => c.classList.toggle('on', i === tg));
+      if (assist.hint) st = [assist.hint, 'luff'];
+      else if (tg < 2 && (sail.status === 'luff' || sail.status === 'ok')) st = ASSIST_STATUS[tg];
+    }
     set(e.status, 'textContent', st[0]);
     set(e.statusBox, 'className', 'ctl status ' + st[1]);
 

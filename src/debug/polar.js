@@ -1,6 +1,8 @@
 // Прогон установившегося режима: автопилот держит заданный угол к ветру,
-// шкот настраивается на оптимальный угол атаки. Без Three.js — чистая физика.
+// шкот настраивается на оптимальный угол атаки (или всё, кроме руля, ведёт ассистент: assist: true).
+// Без Three.js — чистая физика.
 import { Boat } from '../physics/boat.js';
+import { createAssist } from '../physics/assist.js';
 import { Wind } from '../physics/wind.js';
 import { Waves } from '../physics/waves.js';
 import { DEG } from '../config.js';
@@ -9,9 +11,11 @@ import { wrapPi } from '../physics/wind.js';
 export function runCase(opts) {
   const {
     tws = 7, twa = 45, duration = 90, dt = 1 / 120, reefs = 0, board = 1,
-    hike = true, alpha = 24, sea = 0, gusts = false, sheet,
+    hike = true, alpha = 24, sea = 0, gusts = false, sheet, assist = false, telegraph = 2, gustStrength = 0.3,
   } = opts;
-  const wind = new Wind({ speed: tws, dirDeg: 0, gusts, gustStrength: 0.3, shiftDeg: 12 });
+  const wind = new Wind({ speed: tws, dirDeg: 0, gusts, gustStrength, shiftDeg: 12 });
+  const ast = assist ? createAssist() : null;
+  if (ast) ast.telegraph = telegraph;
   const waves = new Waves();
   waves.configure(sea, 0, tws);
   const boat = new Boat();
@@ -27,10 +31,14 @@ export function runCase(opts) {
     wind.update(dt); waves.update(dt);
     const err = wrapPi(psi0 - boat.psi);
     const rudderAngle = Math.max(-35 * DEG, Math.min(35 * DEG, 1.2 * err - 1.6 * boat.r));
-    const absAwa = Math.abs(boat.aw.awa);
-    const sheetAngle = sheet !== undefined ? sheet * DEG : absAwa - alpha * DEG;
-    const crewPos = (hike ? 2 : 1) * Math.sign(boat.aw.twa || 1); // откренка или банка на наветренном борту
-    boat.step(dt, { rudderAngle, sheetAngle, crewPos, board: 0 }, wind, waves, null);
+    if (ast) {
+      boat.step(dt, ast.controls(dt, boat, wind, { rudderAngle }), wind, waves, null);
+    } else {
+      const absAwa = Math.abs(boat.aw.awa);
+      const sheetAngle = sheet !== undefined ? sheet * DEG : absAwa - alpha * DEG;
+      const crewPos = (hike ? 2 : 1) * Math.sign(boat.aw.twa || 1); // откренка или банка на наветренном борту
+      boat.step(dt, { rudderAngle, sheetAngle, crewPos, board: 0 }, wind, waves, null);
+    }
     maxHeel = Math.max(maxHeel, Math.abs(boat.phi));
     if (boat.capsized && capsizedAt < 0) { capsizedAt = i * dt; break; }
     if (i >= steps - avgWindow) { sumU += boat.u; sumV += boat.v; sumHeel += Math.abs(boat.phi); sumLee += Math.abs(boat.leeway); n++; }
@@ -43,7 +51,7 @@ export function runCase(opts) {
     tws, twa, speedKn: u * 1.944, vmgKn: (u * Math.cos(twa * DEG) - Math.abs(vv) * Math.sin(twa * DEG)) * 1.944,
     heelDeg: heel / DEG, maxHeelDeg: maxHeel / DEG, leewayDeg: lee / DEG,
     awaDeg: boat.aw.awa / DEG, boomDeg: boat.sail.boom / DEG, status: boat.sail.status,
-    capsizedAt, rudderDeg: boat.rudder / DEG, water: boat.water,
+    capsizedAt, rudderDeg: boat.rudder / DEG, water: boat.water, reefs: boat.sail.reefTarget,
   };
 }
 

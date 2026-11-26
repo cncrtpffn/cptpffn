@@ -171,7 +171,7 @@ kbd[data-key]:active { background: var(--bar); transform: translateY(1px); }
 #hud-main.collapsed .readouts .row:not(:nth-child(2)) { display: none; }
 #hud-main.collapsed .readouts .big { font-size: 26px; margin-bottom: 2px; }
 #hud-controls { padding-right: 38px; }
-#hud-controls.collapsed .ctl:not(.status):not(:has(#bar-sheet)) { display: none; }
+#hud-controls.collapsed .ctl:not(.status):not(:has(#bar-sheet)):not(.telegraph) { display: none; }
 #hud-controls.collapsed .ctl.status { margin-top: 6px; }
 
 .touch-only { display: none; }
@@ -255,6 +255,10 @@ body.touch #warnings, body.touch #paused-chip { top: calc(max(8px, env(safe-area
   background: #fffaf0; color: var(--ink); font: 800 17px/1 'Nunito', system-ui, sans-serif; box-shadow: 0 2px 6px rgba(40, 30, 10, 0.1);
 }
 .ui-btn.soft { background: var(--card); backdrop-filter: blur(6px); }
+/* авто-матрос: включённый переключатель; при нём ручные шкот, шверт, экипаж и рифы скрыты, шкот заменяет телеграф */
+#btn-assist { display: flex; align-items: center; justify-content: center; }
+#btn-assist.on { background: var(--ink); color: #fff; }
+body:not(.assist) .ctl.telegraph, body.assist #hud-controls .ctl.manual, body.assist #touch-ui .t-btns { display: none; }
 #touch-ui .ui-btn.down, .ui-btn:active { background: var(--bar-fill); color: #fff; }
 #touch-ui .ui-btn.on { background: var(--ink); color: #fff; }
 .t-slider { position: relative; }

@@ -89,15 +89,19 @@ export function createTouchControls(input) {
 
   // индикаторы: руль — от середины в сторону перекладки, шкот — снизу вверх, сколько выбран
   const rudFill = ui.querySelector('#t-rudder .t-fill').style, sheetFill = ui.querySelector('#t-sheet .t-fill').style;
-  let lastRud = NaN, lastSheet = NaN;
-  const update = (boat) => {
+  const sheetLabel = ui.querySelector('#t-sheet .t-label');
+  let lastRud = NaN, lastSheet = NaN, lastAssist = false;
+  // assist — ассистент, когда включён: слайдер шкота задаёт ход (телеграф), индикатор — его ступень
+  const update = (boat, assist) => {
+    if (!!assist !== lastAssist) { lastAssist = !!assist; sheetLabel.textContent = assist ? 'ход' : 'шкот'; }
     const rud = Math.round(boat.rudder / boat.cfg.rudderMax * 200) / 2;
     if (rud !== lastRud) {
       lastRud = rud;
       rudFill.left = `${50 + Math.min(rud, 0)}%`;
       rudFill.width = `${Math.abs(rud)}%`;
     }
-    const sheet = Math.round((boat.cfg.sheetMax - boat.sail.sheet) / (boat.cfg.sheetMax - boat.cfg.sheetMin) * 200) / 2;
+    const sheet = assist ? assist.telegraph * 50
+      : Math.round((boat.cfg.sheetMax - boat.sail.sheet) / (boat.cfg.sheetMax - boat.cfg.sheetMin) * 200) / 2;
     if (sheet !== lastSheet) { lastSheet = sheet; sheetFill.height = `${sheet}%`; }
   };
   return { el: ui, update };
