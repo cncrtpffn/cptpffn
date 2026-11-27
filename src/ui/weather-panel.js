@@ -23,7 +23,7 @@ const PRESET_CLOUDS = {
   'Шторм': 'Гроза',
 };
 
-export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave, particles, actions, start, resolution, perfOverlay }) {
+export function createWeatherPanel({ wind, sea, waves, env, world, water, wake, bowWave, particles, actions, start, resolution, perfOverlay }) {
   const gui = new GUI({ title: 'Погода и сцена', width: 270 });
   const state = { preset: start.weather.preset, timeOfDay: start.timeOfDay, clouds: start.weather.clouds };
 
@@ -212,6 +212,10 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   fq.add(rs, 'ratio', 0.75, Math.max(1, rs.max), 0.25).name('Плотность пикселей').listen()
     .onChange(() => { rs.auto = false; gui.controllersRecursive().forEach((c) => c.updateDisplay()); });
   fq.add(perfOverlay.state, 'visible').name('Счётчик кадра');
+  // цена суши в кадре: снять часть и сравнить счётчик; вместе с ней пропадают её тени и отражение
+  fq.add(world.terrain, 'visible').name('Рельеф');
+  fq.add(world.settle.group, 'visible').name('Постройки');
+  fq.add(world.veg.group, 'visible').name('Растительность');
   // лог игры с копированием и «поделиться» — для телефонов без консоли (src/diag/diag.js)
   fq.add({ f: () => window.diag.open() }, 'f').name('Логи');
 

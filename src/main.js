@@ -142,6 +142,8 @@ world.piers.forEach((p, i) => obstacles.addBox({ id: `pier-${i}`, ...p, kind: 'p
 const env = critical('env', 'окружение', () => createEnvironment(scene, { ...SCENE, timeOfDay: START.timeOfDay, shadowSize: isTouchDevice() ? 1024 : 4096,
   buoys: buoyDefs, shadowRange: isTouchDevice() ? 70 : 120 }));
 scene.add(world.group);
+// ?sea=1 — стенд «только море» для замера цены суши; физика, мели и буи остаются
+if (P.sea) world.group.visible = false;
 console.log(world.summary());
 loading.step('Карта берега');
 await loading.frame();
@@ -183,6 +185,8 @@ const particles = optional('particles', 'брызги', () => createParticles({ 
   update() {}, clear() {}, stats: { drops: 0, mist: 0, lod: 0, ms: 0 }, failed: true,
 }));
 if (particles.meshes.length) scene.add(...particles.meshes);
+// пена прибоя, мелководье и брызги о скалы вдоль невидимых берегов на стенде ни к чему
+if (P.sea) { Object.assign(water.surf, { enabled: false, shallows: false }); particles.settings.shore = false; }
 // эмиттеры без системы частиц не создаются: она уже в тосте
 const noEmitter = () => ({ update() {}, stats: {} });
 const emitter = (id, label, create) => (particles.failed ? noEmitter() : optional(id, label, create, noEmitter));
@@ -255,7 +259,7 @@ const actions = {
     hud.toast('Лодку вывели на глубину');
   },
 };
-const panel = optional('panel', 'панель настроек', () => createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave, particles, actions, start: START, resolution, perfOverlay }));
+const panel = optional('panel', 'панель настроек', () => createWeatherPanel({ wind, sea, waves, env, world, water, wake, bowWave, particles, actions, start: START, resolution, perfOverlay }));
 input.bindKeyHints(document.getElementById('hud'));
 // ассистент («авто-матрос», src/physics/assist.js): ведёт всё, кроме руля; шкот заменяет телеграф.
 // По умолчанию выключен, выбор помнится; ?assist=0|1 — задать на этот запуск
