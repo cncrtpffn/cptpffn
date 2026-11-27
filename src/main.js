@@ -636,7 +636,7 @@ function step(now) {
   const R = water.reflection;
   if (R.objects) tick('planar', () => {
     planar.state.scale = R.resolution;
-    planar.render(scene, camera, R.clouds ? noHide : cloudsHidden);
+    planar.render(scene, camera, R.clouds ? noHide : cloudsHidden, R.fogScale);
   });
   renderer.render(scene, camera);
   perf.end();

@@ -263,10 +263,11 @@ export function createWater(waves, { size = 440, segments = 176, focus = 0.35, s
   const surf = { enabled: true, strength: 1, shallows: true };
   // отражения (панель «Отражения»): небо по Френелю; объекты — вторым рендером (planar-reflection.js),
   // resolution — его доля разрешения; облака по умолчанию не отражаем: с френелем объектов они светятся у лодки;
+  // fogScale — во сколько раз дальше туман в отражении объектов (там он уходит в прозрачность, planar-reflection.js);
   // sparkles — мерцающие искры солнца на дорожке (SPARKLE_GLSL). Сила по ветру линейно от sparkleCalmStrength
   // в штиль до sparkleStormStrength при sparkleStormWind (м/с), дальше не растёт. Количество: до sparkleCalm (м/с,
   // верх «умеренного») четверть ячеек, дальше растёт на sparkleGrowth (доля) за каждый м/с
-  const reflection = { sky: true, strength: 0.3, fresnel: 19, objects: true, objectStrength: 1, distort: 0.03, resolution: 0.5, clouds: false,
+  const reflection = { sky: true, strength: 0.3, fresnel: 19, objects: true, objectStrength: 1, distort: 0.03, resolution: 0.5, clouds: false, fogScale: 1,
     // path — дорожка из искр у низкого солнца и луны: сила, ширина — множитель разброса наклона граней
     path: true, pathStrength: 3, pathWidth: 1,
     sparkles: true, sparkleCalmStrength: 0.1, sparkleStormStrength: 3, sparkleStormWind: 19, sparkleCalm: 8, sparkleGrowth: 0.03 };

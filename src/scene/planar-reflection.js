@@ -10,6 +10,20 @@ import * as THREE from 'three';
 // Свет тоже фильтруется по слою — источники света включаются в слой вместе с объектами.
 export const REFLECT_LAYER = 1;
 
+// Туман в отражении — в прозрачность, а не в цвет: иначе дальний остров, почти растворённый в тумане, ложится
+// на воду непрозрачным пятном цвета тумана, а небо вода отражает слабо — силуэты белёсые. Флаг прохода
+// отражения — fogFar < 0 (в основном рендере дальность всегда положительна): цвет и альфа умножаются на
+// видимость 1 − fogFactor. Выходит предумноженная альфа, как и читает текстуру вода (skyReflect): далёкое
+// растворяется в отражении неба на воде, как в прямом виде растворяется в небе
+THREE.ShaderChunk.fog_fragment = THREE.ShaderChunk.fog_fragment.replace(
+  'gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );',
+  `#ifdef FOG_EXP2
+    gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
+  #else
+    if ( fogFar < 0.0 ) gl_FragColor *= 1.0 - smoothstep( fogNear, - fogFar, vFogDepth );
+    else gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
+  #endif`);
+
 // root — что пометить; minRadius — меши мельче (по радиусу габарита геометрии) пропускаются;
 // userData.noReflect — не отражать, userData.reflect — отражать всегда (геометрия до первого кадра пустая).
 // Маски без цвета (крышки кокпита и ватерлинии) не отражаются: в отражении воды нет, заслонять нечего
@@ -43,8 +57,9 @@ export function createPlanarReflection(renderer, { scale = 0.5 } = {}) {
   const vis = [];
 
   // hide — объекты слоя, которые в этом кадре отражать не надо (облака по настройке).
+  // fogScale — во сколько раз дальше туман в отражении (1 — как в прямом виде).
   // false — камера под водой, отражение не обновлено
-  function render(scene, camera, hide = []) {
+  function render(scene, camera, hide = [], fogScale = 1) {
     renderer.getDrawingBufferSize(buf);
     const w = Math.max(1, Math.round(buf.x * state.scale)), h = Math.max(1, Math.round(buf.y * state.scale));
     if (target.width !== w || target.height !== h) target.setSize(w, h);
@@ -86,7 +101,10 @@ export function createPlanarReflection(renderer, { scale = 0.5 } = {}) {
     renderer.setClearColor(0x000000, 0);
     renderer.setRenderTarget(target);
     renderer.clear();
+    const fog = scene.fog, fogNear = fog?.near, fogFar = fog?.far;
+    if (fog?.isFog) { fog.near = fogNear * fogScale; fog.far = -fogFar * fogScale; }
     renderer.render(scene, cam);
+    if (fog?.isFog) { fog.near = fogNear; fog.far = fogFar; }
     renderer.setRenderTarget(oldTarget);
     renderer.setClearColor(clearColor, oldAlpha);
     renderer.shadowMap.autoUpdate = oldShadow;
