@@ -107,7 +107,7 @@ export function createEnvironment(scene, cfg) {
   sun.shadow.normalBias = 0.03;
   scene.add(sun, sun.target);
 
-  const fog = new THREE.Fog(0xdcecf5, 140, 1100);
+  const fog = new THREE.Fog(0xdcecf5, 560, 4400);
   scene.fog = fog;
 
   const buoys = (cfg.buoys ?? []).map((d) => { const g = makeBuoy(d); scene.add(g); return { g, d }; });
@@ -134,9 +134,10 @@ export function createEnvironment(scene, cfg) {
     hemi.intensity = L.hemiI;
     fog.color.copy(L.fog);
     sun.shadow.intensity = L.shadow;
-    // в пасмурную погоду дымка гуще
-    fog.near = 140 - 60 * ov;
-    fog.far = 1100 - 350 * ov;
+    // в пасмурную погоду дымка гуще: от ясной (ov = 0) к «Пасмурно» (ov = 0.85), между ними линейно
+    const t = Math.min(1, ov / 0.85);
+    fog.near = THREE.MathUtils.lerp(560, 178, t);
+    fog.far = THREE.MathUtils.lerp(4400, 1605, t);
     clouds.setSun(sunDir);
   }
 
