@@ -168,6 +168,14 @@
           <p class="manual-link"><a href="#" id="help-quests">Обучение: уроки «Школы шкипера» и миссии<span class="kbd-only"> (L)</span> →</a></p>
         </div>
       </div>
+      <!-- сохранение мира и обучения (src/save.js, main.js) -->
+      <div class="save-row">
+        <span id="save-status" class="save-status"></span>
+        <button id="btn-save-download" class="secondary" title="Скачать файл с положением лодки, погодой и прогрессом обучения">Скачать сохранение</button>
+        <button id="btn-save-load" class="secondary" title="Загрузить сохранение из файла (игра перезапустится)">Загрузить…</button>
+        <button id="btn-save-clear" class="secondary danger" title="Начать заново: лодка на старт, обучение сбрасывается">Удалить прогресс</button>
+        <input type="file" id="save-file" accept=".json,application/json" hidden>
+      </div>
       <div class="actions"><button id="btn-logs" class="secondary" title="Лог игры — пригодится, если что-то сломалось">Логи</button><button id="btn-resume">▶ Продолжить <kbd class="kbd-only">Space</kbd></button></div>
     </div>
   </div>

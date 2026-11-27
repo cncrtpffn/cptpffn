@@ -248,5 +248,6 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
 
   env.setTimeOfDay(state.timeOfDay);
   env.setCloudType(state.clouds, true);
+  gui.state = state; // время суток, облачность, пресет — для сохранения (src/save.js)
   return gui;
 }

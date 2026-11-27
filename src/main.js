@@ -22,6 +22,7 @@ import { createObstacles } from './physics/obstacles.js';
 import { LESSONS, MISSIONS, QUESTS, COURSE } from './tutorial/quests.js';
 import { createQuestRunner } from './tutorial/runner.js';
 import { createProgress } from './tutorial/progress.js';
+import { readSave, mergeStart, snapshot, writeSave, exportBundle, importBundle, clearProgress, ASSIST_KEY } from './save.js';
 import { createQuestUi } from './ui/quest-ui.js';
 import { createQuestMarker } from './scene/quest-marker.js';
 import { MAPS } from './maps/index.js';
@@ -50,7 +51,7 @@ const loading = createLoading({
 const WORLD_STEPS = { heights: 'Поле высот', biomes: 'Биомы', plan: 'План поселений', terrain: 'Рельеф', settlements: 'Поселения', vegetation: 'Растительность' };
 loading.step('Настройки');
 // стартовый сетап: время суток, погода, положение лодки
-const START = await fetch('start.json').then((r) => {
+const START_JSON = await fetch('start.json').then((r) => {
   if (!r.ok) throw new Error(`start.json: HTTP ${r.status}`);
   return r.json();
 });
@@ -59,6 +60,15 @@ const START = await fetch('start.json').then((r) => {
 // (без него — старт карты map.start, иначе start.json); туда же возвращает «Вернуть лодку»
 const P = readParams();
 const MAP = MAPS[P.map] ?? MAPS.demo;
+const MAP_ID = MAPS[P.map] ? P.map : 'demo';
+// сохранение мира (src/save.js): поверх start.json — погода, время, камера; лодка — на месте прошлой сессии.
+// С ?pos, ?t и ?nosave сохранение не читается и не пишется (отладочный старт не затирает прогресс)
+const useSave = !P.nosave && !P.pos && !('t' in P);
+let store = null;
+try { store = localStorage; } catch { /* хранилище недоступно */ }
+const saved = useSave ? readSave(store, MAP_ID) : null;
+const START = mergeStart(START_JSON, saved);
+// старт карты — для «Вернуть лодку»; сохранённая позиция — только при загрузке
 const startBoat = { ...START.boat, ...MAP.start };
 if (P.pos) {
   const [x, z, h] = P.pos;
@@ -97,13 +107,12 @@ const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerH
 const wind = new Wind(START.weather.wind);
 const waves = new Waves();
 const boat = new Boat(BOAT);
-function placeBoat() {
-  const b = startBoat;
+function placeBoat(b = startBoat) {
   boat.reset(b.x, b.z, b.headingDeg * DEG);
   boat.sail.setReef(b.reefs);
   boat.board = b.board;
 }
-placeBoat();
+placeBoat(saved ? { ...startBoat, ...saved.boat } : startBoat);
 const sea = { ...SEA, ...START.weather.sea };
 
 // --- сцена ---
@@ -246,7 +255,7 @@ const actions = {
     hud.toast('Лодку вывели на глубину');
   },
 };
-optional('panel', 'панель настроек', () => createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave, particles, actions, start: START, resolution, perfOverlay }));
+const panel = optional('panel', 'панель настроек', () => createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave, particles, actions, start: START, resolution, perfOverlay }));
 input.bindKeyHints(document.getElementById('hud'));
 // ассистент («авто-матрос», src/physics/assist.js): ведёт всё, кроме руля; шкот заменяет телеграф.
 // По умолчанию выключен, выбор помнится; ?assist=0|1 — задать на этот запуск
@@ -255,7 +264,6 @@ const assist = createAssist();
 const advisor = createTrimAdvisor();
 let advice = null;
 register('advice', 'подсказки настройки', [], () => { advice = null; document.querySelectorAll('.ctl.hint, #touch-ui .hint').forEach((el) => el.classList.remove('hint')); });
-const ASSIST_KEY = 'catboat.assist';
 let assistOn = false;
 try { assistOn = localStorage.getItem(ASSIST_KEY) === '1'; } catch { /* хранилище недоступно */ }
 if ('assist' in P) assistOn = !!P.assist;
@@ -291,7 +299,10 @@ input.on('crew', (a) => { if (!auto('crew') && boat.crewPos) boat.crewPos = crew
 input.on('camera', () => followCam.nextMode());
 // пауза показывает справку; закрыть справку — продолжить, свернуть — остаться на паузе
 let helpMin = false;
-const setPaused = (v, min = false) => { paused = v; helpMin = v && min; hud.showHelp(paused, helpMin); };
+const setPaused = (v, min = false) => {
+  paused = v; helpMin = v && min; hud.showHelp(paused, helpMin);
+  if (paused) { saveNow(); syncSaveStatus(); }
+};
 input.on('pause', () => setPaused(!paused));
 input.on('help', () => (helpMin ? setPaused(true) : setPaused(!paused)));
 input.on('escape', () => { if (quests?.ui.menuOpen) quests.ui.closeMenu(); else setPaused(false); });
@@ -447,6 +458,59 @@ if (quests && P.quest) {
   if (qq) quests.start(P.quest);
 }
 
+// --- сохранение мира (src/save.js): раз в 5 с плавания, при сворачивании и закрытии вкладки.
+// Во время урока не пишем — лодку перенёс урок; после перезагрузки она там, где была до урока
+let saveOn = useSave && !!store, saveTimer = 0, savedAt = saved?.at ?? 0;
+const sceneState = () => panel?.state ?? { timeOfDay: START.timeOfDay, clouds: START.weather.clouds, preset: START.weather.preset };
+function saveNow() {
+  if (!saveOn || quests?.lessonActive) return;
+  const w = snapshot({ mapId: MAP_ID, boat, wind, sea, scene: sceneState(), cam: followCam });
+  if (writeSave(store, w)) savedAt = w.at;
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });
+window.addEventListener('pagehide', saveNow);
+// блок «Сохранение» на экране паузы: скачать файл, загрузить из файла (с перезагрузкой), удалить прогресс
+const saveStatus = document.getElementById('save-status');
+const syncSaveStatus = () => {
+  if (!saveStatus) return;
+  saveStatus.textContent = !store ? 'Хранилище браузера недоступно — прогресс не сохраняется'
+    : !useSave ? 'Отладочный старт — прогресс не сохраняется'
+      : savedAt ? `Автосохранение: ${new Date(savedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : 'Автосохранение включено';
+};
+const saveFile = document.getElementById('save-file');
+document.getElementById('btn-save-download')?.addEventListener('click', () => {
+  saveNow();
+  const blob = new Blob([JSON.stringify(exportBundle(store, MAP_ID), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `catboat-save-${new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-')}.json`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  hud.toast('Сохранение скачано');
+});
+document.getElementById('btn-save-load')?.addEventListener('click', () => saveFile.click());
+saveFile?.addEventListener('change', async () => {
+  const file = saveFile.files[0];
+  saveFile.value = '';
+  if (!file) return;
+  if (!store) { hud.toast('Хранилище браузера недоступно', ''); return; }
+  const res = importBundle(store, await file.text());
+  if (!res.ok) { hud.toast(res.error === 'storage' ? 'Не удалось записать сохранение' : 'Файл не похож на сохранение', ''); return; }
+  saveOn = false; // pagehide не должен затереть загруженное
+  if (res.map && res.map !== MAP_ID) {
+    // мир другой карты: открыть её (без отладочных параметров)
+    location.href = `${location.pathname}${res.map === 'demo' ? '' : `?map=${encodeURIComponent(res.map)}`}`;
+  } else location.reload();
+});
+document.getElementById('btn-save-clear')?.addEventListener('click', () => {
+  if (!confirm('Удалить прогресс? Лодка вернётся на старт, пройденные уроки и миссии сбросятся.')) return;
+  saveOn = false;
+  clearProgress(store);
+  location.reload();
+});
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -534,6 +598,8 @@ function step(now) {
       simTime += STEP;
     }
     if (n === 12) acc = 0;
+    saveTimer += dt;
+    if (saveTimer > 5) { saveTimer = 0; saveNow(); }
     // касание буя или мостка — тост (слабые касания на малом ходу — без него)
     const k = boat.contact;
     if (k.count !== contactSeen) {

@@ -10,6 +10,8 @@ export const GAME_PARAMS = [
     desc: 'карта из src/maps/index.js; без параметра — демо' },
   { name: 'pos', kind: 'list', group: 'Карта и старт', values: 'x,z[,курс°]', example: '160,-90,180',
     desc: 'поставить лодку в точку (м) с курсом; туда же возвращает «Вернуть лодку»' },
+  { name: 'nosave', kind: 'flag', group: 'Карта и старт', example: '1',
+    desc: 'не читать и не писать сохранение мира (с ?pos и ?t оно тоже выключено)' },
   { name: 'veg', kind: 'num', group: 'Карта и старт', default: 1, example: '0.3',
     desc: 'множитель плотности растительности' },
 

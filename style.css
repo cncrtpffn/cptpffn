@@ -204,6 +204,10 @@ body.touch #hud-controls kbd { display: none; }
 .card .badge { display: inline-block; margin-bottom: 6px; padding: 2px 10px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 12px; font-weight: 800; }
 .card .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 .card button.secondary { background: #eee6d5; color: var(--ink); }
+/* блок «Сохранение» на паузе: статус слева, кнопки справа; на узком экране переносятся */
+.card .save-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #e4dccb; }
+.card .save-row .save-status { flex: 1 1 180px; font-size: 13px; opacity: 0.7; }
+.card button.secondary.danger { color: #a3342a; }
 
 /* ---------- тач-управление ---------- */
 #c, #touch-ui { touch-action: none; }
