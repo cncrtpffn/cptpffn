@@ -163,6 +163,7 @@ GPU- и CPU-времени кадра, draw call'ы и треугольники 
 
 Как устроены ветер и волны: [docs/wind-and-waves.md](docs/wind-and-waves.md).
 Облака и типы облачности: [docs/clouds.md](docs/clouds.md).
+Правила переносимости (на случай порта на нативный движок), оси и единицы: [docs/portability.md](docs/portability.md).
 
 ```
 index.html, style.css      — разметка HUD, стили
