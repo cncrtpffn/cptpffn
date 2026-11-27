@@ -107,7 +107,8 @@ export function createEnvironment(scene, cfg) {
   sun.shadow.normalBias = 0.03;
   scene.add(sun, sun.target);
 
-  scene.fog = new THREE.Fog(0xdcecf5, 140, 1100);
+  const fog = new THREE.Fog(0xdcecf5, 140, 1100);
+  scene.fog = fog;
 
   const buoys = (cfg.buoys ?? []).map((d) => { const g = makeBuoy(d); scene.add(g); return { g, d }; });
 
@@ -131,11 +132,11 @@ export function createEnvironment(scene, cfg) {
     hemi.color.copy(L.hemi);
     hemi.groundColor.copy(L.ground);
     hemi.intensity = L.hemiI;
-    scene.fog.color.copy(L.fog);
+    fog.color.copy(L.fog);
     sun.shadow.intensity = L.shadow;
     // в пасмурную погоду дымка гуще
-    scene.fog.near = 140 - 60 * ov;
-    scene.fog.far = 1100 - 350 * ov;
+    fog.near = 140 - 60 * ov;
+    fog.far = 1100 - 350 * ov;
     clouds.setSun(sunDir);
   }
 
@@ -163,5 +164,9 @@ export function createEnvironment(scene, cfg) {
 
   setTimeOfDay(cfg.timeOfDay ?? 0.5);
   const setCloudType = (name, instant) => { clouds.setType(name, instant); if (instant) applyLighting(); };
-  return { update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, hemi, sunDir, buoys: buoys.map((b) => b.g), sky, clouds };
+  return {
+    update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, hemi, sunDir, buoys: buoys.map((b) => b.g), sky, clouds,
+    // выключенный туман снимается со сцены, цвет и дальность продолжают обновляться — при включении он сразу верный
+    fog, get fogEnabled() { return scene.fog === fog; }, set fogEnabled(v) { scene.fog = v ? fog : null; },
+  };
 }

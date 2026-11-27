@@ -194,6 +194,8 @@ export function createWeatherPanel({ wind, sea, waves, env, water, wake, bowWave
   const fc = gui.addFolder('Сцена');
   fc.add(state, 'timeOfDay', 0, 1, 0.01).name('Время суток').onChange((v) => env.setTimeOfDay(v));
   fc.add(state, 'clouds', env.cloudTypes).name('Облачность').onChange((v) => env.setCloudType(v));
+  // туман прячет стык сетки воды с дальним кольцом и край кольца на горизонте
+  fc.add(env, 'fogEnabled').name('Туман');
   // луна в сумерках напротив солнца и её искры на воде
   const moonChanged = () => env.setTimeOfDay(state.timeOfDay);
   fc.add(env.sky.moon, 'enabled').name('Луна').onChange(moonChanged);

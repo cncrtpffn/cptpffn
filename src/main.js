@@ -207,7 +207,7 @@ await loading.frame();
 // фичи для мягкой деградации: корни объектов (по ним сломанный шейдер находит владельца) и как выключить.
 // Без своего disable прячутся только объекты со сломанным шейдером
 register('water', 'вода (простая заливка)', [water.mesh, water.far], () => water.degrade());
-register('sky', 'небо', [env.sky.mesh], () => { env.sky.mesh.visible = false; scene.background = scene.fog.color; });
+register('sky', 'небо', [env.sky.mesh], () => { env.sky.mesh.visible = false; scene.background = env.fog.color; });
 register('clouds', 'облака', [env.clouds.group], () => { env.clouds.group.visible = false; });
 const hideAll = (list) => { for (const o of list) o.visible = false; };
 register('particles', 'брызги', particles.meshes, () => { particles.settings.enabled = false; particles.clear(); hideAll(particles.meshes); });
