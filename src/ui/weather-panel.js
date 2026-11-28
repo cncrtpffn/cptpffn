@@ -194,8 +194,6 @@ export function createWeatherPanel({ wind, sea, waves, env, world, water, wake, 
   const fc = gui.addFolder('Сцена');
   fc.add(state, 'timeOfDay', 0, 1, 0.01).name('Время суток').onChange((v) => env.setTimeOfDay(v));
   fc.add(state, 'clouds', env.cloudTypes).name('Облачность').onChange((v) => env.setCloudType(v));
-  // туман прячет стык сетки воды с дальним кольцом и край кольца на горизонте
-  fc.add(env, 'fogEnabled').name('Туман');
   // луна в сумерках напротив солнца и её искры на воде
   const moonChanged = () => env.setTimeOfDay(state.timeOfDay);
   fc.add(env.sky.moon, 'enabled').name('Луна').onChange(moonChanged);
@@ -204,6 +202,13 @@ export function createWeatherPanel({ wind, sea, waves, env, world, water, wake, 
   fc.add(env.sky.moon, 'glint', 0, 3, 0.05).name('Искры луны').onChange(moonChanged);
   fc.add({ f: actions.righten }, 'f').name('Поставить лодку');
   fc.add({ f: actions.resetBoat }, 'f').name('Вернуть в начало');
+
+  // туман прячет стык сетки воды с дальним кольцом и край кольца на горизонте;
+  // дальность задаёт облачность (environment.js, applyLighting); правка здесь держится до смены облачности
+  const ffog = gui.addFolder('Туман');
+  ffog.add(env, 'fogEnabled').name('Туман');
+  ffog.add(env.fog, 'near', 0, 3000, 10).name('Начало, м').listen();
+  ffog.add(env.fog, 'far', 100, 6000, 10).name('Сплошной, м').listen();
 
   // разрешение рендера: авто держит GPU-время кадра в бюджете (perf.js)
   const fq = gui.addFolder('Производительность');

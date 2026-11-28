@@ -107,8 +107,9 @@ export function createEnvironment(scene, cfg) {
   sun.shadow.normalBias = 0.03;
   scene.add(sun, sun.target);
 
-  const fog = new THREE.Fog(0xdcecf5, 560, 4400);
+  const fog = new THREE.Fog(0xdcecf5, 140, 4400);
   scene.fog = fog;
+  let fogOv = NaN; // облачность, по которой последний раз выставлена дальность тумана
 
   const buoys = (cfg.buoys ?? []).map((d) => { const g = makeBuoy(d); scene.add(g); return { g, d }; });
 
@@ -134,10 +135,14 @@ export function createEnvironment(scene, cfg) {
     hemi.intensity = L.hemiI;
     fog.color.copy(L.fog);
     sun.shadow.intensity = L.shadow;
-    // в пасмурную погоду дымка гуще: от ясной (ov = 0) к «Пасмурно» (ov = 0.85), между ними линейно
-    const t = Math.min(1, ov / 0.85);
-    fog.near = THREE.MathUtils.lerp(560, 178, t);
-    fog.far = THREE.MathUtils.lerp(4400, 1605, t);
+    // в пасмурную погоду дымка гуще: от ясной (ov = 0) к «Пасмурно» (ov = 0.85), между ними линейно.
+    // Только при смене облачности: дальность, заданную в панели, время суток не сбрасывает
+    if (ov !== fogOv) {
+      fogOv = ov;
+      const t = Math.min(1, ov / 0.85);
+      fog.near = THREE.MathUtils.lerp(140, 89, t);
+      fog.far = THREE.MathUtils.lerp(4400, 1605, t);
+    }
     clouds.setSun(sunDir);
   }
 
@@ -164,7 +169,8 @@ export function createEnvironment(scene, cfg) {
   }
 
   setTimeOfDay(cfg.timeOfDay ?? 0.5);
-  const setCloudType = (name, instant) => { clouds.setType(name, instant); if (instant) applyLighting(); };
+  // смена погоды сбрасывает и ручную дальность тумана — даже если облачность та же
+  const setCloudType = (name, instant) => { clouds.setType(name, instant); fogOv = NaN; applyLighting(); };
   return {
     update, setTimeOfDay, setCloudType, cloudTypes: Object.keys(CLOUD_TYPES), get overcast() { return clouds.state.overcast; }, sun, hemi, sunDir, buoys: buoys.map((b) => b.g), sky, clouds,
     // выключенный туман снимается со сцены, цвет и дальность продолжают обновляться — при включении он сразу верный
